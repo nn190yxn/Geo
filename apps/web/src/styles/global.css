@@ -1,0 +1,142 @@
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f5f7fb;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-sider {
+  padding-top: 16px;
+}
+
+.app-title {
+  color: #fff !important;
+  margin: 0 20px 20px !important;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.app-header-context {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+}
+
+.brand-select {
+  width: 220px;
+}
+
+.app-content {
+  padding: 24px;
+}
+
+.page-alert {
+  margin-bottom: 16px;
+}
+
+.route-loading {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  color: #667085;
+  display: flex;
+  justify-content: center;
+  min-height: 220px;
+}
+
+.page-stack {
+  width: 100%;
+}
+
+.workflow-strip {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.workflow-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d9e2f3;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  cursor: pointer;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.workflow-step span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.workflow-step-active {
+  border-color: #1677ff;
+  background: #eaf3ff;
+  color: #0958d9;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.page-heading {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.page-heading h2 {
+  margin-bottom: 0 !important;
+}
+
+.inner-section {
+  margin-top: 16px;
+}
+
+.geo-canvas-shell {
+  width: 100%;
+  height: 680px;
+}
+
+.geo-canvas-empty {
+  padding: 80px 0;
+}
+
+.canvas-node-label {
+  width: 100%;
+}
+
+.canvas-node-label .ant-typography {
+  white-space: normal;
+}
+
+.automation-rewrite-body {
+  white-space: pre-wrap;
+}

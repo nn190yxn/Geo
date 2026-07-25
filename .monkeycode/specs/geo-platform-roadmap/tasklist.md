@@ -1,0 +1,125 @@
+# 需求实施计划
+
+- [x] 1. 第一阶段可运行 MVP 收口
+  - [x] 1.1 完成多品牌 GEO 管理平台第一版功能闭环
+    - 覆盖品牌工作区、知识库、监测、分析、内容、发布、复测、报告和顾问服务，覆盖 Requirement R1.1
+  - [x] 1.2 完成第一阶段验证门禁
+    - 运行构建、类型检查、测试、安全审计、Prisma 校验和预览健康检查，覆盖 Requirement R1.4
+  - [x] 1.3 建立一键验证脚本
+    - `npm run verify` 覆盖依赖安全审计、类型检查、测试、构建、Prisma schema 校验和 Prisma Client 生成，覆盖 Requirement R1.4
+
+- [x] 2. 第二阶段数据持久化开发
+  - [x] 2.1 建立 Prisma 数据访问基础设施
+    - 创建 `PrismaService`、`PrismaModule` 并接入 API 根模块，覆盖 Requirement R2.1
+  - [x] 2.2 抽取 repository port 并保持 `PermissionsService` 调用面稳定
+    - 让内存仓储和后续 Prisma 仓储实现同一接口，覆盖 Requirement R2.1、R2.2
+  - [x] 2.3 实现品牌、用户、权限和拒绝访问日志持久化
+    - 保持品牌隔离、权限受限提示和现有 API 响应结构，覆盖 Requirement R2.2
+  - [x] 2.4 实现品牌知识库、素材来源、优化单元、用户意图和 Prompt 持久化
+    - 保持品牌工作区快照和完整度评分行为一致，覆盖 Requirement R2.2
+  - [x] 2.5 实现平台配置、监测运行、分析结果和 GEO 指标持久化
+    - 保持凭据脱敏和监测失败记录，覆盖 Requirement R2.2、R2.4
+  - [x] 2.6 实现内容、发布、任务、报告和顾问服务持久化
+    - 保持第一版运营闭环结果一致，覆盖 Requirement R2.4
+  - [x]* 2.7 编写数据库 repository 一致性测试
+    - 验证数据库 repository 通过核心运营闭环、品牌隔离和凭据脱敏测试，覆盖 Requirement R2.4
+  - [x] 2.8 切换生产 repository 注入并补充数据库准备入口
+    - 通过 `GEO_REPOSITORY_DRIVER=prisma` 启用 Prisma repository，并提供 `db:prepare` 与 demo seed，覆盖 Requirement R2.1、R2.4
+
+- [x] 3. 第二阶段检查点 - 确保所有测试通过
+  - `npm run verify`、`git diff --check`、API 健康检查、前端入口检查和预览链接刷新已通过
+
+- [x] 4. 第三阶段真实 AI 平台集成与异步任务
+  - [x] 4.1 实现真实 AI 平台 Adapter 注册机制
+    - 支持按平台配置选择真实 Adapter、Mock Adapter 或 Manual Adapter，覆盖 Requirement R3.1
+    - 已完成基础 Adapter registry、`OpenAICompatibleAdapter` 默认注册、调用审计模型和契约测试
+  - [x] 4.2 接入至少一个真实 AI 平台监测链路
+    - 保存请求时间、响应内容、模型信息、失败原因和重试状态，覆盖 Requirement R3.1、R3.3
+    - 已支持 `openai` 平台通过内部运行时配置读取模型和凭据引用，构造 chat completions 请求，归一化 `RunPromptResult`，并将 provider 错误分类为 retryable 或 non-retryable
+  - [x] 4.3 引入任务队列和监测 worker
+    - 支持监测任务异步执行、状态流转和失败重试，覆盖 Requirement R3.2、R3.3
+    - 已新增 `AsyncJob` 共享类型、Prisma 模型和 repository port 方法，支持 queued、running、succeeded、failed 和 retry-exhausted 状态
+    - 已调整监测创建流程，创建 `MonitoringRun` 后同步创建 monitoring 类型 `AsyncJob`，并保持现有监测 API 响应结构
+    - 已新增 `MonitoringWorker`，支持按 monitoring 异步任务选择 Adapter、写入 `AIResponse`、更新 `MonitoringRun` 并记录调用审计
+    - 已补齐失败重试状态机，支持 retryable 失败、重试耗尽后的 `retry-exhausted` 状态和人工录入提示
+    - 已补齐监测任务状态机收口测试，覆盖 queued、running、succeeded、failed、retryable 和 retry-exhausted
+  - [x] 4.4 引入内容生成异步任务
+    - 将策略解析、知识库读取、大纲生成、正文生成和规则检查纳入任务步骤，覆盖 Requirement R3.2
+    - 已调整内容生成任务创建流程，创建 `ContentGenerationTask` 后同步创建 content_generation 类型 `AsyncJob`，并保持内容生成工作台响应结构
+    - 已新增内容生成步骤状态更新契约，支持按步骤记录 running、completed、failed、消息和完成时间，并自动推导内容生成任务状态
+    - 已新增内容生成任务完成写入契约，支持 worker 成功后创建最新 `ContentVersion`，并保持 Markdown 导出和发布入口 payload 可用
+    - 已新增内容生成失败与重试契约，支持记录失败步骤、错误码、错误信息、关联 `AsyncJob` 失败状态，并将失败任务重新入队
+    - 已新增 `ContentGenerationWorker` 和 worker 契约测试，覆盖步骤推进、版本写入、失败记录和无效任务保护
+  - [x] 4.5 增加调用审计和成本统计基础字段
+    - 记录平台、模型、请求状态、耗时和失败上下文，覆盖 Requirement R3.3
+    - 已新增 `AIPlatformCallAudit` 共享类型、Prisma 模型和 repository port 方法，监测 worker 成功与失败路径均记录调用审计，包含平台、模型、状态、耗时、token、成本估算和失败信息基础字段
+  - [x]* 4.6 编写 Adapter 契约与队列重试测试
+    - 验证成功、失败、重试和人工兜底路径，覆盖 Requirement R3.4
+    - 已新增真实 Adapter fake-provider 契约测试，覆盖请求构造、响应归一化、缺失凭据、限流错误、请求错误和空响应
+  - [x] 4.7 更新前端异步状态展示和操作入口
+    - 已在监测页面展示异步任务状态、重试状态、失败原因和人工兜底入口，覆盖 Requirement R3.2、R3.3
+    - 已在内容生成工作台展示任务状态摘要、步骤状态、失败 Alert 和重新入队入口，并保留版本、导出和发布入口
+    - 已新增前端状态展示测试，覆盖监测失败提示、人工兜底文案和内容生成失败重试入口
+
+- [x] 5. 第三阶段检查点 - 确保所有测试通过
+  - 已通过 `npm run verify`、`git diff --check`、API 健康检查、前端入口检查和 5173 预览检查
+
+- [x] 6. 第四阶段权限、审计与生产化
+  - [x] 6.1 实现真实用户、组织和角色模型
+    - 支持组织成员、品牌授权、角色权限和用户状态，覆盖 Requirement R4.1
+    - 已建立 `access-audit-production` 第四阶段规格，新增 Organization、OrganizationMember、Role、AuditLog 基础 schema 和共享类型，品牌访问前置校验已纳入用户状态和有效组织成员检查
+  - [x] 6.2 实现审计日志服务
+    - 记录品牌、平台配置、监测、内容发布、报告和权限相关关键操作，覆盖 Requirement R4.2
+    - 已新增 AuditLog 共享类型、Prisma 模型、内存仓储和 Prisma 仓储写入/查询契约，并提供 `GET /api/v1/permissions/audit-logs` 查询接口和敏感 metadata 脱敏
+  - [x] 6.3 强化权限策略和 API 守卫
+    - 将当前中间件校验升级为可配置策略，覆盖 Requirement R4.1、R4.2
+    - 已新增集中品牌访问策略，按模块和请求方法解析最低角色，BrandAccessMiddleware 已改为注入统一 repository port，并在拒绝访问时写入 denied access 和 audit log
+  - [x] 6.4 完善生产环境配置和健康检查
+    - 补充数据库、队列、外部平台、日志和健康检查配置，覆盖 Requirement R4.3
+    - 已扩展健康检查 readiness 响应，返回 repository driver、runtime environment、dependency readiness 和 missingConfiguration
+  - [x] 6.5 编写部署运行手册
+    - 记录环境变量、迁移命令、启动命令、回滚策略和排障流程，覆盖 Requirement R4.3、R4.4
+    - 已新增部署运行手册，覆盖环境变量、安装构建、数据库准备、启动、健康检查、回滚和排障
+  - [x] 6.6 编写权限隔离和审计日志测试
+    - 验证授权访问、拒绝访问和审计记录完整性，覆盖 Requirement R4.4
+    - 已新增权限模型、审计日志和集中策略测试，覆盖授权访问、角色不足、品牌权限缺失、审计写入和敏感字段脱敏
+
+- [x] 7. 第四阶段检查点 - 确保所有测试通过
+  - 已通过 `npm run verify`、`git diff --check`、API 健康检查、前端入口检查和 5173 预览检查
+
+- [x] 8. 第五阶段产品体验、性能和商业化能力
+  - [x] 8.1 完成关键页面体验走查整改
+    - 补齐加载、空状态、错误状态、表单校验和操作反馈，覆盖 Requirement R5.1
+    - 已新增共享 `PageState` 组件并接入品牌工作区、监测、内容生成、发布、任务、报告和顾问页面，统一错误提示、空状态主操作和关键操作反馈
+  - [x] 8.2 实现前端路由级拆包和性能优化
+    - 降低当前大 bundle 风险，覆盖 Requirement R5.2
+    - 已将主要页面改为 lazy route component，新增稳定加载 fallback，并通过 Vite `codeSplitting.groups` 拆分 React、Ant Design、TanStack Query 和通用 vendor chunks；前端构建不再出现超过 500 kB 的 chunk 告警
+  - [x] 8.3 完善报告模板和导出格式
+    - 增强单品牌、多品牌和客户交付报告，覆盖 Requirement R5.3
+    - 已统一内存仓储和 Prisma 仓储报告渲染逻辑，Markdown 报告包含 metadata、指标解释、问题归因、行动建议、品牌对比、风险提示、交付进度和下一步动作
+  - [x] 8.4 完善服务化交付工作台
+    - 强化顾问诊断、服务计划、复盘和客户交付记录，覆盖 Requirement R5.3、R5.4
+    - 已新增服务计划、服务复盘和客户交付记录类型，顾问工作台支持结构化记录问题、建议、里程碑、负责人、预期结果、完成动作、数据变化、下一步、关联报告和待跟进事项
+  - [x] 8.5 建立试点客户演示数据和验收清单
+    - 支持稳定演示、客户复盘和持续运营，覆盖 Requirement R5.4
+    - 已扩展 Prisma demo seed，覆盖品牌、监测、内容、发布、任务、报告和顾问记录；新增试点客户演示与验收清单，包含核心演示路径、验收标准、已知限制和反馈转需求记录格式
+  - [x]* 8.6 编写页面路由冒烟、状态和报告导出测试
+    - 验证关键页面可访问、状态可展示和报告可导出，覆盖 Requirement R5.4
+    - 已通过路由 lazy component 测试、PageState 状态测试、报告导出测试、顾问工作台测试和完整验证门禁
+
+- [x] 9. 第五阶段检查点 - 确保所有测试通过
+  - 已通过 seed 语法检查、Prisma schema 校验、`git diff --check`、`npm run verify`、API 健康检查、前端入口检查和 5173 预览检查
+
+- [x] 10. 持续迭代机制
+  - [x] 10.1 建立阶段复盘和任务回填机制
+    - 每个阶段结束后更新规格、架构文档、接口文档和交付清单，覆盖 Requirement R1.2
+    - 已新增持续迭代机制文档，包含阶段复盘流程、复盘记录格式、文档同步清单和下一阶段规格入口
+  - [x] 10.2 建立客户反馈到需求池的转化流程
+    - 将试点反馈拆成需求、设计和实施任务，覆盖 Requirement R5.4
+    - 已建立反馈分流规则和需求池记录格式，并与试点演示反馈模板衔接
+  - [x] 10.3 建立行业规则和平台变化维护机制
+    - 支持 AI 平台规则变化、内容平台变化和 GEO 指标口径调整，覆盖 Requirement R5.4
+    - 已建立 AI 平台、内容平台、GEO 指标和客户合规规则维护分类、影响范围和变更记录格式
+
+- [x] 11. 持续迭代检查点 - 确保所有测试通过
+  - 已通过 `git diff --check`、`npm run verify`、API 健康检查、前端入口检查和 5173 预览检查

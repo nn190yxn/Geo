@@ -1,0 +1,29 @@
+{
+  "name": "geo-platform",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "if [ -f .env ]; then set -a; . ./.env; set +a; fi; npm run dev --workspace @geo-platform/api & npm run dev --workspace @geo-platform/web",
+    "dev:web": "npm run dev --workspace @geo-platform/web",
+    "dev:api": "if [ -f .env ]; then set -a; . ./.env; set +a; fi; npm run dev --workspace @geo-platform/api",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "verify": "npm audit && npm run typecheck && npm run test && npm run build && npm run prisma:validate && npm run prisma:generate",
+    "prisma:validate": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npx prisma validate --schema apps/api/prisma/schema.prisma",
+    "prisma:generate": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:generate --workspace @geo-platform/api",
+    "prisma:migrate:deploy": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:migrate:deploy --workspace @geo-platform/api",
+    "prisma:seed": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:seed --workspace @geo-platform/api",
+    "db:prepare": "npm run prisma:generate && npm run prisma:seed"
+  },
+  "overrides": {
+    "multer": "2.2.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

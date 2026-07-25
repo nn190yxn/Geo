@@ -1,0 +1,61 @@
+# Implementation Plan
+
+- [x] 1. 建立真实用户、组织和角色模型
+  - [x] 1.1 扩展共享类型和 Prisma schema
+    - 增加 Organization、OrganizationMember、Role 和用户状态字段，覆盖 Requirement P1.1、P1.2
+    - 已新增 Organization、OrganizationMember、Role、AuditLog 基础 schema 和共享类型，用户状态支持 suspended
+  - [x] 1.2 扩展 repository port、内存仓储和 Prisma 仓储
+    - 支持组织成员、角色和品牌授权查询，覆盖 Requirement P1.3
+    - 已新增组织成员查询契约，并在品牌访问前检查用户状态和有效组织成员
+  - [x] 1.3 更新 seed/demo 数据
+    - 提供 active 和 suspended 场景，覆盖 Requirement P1.4
+    - 已在内存 demo 数据中提供 active 组织成员和 suspended 用户场景
+  - [x] 1.4 编写权限模型契约测试
+    - 覆盖组织成员、品牌角色和禁用状态，覆盖 Requirement P5.2
+    - 已新增 `access-audit-production.repository.test.ts`，覆盖组织成员、品牌访问和禁用用户
+
+- [x] 2. 实现审计日志服务
+  - [x] 2.1 增加 AuditLog 数据模型和共享类型
+    - 记录 actor、organization、brand、action、resource、result 和 timestamp，覆盖 Requirement P2.1
+    - 已新增 `AuditLog`、`AuditLogInput`、`AuditLogFilter` 和 Prisma `AuditLog` 模型
+  - [x] 2.2 实现审计写入和查询契约
+    - 支持成功、失败和拒绝事件，覆盖 Requirement P2.2、P2.3
+    - 已在内存仓储和 Prisma 仓储实现写入和筛选查询，并暴露 `GET /api/v1/permissions/audit-logs`
+  - [x] 2.3 增加敏感字段过滤
+    - 过滤凭据和 provider payload，覆盖 Requirement P2.4
+    - 已对 `credentialRef`、`apiKey`、`token`、`password`、`secret` 和 `providerPayload` 做 metadata 脱敏
+  - [x] 2.4 编写审计日志测试
+    - 覆盖成功、失败、拒绝和脱敏，覆盖 Requirement P5.3
+    - 已覆盖成功、失败、筛选和敏感字段脱敏
+
+- [x] 3. 强化权限策略和 API 守卫
+  - [x] 3.1 建立集中策略定义
+    - 覆盖品牌、平台配置、监测、内容、发布和报告模块，覆盖 Requirement P3.1
+    - 已新增 `brand-access.policy.ts`，按模块路径和请求方法解析资源类型与最低角色
+  - [x] 3.2 接入权限判断
+    - 支持角色满足、角色不足和禁用成员分支，覆盖 Requirement P3.2、P3.3
+    - 已将 `BrandAccessMiddleware` 接入统一 repository port 和策略角色层级判断，拒绝时写入 denied access 和 audit log
+  - [x] 3.3 保持业务 controller 职责稳定
+    - 新模块通过策略定义扩展，覆盖 Requirement P3.4
+    - 已保持业务 controller 无权限策略侵入，新模块可通过策略表扩展
+  - [x] 3.4 编写权限隔离测试
+    - 覆盖授权访问、拒绝访问和拒绝访问记录完整性，覆盖 Requirement P5.2
+    - 已新增 `brand-access-policy.test.ts`，覆盖策略解析、角色层级、授权访问、角色不足和品牌权限缺失
+
+- [x] 4. 完善生产环境配置和健康检查
+  - [x] 4.1 扩展健康检查响应
+    - 返回 service、repository driver、runtime environment 和 dependency readiness，覆盖 Requirement P4.1、P4.2
+    - 已扩展 `GET /api/v1/health`，返回 status、repositoryDriver、runtimeEnvironment、dependencies 和 missingConfiguration
+  - [x] 4.2 补充生产配置说明
+    - 覆盖数据库、队列、AI 平台、日志和预览配置，覆盖 Requirement P4.3
+    - 已在部署运行手册中补充生产试运行环境变量和依赖配置说明
+  - [x] 4.3 编写部署运行手册
+    - 覆盖安装、迁移、构建、启动、健康检查、回滚和排障，覆盖 Requirement P4.4
+    - 已新增 `.monkeycode/docs/DEPLOYMENT_RUNBOOK.md`
+
+- [x] 5. 第四阶段检查点 - 确保所有测试通过
+  - [x] 5.1 运行完整验证门禁
+    - 执行 `npm run verify`、`git diff --check`、API 健康检查和前端入口检查，覆盖 Requirement P5.1
+    - 已通过 `npm run verify`、`git diff --check`、API 健康检查、前端入口检查和 5173 预览检查
+  - [x] 5.2 同步项目文档和路线图
+    - 更新架构、接口、开发指南、交付检查清单和总控任务清单，覆盖 Requirement P5.4

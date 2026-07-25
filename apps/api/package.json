@@ -1,0 +1,33 @@
+{
+  "name": "@geo-platform/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "nest start --watch --preserveWatchOutput",
+    "build": "nest build",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "test": "vitest run",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@geo-platform/shared-types": "0.1.0",
+    "@nestjs/common": "latest",
+    "@nestjs/core": "latest",
+    "@nestjs/platform-express": "latest",
+    "@prisma/client": "6.19.3",
+    "multer": "2.2.0",
+    "reflect-metadata": "latest",
+    "rxjs": "latest"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "latest",
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "prisma": "6.19.3",
+    "typescript": "5.9.3",
+    "vitest": "latest"
+  }
+}

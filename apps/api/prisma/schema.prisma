@@ -1,0 +1,1271 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Brand {
+  id          String   @id @default(cuid())
+  name        String
+  status      String   @default("active")
+  description String?
+  aliases     Json     @default("[]")
+  industry    String?
+  website     String?
+  targetCities Json    @default("[]") @map("target_cities")
+  businessScope String? @map("business_scope")
+  targetAudience String? @map("target_audience")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  platformConfigs PlatformConfig[]
+  aiPlatformCallAudits AIPlatformCallAudit[]
+  asyncJobs AsyncJob[]
+  llmTaskRuns LLMTaskRun[]
+  monitoringRuns  MonitoringRun[]
+  geoMetricSnapshots GEOMetricSnapshot[]
+  permissions     UserBrandPermission[]
+  profile         BrandProfile?
+  knowledgeSources KnowledgeSource[]
+  optimizationUnits OptimizationUnit[]
+  testThemes TestTheme[]
+  testQuestionCandidates TestQuestionCandidate[]
+  testPlans TestPlan[]
+  browserConnectionSessions BrowserConnectionSession[]
+  growthOptimizationPlans GrowthOptimizationPlan[]
+  userIntents    UserIntent[]
+  brandPrompts   BrandPrompt[]
+  optimizationTasks OptimizationTask[]
+  competitors Competitor[]
+  competitorDiscoveryRuns CompetitorDiscoveryRun[]
+  competitorCandidates CompetitorCandidate[]
+  citationSources CitationSource[]
+  contentAssets ContentAsset[]
+  contentStrategies ContentStrategy[]
+  evaluationIssues EvaluationIssue[]
+  contentGenerationTasks ContentGenerationTask[]
+  contentVersions ContentVersion[]
+  contentExportRecords ContentExportRecord[]
+  publishingAccounts PublishingAccount[]
+  publishingRecords PublishingRecord[]
+  automationPackages AutomationPackage[]
+  automationConfirmations AutomationConfirmation[]
+  visibilitySprints VisibilitySprint[]
+  brandStandardAnswers BrandStandardAnswer[]
+  platformRewriteVersions PlatformRewriteVersion[]
+  testQuestionPoolItems TestQuestionPoolItem[]
+  testQuestionSourceRecords TestQuestionSourceRecord[]
+  reports Report[]
+  advisorRecords AdvisorRecord[]
+  innerTestFeedback InnerTestFeedback[]
+  auditLogs AuditLog[]
+
+  @@index([status])
+  @@index([industry])
+  @@map("brands")
+}
+
+model Organization {
+  id String @id @default(cuid())
+  name String
+  status String @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members OrganizationMember[]
+  auditLogs AuditLog[]
+
+  @@index([status])
+  @@map("organizations")
+}
+
+model Role {
+  id String @id @default(cuid())
+  code String
+  name String
+  scope String
+  permissions Json @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organizationMembers OrganizationMember[]
+
+  @@unique([code, scope])
+  @@index([scope])
+  @@map("roles")
+}
+
+model OrganizationMember {
+  id String @id @default(cuid())
+  organizationId String @map("organization_id")
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  status String @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId], name: "unique_organization_user")
+  @@index([userId])
+  @@index([status])
+  @@map("organization_members")
+}
+
+model OptimizationUnit {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  name String
+  type String
+  targetKeywords Json @default("[]") @map("target_keywords")
+  priority String @default("medium")
+  enabled Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  userIntents UserIntent[]
+  brandPrompts BrandPrompt[]
+  testThemes TestTheme[]
+  contentStrategies ContentStrategy[]
+  optimizationTasks OptimizationTask[]
+
+  @@index([brandId])
+  @@index([type])
+  @@index([enabled])
+  @@map("optimization_units")
+}
+
+model TestTheme {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  optimizationUnitId String? @map("optimization_unit_id")
+  type String
+  name String
+  businessExplanation String @default("") @map("business_explanation")
+  priority String @default("medium")
+  estimatedValue String @default("") @map("estimated_value")
+  sourceProfileFields Json @default("[]") @map("source_profile_fields")
+  enabled Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  optimizationUnit OptimizationUnit? @relation(fields: [optimizationUnitId], references: [id], onDelete: SetNull)
+  questionCandidates TestQuestionCandidate[]
+
+  @@index([brandId])
+  @@index([optimizationUnitId])
+  @@index([type])
+  @@index([enabled])
+  @@map("test_themes")
+}
+
+model UserIntent {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  optimizationUnitId String @map("optimization_unit_id")
+  category String
+  text String
+  monitoringFrequency String @default("weekly") @map("monitoring_frequency")
+  enabled Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  optimizationUnit OptimizationUnit @relation(fields: [optimizationUnitId], references: [id], onDelete: Restrict)
+  brandPrompts BrandPrompt[]
+  contentStrategies ContentStrategy[]
+
+  @@index([brandId])
+  @@index([optimizationUnitId])
+  @@index([category])
+  @@map("user_intents")
+}
+
+model PromptTemplate {
+  id String @id @default(cuid())
+  name String
+  industry String?
+  category String
+  text String
+  targetKeywords Json @default("[]") @map("target_keywords")
+  platformCodes Json @default("[]") @map("platform_codes")
+  frequency String @default("weekly")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brandPrompts BrandPrompt[]
+
+  @@index([category])
+  @@index([industry])
+  @@map("prompt_templates")
+}
+
+model BrandPrompt {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  optimizationUnitId String @map("optimization_unit_id")
+  intentId String @map("intent_id")
+  templateId String? @map("template_id")
+  text String
+  category String
+  targetKeywords Json @default("[]") @map("target_keywords")
+  platformCodes Json @default("[]") @map("platform_codes")
+  monitoringFrequency String @default("weekly") @map("monitoring_frequency")
+  enabled Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  optimizationUnit OptimizationUnit @relation(fields: [optimizationUnitId], references: [id], onDelete: Restrict)
+  intent UserIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  template PromptTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  monitoringRuns MonitoringRun[]
+  questionCandidates TestQuestionCandidate[]
+  optimizationTasks OptimizationTask[]
+
+  @@index([brandId])
+  @@index([intentId])
+  @@index([enabled])
+  @@map("brand_prompts")
+}
+
+model TestQuestionCandidate {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  themeId String @map("theme_id")
+  promptId String? @map("prompt_id")
+  question String
+  purposes Json @default("[]")
+  targetPlatforms Json @default("[]") @map("target_platforms")
+  priority String @default("medium")
+  estimatedValue String @default("") @map("estimated_value")
+  editable Boolean @default(true)
+  selected Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  theme TestTheme @relation(fields: [themeId], references: [id], onDelete: Restrict)
+  prompt BrandPrompt? @relation(fields: [promptId], references: [id], onDelete: SetNull)
+  questionPoolItems TestQuestionPoolItem[]
+
+  @@index([brandId])
+  @@index([themeId])
+  @@index([promptId])
+  @@index([selected])
+  @@map("test_question_candidates")
+}
+
+model KnowledgeSource {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  name String
+  sourceType String @map("source_type")
+  sourceUrl String? @map("source_url")
+  fileRef String? @map("file_ref")
+  status String @default("pending")
+  errorMessage String? @map("error_message")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([status])
+  @@map("knowledge_sources")
+}
+
+model BrandProfile {
+  brandId String @id @map("brand_id")
+  intro String @default("")
+  valueProps Json @default("[]") @map("value_props")
+  offerings Json @default("[]")
+  proofPoints Json @default("[]") @map("proof_points")
+  targetCustomers Json @default("[]") @map("target_customers")
+  recommendedExpressions Json @default("[]") @map("recommended_expressions")
+  blockedExpressions Json @default("[]") @map("blocked_expressions")
+  contentRules Json @default("[]") @map("content_rules")
+  competitors Json @default("[]")
+  faqs Json @default("[]")
+  completenessScore Int @default(0) @map("completeness_score")
+  missingFields Json @default("[]") @map("missing_fields")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@map("brand_profiles")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  avatarUrl String?  @map("avatar_url")
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  permissions UserBrandPermission[]
+  organizationMemberships OrganizationMember[]
+  auditLogs AuditLog[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+  brandId String? @map("brand_id")
+  organizationId String? @map("organization_id")
+  actorUserId String? @map("actor_user_id")
+  action String
+  resourceType String @map("resource_type")
+  resourceId String? @map("resource_id")
+  result String
+  errorCode String? @map("error_code")
+  metadata Json @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand? @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([brandId])
+  @@index([organizationId])
+  @@index([actorUserId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([result])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model UserBrandPermission {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  brandId   String   @map("brand_id")
+  role      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, brandId], name: "unique_user_brand_role")
+  @@index([brandId])
+  @@map("user_brand_permissions")
+}
+
+model DeniedAccessLog {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  brandId     String   @map("brand_id")
+  reason      String
+  requestedAt DateTime @default(now()) @map("requested_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([brandId])
+  @@index([requestedAt])
+  @@map("denied_access_logs")
+}
+
+model PlatformConfig {
+  id            String   @id @default(cuid())
+  brandId       String   @map("brand_id")
+  platformKey   String   @map("platform_key")
+  displayName   String   @map("display_name")
+  mode          String   @default("manual")
+  endpointUrl   String?  @map("endpoint_url")
+  modelName     String?  @map("model_name")
+  rateLimitPerMinute Int @default(60) @map("rate_limit_per_minute")
+  enabled       Boolean  @default(true)
+  credentialRef String?  @map("credential_ref")
+  lastValidation Json?   @map("last_validation")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@unique([brandId, platformKey])
+  @@index([brandId, enabled])
+  @@map("platform_configs")
+}
+
+model BrowserConnectionSession {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  platformCode String @map("platform_code")
+  status String @default("not_started")
+  loginDetected Boolean @default(false) @map("login_detected")
+  authorizedScope Json @default("{}") @map("authorized_scope")
+  lastOperation String? @map("last_operation")
+  lastIssueType String? @map("last_issue_type")
+  lastMessage String? @map("last_message")
+  lastAvailableAt DateTime? @map("last_available_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([platformCode])
+  @@index([status])
+  @@index([lastAvailableAt])
+  @@map("browser_connection_sessions")
+}
+
+model AIPlatformCallAudit {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  platformCode String @map("platform_code")
+  modelName String? @map("model_name")
+  callType String @map("call_type")
+  status String @default("started")
+  durationMs Int? @map("duration_ms")
+  inputTokenCount Int? @map("input_token_count")
+  outputTokenCount Int? @map("output_token_count")
+  costEstimate Decimal? @map("cost_estimate") @db.Decimal(12, 6)
+  errorCode String? @map("error_code")
+  errorMessage String? @map("error_message")
+  retryable Boolean?
+  startedAt DateTime @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([platformCode])
+  @@index([callType])
+  @@index([status])
+  @@index([startedAt])
+  @@map("ai_platform_call_audits")
+}
+
+model AsyncJob {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  jobType String @map("job_type")
+  status String @default("queued")
+  entityId String @map("entity_id")
+  attemptCount Int @default(0) @map("attempt_count")
+  maxAttempts Int @default(3) @map("max_attempts")
+  nextRunAt DateTime? @map("next_run_at")
+  lastErrorCode String? @map("last_error_code")
+  lastErrorMessage String? @map("last_error_message")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([jobType])
+  @@index([status])
+  @@index([entityId])
+  @@index([nextRunAt])
+  @@map("async_jobs")
+}
+
+model LLMTaskRun {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  taskType String @map("task_type")
+  status String @default("queued")
+  jobId String? @map("job_id")
+  auditId String? @map("audit_id")
+  inputSummary Json @default("{}") @map("input_summary")
+  outputSummary Json? @map("output_summary")
+  errorCode String? @map("error_code")
+  errorMessage String? @map("error_message")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([taskType])
+  @@index([status])
+  @@index([jobId])
+  @@index([auditId])
+  @@map("llm_task_runs")
+}
+
+model MonitoringRun {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  optimizationUnitId String @map("optimization_unit_id")
+  intentId String @map("intent_id")
+  promptId String @map("prompt_id")
+  testPlanId String? @map("test_plan_id")
+  platformCode String @map("platform_code")
+  status String @default("pending")
+  startedAt DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  errorMessage String? @map("error_message")
+  retryStatus String @default("not_retried") @map("retry_status")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  prompt BrandPrompt @relation(fields: [promptId], references: [id], onDelete: Restrict)
+  testPlan TestPlan? @relation(fields: [testPlanId], references: [id], onDelete: SetNull)
+  responses AIResponse[]
+
+  @@index([brandId])
+  @@index([promptId, platformCode])
+  @@index([testPlanId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("monitoring_runs")
+}
+
+model TestPlan {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  name String
+  status String @default("draft")
+  questions Json @default("[]")
+  platformCodes Json @default("[]") @map("platform_codes")
+  connectionSummary Json @default("[]") @map("connection_summary")
+  executionMethod String @default("manual") @map("execution_method")
+  estimatedDurationMinutes Int @default(0) @map("estimated_duration_minutes")
+  confirmationItems Json @default("[]") @map("confirmation_items")
+  createdBy String @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  monitoringRuns MonitoringRun[]
+  growthOptimizationPlans GrowthOptimizationPlan[]
+
+  @@index([brandId])
+  @@index([status])
+  @@index([createdBy])
+  @@index([createdAt])
+  @@map("test_plans")
+}
+
+model AIResponse {
+  id String @id @default(cuid())
+  runId String @map("run_id")
+  brandId String @map("brand_id")
+  rawText String @map("raw_text")
+  citations Json @default("[]")
+  modelName String? @map("model_name")
+  respondedAt DateTime @map("responded_at")
+  parseStatus String @default("pending") @map("parse_status")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  run MonitoringRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  analysisResult AnalysisResult?
+  citationSources CitationSource[]
+  evaluationIssues EvaluationIssue[]
+
+  @@index([runId])
+  @@index([brandId])
+  @@map("ai_responses")
+}
+
+model AnalysisResult {
+  id String @id @default(cuid())
+  responseId String @unique @map("response_id")
+  runId String @map("run_id")
+  brandId String @map("brand_id")
+  brandMentioned Boolean @default(false) @map("brand_mentioned")
+  brandRank Int? @map("brand_rank")
+  sentiment String @default("unknown")
+  accuracyScore Int @default(0) @map("accuracy_score")
+  citationScore Int @default(0) @map("citation_score")
+  platformEvaluation String @default("") @map("platform_evaluation")
+  recommendationReason String @default("") @map("recommendation_reason")
+  rankingReason String @default("") @map("ranking_reason")
+  expressionCompleteness String @default("") @map("expression_completeness")
+  expressionDeviation String @default("") @map("expression_deviation")
+  competitorMentions Json @default("[]") @map("competitor_mentions")
+  reviewRequired Boolean @default(true) @map("review_required")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  response AIResponse @relation(fields: [responseId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([runId])
+  @@index([reviewRequired])
+  @@map("analysis_results")
+}
+
+model GEOMetricSnapshot {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  period String
+  platformCode String? @map("platform_code")
+  optimizationUnitId String? @map("optimization_unit_id")
+  intentId String? @map("intent_id")
+  category String?
+  mentionScore Int @default(0) @map("mention_score")
+  rankingScore Int @default(0) @map("ranking_score")
+  accuracyScore Int @default(0) @map("accuracy_score")
+  sentimentScore Int @default(0) @map("sentiment_score")
+  citationScore Int @default(0) @map("citation_score")
+  competitorScore Int @default(0) @map("competitor_score")
+  knowledgeCompletenessScore Int @default(0) @map("knowledge_completeness_score")
+  totalScore Int @default(0) @map("total_score")
+  sampleCount Int @default(0) @map("sample_count")
+  insufficientSample Boolean @default(true) @map("insufficient_sample")
+  calculatedAt DateTime @default(now()) @map("calculated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId, period])
+  @@index([platformCode])
+  @@index([optimizationUnitId])
+  @@index([intentId])
+  @@map("geo_metric_snapshots")
+}
+
+model Competitor {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  name String
+  aliases Json @default("[]")
+  website String?
+  industryTags Json @default("[]") @map("industry_tags")
+  comparisonNote String @default("") @map("comparison_note")
+  suppressionRule Json @default("{}") @map("suppression_rule")
+  confirmationLabel String? @map("confirmation_label")
+  sourceCandidateId String? @map("source_candidate_id")
+  sourceProvider String? @map("source_provider")
+  nearestCampusDistanceKm Float? @map("nearest_campus_distance_km")
+  isNationalBenchmark Boolean @default(false) @map("is_national_benchmark")
+  isCampusFocus Boolean @default(false) @map("is_campus_focus")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([name])
+  @@index([confirmationLabel])
+  @@index([sourceCandidateId])
+  @@map("competitors")
+}
+
+model CompetitorDiscoveryRun {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  city String
+  campusRadiusKm Int @map("campus_radius_km")
+  keywords Json @default("[]")
+  status String
+  candidateCount Int @default(0) @map("candidate_count")
+  missingFields Json @default("[]") @map("missing_fields")
+  sourceProvider String @map("source_provider")
+  providerStatus String @default("fallback") @map("provider_status")
+  providerMessage String @default("") @map("provider_message")
+  cacheHit Boolean @default(false) @map("cache_hit")
+  createdBy String @map("created_by")
+  failureReason String? @map("failure_reason")
+  createdAt DateTime @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  candidates CompetitorCandidate[]
+
+  @@index([brandId])
+  @@index([status])
+  @@index([sourceProvider])
+  @@index([providerStatus])
+  @@index([createdAt])
+  @@map("competitor_discovery_runs")
+}
+
+model CompetitorCandidate {
+  id String @id @default(cuid())
+  runId String @map("run_id")
+  brandId String @map("brand_id")
+  sourceProvider String @map("source_provider")
+  sourcePoiId String? @map("source_poi_id")
+  name String
+  address String?
+  city String?
+  latitude Float?
+  longitude Float?
+  category String?
+  distanceToNearestCampusKm Float? @map("distance_to_nearest_campus_km")
+  matchedKeywords Json @default("[]") @map("matched_keywords")
+  score Int
+  suggestedLabel String @map("suggested_label")
+  confirmedLabel String? @map("confirmed_label")
+  matchReasons Json @default("[]") @map("match_reasons")
+  confidence String
+  isCampusFocus Boolean @default(false) @map("is_campus_focus")
+  decisionStatus String @default("pending") @map("decision_status")
+  excludedReason String? @map("excluded_reason")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  run CompetitorDiscoveryRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([brandId])
+  @@index([runId])
+  @@index([sourceProvider, sourcePoiId])
+  @@index([suggestedLabel])
+  @@index([decisionStatus])
+  @@map("competitor_candidates")
+}
+
+model CitationSource {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  responseId String @map("response_id")
+  contentAssetId String? @map("content_asset_id")
+  title String
+  url String
+  sourceType String @map("source_type")
+  authorityLevel String @map("authority_level")
+  citationCount Int @default(1) @map("citation_count")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  response AIResponse @relation(fields: [responseId], references: [id], onDelete: Restrict)
+  contentAsset ContentAsset? @relation(fields: [contentAssetId], references: [id], onDelete: SetNull)
+
+  @@index([brandId])
+  @@index([responseId])
+  @@index([sourceType])
+  @@index([contentAssetId])
+  @@map("citation_sources")
+}
+
+model ContentAsset {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  title String
+  type String
+  platform String
+  url String
+  targetKeywords Json @default("[]") @map("target_keywords")
+  reuseOfAssetId String? @map("reuse_of_asset_id")
+  brandAdaptation String? @map("brand_adaptation")
+  status String @default("draft")
+  publishedAt DateTime? @map("published_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  citationSources CitationSource[]
+  reusedBy ContentAsset[] @relation("ContentAssetReuse")
+  reuseOfAsset ContentAsset? @relation("ContentAssetReuse", fields: [reuseOfAssetId], references: [id], onDelete: SetNull)
+  publishingRecords PublishingRecord[]
+
+  @@index([brandId])
+  @@index([status])
+  @@index([url])
+  @@index([reuseOfAssetId])
+  @@map("content_assets")
+}
+
+model EvaluationIssue {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  responseId String @map("response_id")
+  runId String @map("run_id")
+  promptId String @map("prompt_id")
+  promptText String @map("prompt_text")
+  platformCode String @map("platform_code")
+  issueType String @map("issue_type")
+  rawFragment String @map("raw_fragment")
+  suggestedExpression String @map("suggested_expression")
+  severity String
+  status String @default("open")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  response AIResponse @relation(fields: [responseId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([responseId])
+  @@index([issueType])
+  @@index([severity])
+  @@index([status])
+  @@map("evaluation_issues")
+}
+
+model ContentStrategy {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  optimizationUnitId String @map("optimization_unit_id")
+  intentId String @map("intent_id")
+  type String
+  priority String @default("medium")
+  suggestedTitle String @map("suggested_title")
+  targetPlatform String @map("target_platform")
+  targetKeywords Json @default("[]") @map("target_keywords")
+  relatedPromptIds Json @default("[]") @map("related_prompt_ids")
+  status String @default("draft")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  optimizationUnit OptimizationUnit @relation(fields: [optimizationUnitId], references: [id], onDelete: Restrict)
+  intent UserIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+  tasks OptimizationTask[]
+  generationTasks ContentGenerationTask[]
+  growthOptimizationPlans GrowthOptimizationPlan[]
+
+  @@index([brandId])
+  @@index([optimizationUnitId])
+  @@index([intentId])
+  @@index([status])
+  @@map("content_strategies")
+}
+
+model ContentGenerationTask {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  strategyId String @map("strategy_id")
+  growthOptimizationPlanId String? @map("growth_optimization_plan_id")
+  targetPlatform String @map("target_platform")
+  contentType String @map("content_type")
+  contentTopic String? @map("content_topic")
+  targetKeywords Json @default("[]") @map("target_keywords")
+  referenceSources Json @default("[]") @map("reference_sources")
+  retestAt DateTime? @map("retest_at")
+  status String @default("pending")
+  steps Json @default("[]")
+  draftRef String? @map("draft_ref")
+  errorMessage String? @map("error_message")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  strategy ContentStrategy @relation(fields: [strategyId], references: [id], onDelete: Restrict)
+  growthOptimizationPlan GrowthOptimizationPlan? @relation(fields: [growthOptimizationPlanId], references: [id], onDelete: SetNull)
+  versions ContentVersion[]
+  exports ContentExportRecord[]
+  publishingRecords PublishingRecord[]
+
+  @@index([brandId])
+  @@index([strategyId])
+  @@index([growthOptimizationPlanId])
+  @@index([status])
+  @@map("content_generation_tasks")
+}
+
+model GrowthOptimizationPlan {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  sourceTestPlanId String? @map("source_test_plan_id")
+  strategyId String? @map("strategy_id")
+  sourceRunIds Json @default("[]") @map("source_run_ids")
+  summary String @default("")
+  reasons Json @default("[]")
+  priority String @default("medium")
+  ownerId String? @map("owner_id")
+  dueDate DateTime @map("due_date")
+  publishingPlatforms Json @default("[]") @map("publishing_platforms")
+  retestAt DateTime @map("retest_at")
+  contentRecommendations Json @default("[]") @map("content_recommendations")
+  status String @default("draft")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  sourceTestPlan TestPlan? @relation(fields: [sourceTestPlanId], references: [id], onDelete: SetNull)
+  strategy ContentStrategy? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  generationTasks ContentGenerationTask[]
+  optimizationTasks OptimizationTask[]
+
+  @@index([brandId])
+  @@index([sourceTestPlanId])
+  @@index([strategyId])
+  @@index([ownerId])
+  @@index([dueDate])
+  @@index([retestAt])
+  @@index([status])
+  @@map("growth_optimization_plans")
+}
+
+model ContentVersion {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  generationTaskId String @map("generation_task_id")
+  title String
+  body String
+  version Int
+  exportFormat String @default("markdown") @map("export_format")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  generationTask ContentGenerationTask @relation(fields: [generationTaskId], references: [id], onDelete: Cascade)
+  exports ContentExportRecord[]
+  publishingRecords PublishingRecord[]
+  platformRewriteVersions PlatformRewriteVersion[]
+
+  @@index([brandId])
+  @@index([generationTaskId])
+  @@unique([generationTaskId, version], name: "unique_generation_task_version")
+  @@map("content_versions")
+}
+
+model AutomationPackage {
+  id String @id @map("id")
+  brandId String @map("brand_id")
+  status String
+  source String
+  goal String
+  targetPlatforms Json @default("[]") @map("target_platforms")
+  targetPublishingPlatforms Json @default("[]") @map("target_publishing_platforms")
+  currentStep String @map("current_step")
+  stepSummaries Json @default("[]") @map("step_summaries")
+  relatedTestPlanId String? @map("related_test_plan_id")
+  relatedGrowthPlanId String? @map("related_growth_plan_id")
+  relatedContentTaskIds Json @default("[]") @map("related_content_task_ids")
+  relatedPublishingRecordIds Json @default("[]") @map("related_publishing_record_ids")
+  createdBy String @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  confirmations AutomationConfirmation[]
+
+  @@index([brandId])
+  @@index([status])
+  @@index([currentStep])
+  @@map("automation_packages")
+}
+
+model AutomationConfirmation {
+  id String @id @map("id")
+  packageId String @map("package_id")
+  brandId String @map("brand_id")
+  type String
+  status String
+  title String
+  impact String
+  recommendation String
+  evidenceSummary String @map("evidence_summary")
+  payload Json @default("{}")
+  decision String?
+  decidedBy String? @map("decided_by")
+  decidedAt DateTime? @map("decided_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  automationPackage AutomationPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([brandId])
+  @@index([packageId])
+  @@index([status])
+  @@map("automation_confirmations")
+}
+
+model VisibilitySprint {
+  id String @id @map("id")
+  brandId String @map("brand_id")
+  title String
+  goal String
+  status String @default("draft")
+  currentStep String @map("current_step")
+  steps Json @default("[]")
+  metricSummary Json @default("{}") @map("metric_summary")
+  relatedQuestionIds Json @default("[]") @map("related_question_ids")
+  relatedTestPlanIds Json @default("[]") @map("related_test_plan_ids")
+  relatedMonitoringRunIds Json @default("[]") @map("related_monitoring_run_ids")
+  relatedStandardAnswerIds Json @default("[]") @map("related_standard_answer_ids")
+  relatedContentTaskIds Json @default("[]") @map("related_content_task_ids")
+  relatedPublishingRecordIds Json @default("[]") @map("related_publishing_record_ids")
+  relatedRetestTaskIds Json @default("[]") @map("related_retest_task_ids")
+  createdBy String @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([status])
+  @@index([currentStep])
+  @@index([updatedAt])
+  @@map("visibility_sprints")
+}
+
+model BrandStandardAnswer {
+  id String @id @map("id")
+  brandId String @map("brand_id")
+  questionId String @map("question_id")
+  question String
+  answer String @db.Text
+  keyPoints Json @default("[]") @map("key_points")
+  evidence Json @default("[]")
+  status String @default("draft")
+  reviewedBy String? @map("reviewed_by")
+  reviewedAt DateTime? @map("reviewed_at")
+  createdBy String @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([questionId])
+  @@index([status])
+  @@index([updatedAt])
+  @@map("brand_standard_answers")
+}
+
+model PlatformRewriteVersion {
+  id String @id @map("id")
+  brandId String @map("brand_id")
+  contentVersionId String @map("content_version_id")
+  targetPlatform String @map("target_platform")
+  title String
+  body String
+  tags Json @default("[]")
+  rewriteNotes Json @default("[]") @map("rewrite_notes")
+  complianceNotes Json @default("[]") @map("compliance_notes")
+  status String @default("draft")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  contentVersion ContentVersion @relation(fields: [contentVersionId], references: [id], onDelete: Cascade)
+
+  @@index([brandId])
+  @@index([contentVersionId])
+  @@index([targetPlatform])
+  @@index([status])
+  @@map("platform_rewrite_versions")
+}
+
+model TestQuestionPoolItem {
+  id String @id @map("id")
+  brandId String @map("brand_id")
+  candidateId String? @map("candidate_id")
+  question String
+  angle String
+  purposes Json @default("[]")
+  targetPlatforms Json @default("[]") @map("target_platforms")
+  priority String @default("medium")
+  estimatedValue String @default("") @map("estimated_value")
+  source String
+  status String @default("candidate")
+  lastTestedAt DateTime? @map("last_tested_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  candidate TestQuestionCandidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  sourceRecords TestQuestionSourceRecord[]
+
+  @@index([brandId])
+  @@index([candidateId])
+  @@index([angle])
+  @@index([status])
+  @@map("test_question_pool_items")
+}
+
+model TestQuestionSourceRecord {
+  id String @id @map("id")
+  poolItemId String @map("pool_item_id")
+  brandId String @map("brand_id")
+  sourceType String @map("source_type")
+  sourceId String? @map("source_id")
+  summary String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  poolItem TestQuestionPoolItem @relation(fields: [poolItemId], references: [id], onDelete: Cascade)
+
+  @@index([brandId])
+  @@index([poolItemId])
+  @@index([sourceType])
+  @@map("test_question_source_records")
+}
+
+model ContentExportRecord {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  generationTaskId String @map("generation_task_id")
+  versionId String @map("version_id")
+  exportFormat String @default("markdown") @map("export_format")
+  fileName String @map("file_name")
+  content String
+  createdBy String @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  generationTask ContentGenerationTask @relation(fields: [generationTaskId], references: [id], onDelete: Cascade)
+  version ContentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([brandId])
+  @@index([generationTaskId])
+  @@index([versionId])
+  @@map("content_export_records")
+}
+
+model PublishingAccount {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  platform String
+  accountName String @map("account_name")
+  loginMode String @map("login_mode")
+  authStatus String @default("connected") @map("auth_status")
+  errorMessage String? @map("error_message")
+  lastAuthorizedAt DateTime? @map("last_authorized_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  records PublishingRecord[]
+
+  @@index([brandId])
+  @@index([platform])
+  @@index([authStatus])
+  @@map("publishing_accounts")
+}
+
+model PublishingRecord {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  contentAssetId String @map("content_asset_id")
+  accountId String? @map("account_id")
+  generationTaskId String? @map("generation_task_id")
+  versionId String? @map("version_id")
+  title String
+  body String @default("")
+  platform String
+  accountName String? @map("account_name")
+  status String @default("draft")
+  publishedUrl String? @map("published_url")
+  errorMessage String? @map("error_message")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id], onDelete: Restrict)
+  account PublishingAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  generationTask ContentGenerationTask? @relation(fields: [generationTaskId], references: [id], onDelete: SetNull)
+  version ContentVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  @@index([brandId])
+  @@index([contentAssetId])
+  @@index([accountId])
+  @@index([status])
+  @@map("publishing_records")
+}
+
+model OptimizationTask {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  title String
+  type String @default("manual")
+  status String @default("todo")
+  ownerId String? @map("owner_id")
+  optimizationUnitId String? @map("optimization_unit_id")
+  relatedPromptId String? @map("related_prompt_id")
+  relatedPlatformCode String? @map("related_platform_code")
+  strategyId String? @map("strategy_id")
+  growthOptimizationPlanId String? @map("growth_optimization_plan_id")
+  sourceRunId String? @map("source_run_id")
+  retestRunId String? @map("retest_run_id")
+  priority String? @default("medium")
+  processingNote String? @map("processing_note")
+  contentLink String? @map("content_link")
+  reviewStatus String? @map("review_status")
+  retestPlanAt DateTime? @map("retest_plan_at")
+  retestRecords Json @default("[]") @map("retest_records")
+  dueDate DateTime? @map("due_date")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  optimizationUnit OptimizationUnit? @relation(fields: [optimizationUnitId], references: [id], onDelete: SetNull)
+  relatedPrompt BrandPrompt? @relation(fields: [relatedPromptId], references: [id], onDelete: SetNull)
+  strategy ContentStrategy? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  growthOptimizationPlan GrowthOptimizationPlan? @relation(fields: [growthOptimizationPlanId], references: [id], onDelete: SetNull)
+
+  @@index([brandId])
+  @@index([optimizationUnitId])
+  @@index([relatedPromptId])
+  @@index([strategyId])
+  @@index([growthOptimizationPlanId])
+  @@index([sourceRunId])
+  @@index([retestRunId])
+  @@index([status])
+  @@map("optimization_tasks")
+}
+
+model Report {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  type String
+  title String
+  periodStart DateTime @map("period_start")
+  periodEnd DateTime @map("period_end")
+  status String @default("pending")
+  content String
+  dataGaps Json @default("[]") @map("data_gaps")
+  snapshot Json @default("{}")
+  createdBy String @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([type])
+  @@index([status])
+  @@map("reports")
+}
+
+model AdvisorRecord {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  type String
+  title String
+  content String
+  relatedReportId String? @map("related_report_id")
+  followUpItems Json @default("[]") @map("follow_up_items")
+  createdBy String @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([type])
+  @@index([relatedReportId])
+  @@map("advisor_records")
+}
+
+model InnerTestFeedback {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  page String
+  module String
+  type String
+  description String
+  status String @default("open")
+  reporterId String @map("reporter_id")
+  resolutionNote String? @map("resolution_note")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId])
+  @@index([status])
+  @@index([type])
+  @@map("inner_test_feedback")
+}
