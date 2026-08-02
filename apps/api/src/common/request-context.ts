@@ -6,8 +6,10 @@ export type RequestContext = {
   requestId: string;
 };
 
-declare module 'express-serve-static-core' {
-  interface Request {
-    context: RequestContext;
+declare global {
+  namespace Express {
+    interface Request {
+      context: RequestContext;
+    }
   }
 }

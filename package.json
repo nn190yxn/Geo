@@ -14,7 +14,7 @@
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run test --workspaces --if-present",
     "package:check": "node deploy/validate-config.mjs deploy/compose.env.example",
-    "verify": "npm audit && npm run typecheck && npm run test && npm run build && npm run prisma:validate && npm run prisma:generate",
+    "verify": "npm audit && npm run prisma:validate && npm run prisma:generate && npm run typecheck && npm run test && npm run build",
     "prisma:validate": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npx prisma validate --schema apps/api/prisma/schema.prisma",
     "prisma:generate": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:generate --workspace @geo-platform/api",
     "prisma:migrate:deploy": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:migrate:deploy --workspace @geo-platform/api",
