@@ -1,4 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type {
+  AnalysisFinding,
+  ContentAssetPublishingStats,
+  MediaPlatformRule,
+  PublishingChannelStats,
+  PublishingRecordPerformance
+} from '@geo-platform/shared-types';
 import { permissionsRepositoryProvider } from '../src/modules/permissions/permissions.module';
 import { PermissionsRepository } from '../src/modules/permissions/permissions.repository';
 import type { PermissionsRepositoryPort } from '../src/modules/permissions/permissions.repository.port';
@@ -6,6 +13,35 @@ import { PERMISSIONS_REPOSITORY } from '../src/modules/permissions/permissions.r
 import { PrismaPermissionsRepository } from '../src/modules/permissions/prisma-permissions.repository';
 
 describe('permissions repository port', () => {
+  it('exposes brand-scoped page aggregation contracts', () => {
+    const methodNames: Array<keyof PermissionsRepositoryPort> = [
+      'getBrandProfileLibrary',
+      'saveBrandProfileLibrary',
+      'listBrandMediaAssets',
+      'createBrandMediaAsset',
+      'updateBrandMediaAsset',
+      'listContentAssetPageItems',
+      'listOwnedMediaAccounts',
+      'listMediaPlatformRules',
+      'createMediaPlatformRule',
+      'updateMediaPlatformRule',
+      'getPublishingChannelStats',
+      'listAnalysisFindings',
+      'createAnalysisFinding',
+      'updateAnalysisFinding',
+      'getAnalysisWorkbenchDashboard'
+    ];
+
+    const finding = { id: 'finding_1', brandId: 'brand_demo' } as AnalysisFinding;
+    const assetStats = { brandId: 'brand_demo' } as ContentAssetPublishingStats;
+    const channelStats = { brandId: 'brand_demo' } as PublishingChannelStats;
+    const platformRule = { brandId: 'brand_demo' } as MediaPlatformRule;
+    const recordPerformance = { brandId: 'brand_demo' } as PublishingRecordPerformance;
+
+    expect(methodNames).toHaveLength(15);
+    expect([finding, assetStats, channelStats, platformRule, recordPerformance].every((record) => record.brandId === 'brand_demo')).toBe(true);
+  });
+
   it('keeps the memory repository assignable to the service-facing port', () => {
     const repository: PermissionsRepositoryPort = new PermissionsRepository();
 

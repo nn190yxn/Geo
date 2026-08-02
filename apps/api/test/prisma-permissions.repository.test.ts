@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PermissionsRepository } from '../src/modules/permissions/permissions.repository';
 import { PrismaPermissionsRepository } from '../src/modules/permissions/prisma-permissions.repository';
 
 const now = new Date('2026-07-03T00:00:00.000Z');
@@ -18,6 +19,28 @@ const baseBrand = {
   createdAt: now,
   updatedAt: now
 };
+
+function pickMediaMapping(record: any) {
+  return record && {
+    title: record.title,
+    assetType: record.assetType,
+    applicablePlatforms: record.applicablePlatforms,
+    contentUsage: record.contentUsage,
+    source: record.source,
+    reviewStatus: record.reviewStatus
+  };
+}
+
+function pickFindingMapping(record: any) {
+  return record && {
+    type: record.type,
+    title: record.title,
+    userIntent: record.userIntent,
+    evidence: record.evidence,
+    severity: record.severity,
+    recommendedActions: record.recommendedActions
+  };
+}
 
 function createPrismaMock() {
   const deniedLogs: Array<{
@@ -51,13 +74,17 @@ function createPrismaMock() {
   const asyncJobs: any[] = [];
   const aiResponses: any[] = [];
   const analysisResults: any[] = [];
+  const analysisFindings: any[] = [];
   const contentAssets: any[] = [];
+  const brandMediaAssets: any[] = [];
+  const citationSources: any[] = [];
   const contentStrategies: any[] = [];
   const contentGenerationTasks: any[] = [];
   const contentVersions: any[] = [];
   const contentExportRecords: any[] = [];
   const publishingAccounts: any[] = [];
   const publishingRecords: any[] = [];
+  const mediaPlatformRules: any[] = [];
   const visibilitySprints: any[] = [];
   const brandStandardAnswers: any[] = [];
   const competitors: any[] = [];
@@ -149,6 +176,20 @@ function createPrismaMock() {
         const source = { id: `source_${knowledgeSources.length + 1}`, ...data, errorMessage: null, createdAt: now, updatedAt: now };
         knowledgeSources.unshift(source);
         return Promise.resolve(source);
+      })
+    },
+    brandMediaAsset: {
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(brandMediaAssets.filter((asset) => asset.brandId === where.brandId))),
+      findFirst: vi.fn().mockImplementation(({ where }) => Promise.resolve(brandMediaAssets.find((asset) => asset.id === where.id && asset.brandId === where.brandId) ?? null)),
+      create: vi.fn().mockImplementation(({ data }) => {
+        const asset = { id: `media_${brandMediaAssets.length + 1}`, ...data, relatedContentTaskId: data.relatedContentTaskId ?? null, sourceUrl: data.sourceUrl ?? null, fileRef: data.fileRef ?? null, createdAt: now, updatedAt: now };
+        brandMediaAssets.unshift(asset);
+        return Promise.resolve(asset);
+      }),
+      update: vi.fn().mockImplementation(({ where, data }) => {
+        const index = brandMediaAssets.findIndex((asset) => asset.id === where.id);
+        brandMediaAssets[index] = { ...brandMediaAssets[index], ...data, updatedAt: now };
+        return Promise.resolve(brandMediaAssets[index]);
       })
     },
     optimizationUnit: {
@@ -282,6 +323,9 @@ function createPrismaMock() {
         return Promise.resolve(contentAssets[index]);
       })
     },
+    citationSource: {
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(citationSources.filter((source) => source.brandId === where.brandId)))
+    },
     monitoringRun: {
       count: vi.fn().mockImplementation(({ where }) => Promise.resolve(where.optimizationUnitId ? monitoringRuns.filter((run) => run.optimizationUnitId === where.optimizationUnitId).length : 7)),
       findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(monitoringRuns.filter((run) => run.brandId === where.brandId))),
@@ -395,6 +439,20 @@ function createPrismaMock() {
         const index = publishingRecords.findIndex((record) => record.id === where.id);
         publishingRecords[index] = { ...publishingRecords[index], ...data, updatedAt: now };
         return Promise.resolve(publishingRecords[index]);
+      })
+    },
+    mediaPlatformRule: {
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(mediaPlatformRules.filter((rule) => rule.brandId === where.brandId))),
+      findFirst: vi.fn().mockImplementation(({ where }) => Promise.resolve(mediaPlatformRules.find((rule) => rule.brandId === where.brandId && rule.platform === where.platform) ?? null)),
+      create: vi.fn().mockImplementation(({ data }) => {
+        const rule = { id: `rule_${mediaPlatformRules.length + 1}`, ...data, createdAt: now, updatedAt: now };
+        mediaPlatformRules.unshift(rule);
+        return Promise.resolve(rule);
+      }),
+      update: vi.fn().mockImplementation(({ where, data }) => {
+        const index = mediaPlatformRules.findIndex((rule) => rule.id === where.id);
+        mediaPlatformRules[index] = { ...mediaPlatformRules[index], ...data, updatedAt: now };
+        return Promise.resolve(mediaPlatformRules[index]);
       })
     },
     visibilitySprint: {
@@ -513,6 +571,20 @@ function createPrismaMock() {
         const index = analysisResults.findIndex((result) => result.id === where.id);
         analysisResults[index] = { ...analysisResults[index], ...data, updatedAt: now };
         return Promise.resolve(analysisResults[index]);
+      })
+    },
+    analysisFinding: {
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(analysisFindings.filter((finding) => finding.brandId === where.brandId))),
+      findFirst: vi.fn().mockImplementation(({ where }) => Promise.resolve(analysisFindings.find((finding) => finding.id === where.id && finding.brandId === where.brandId) ?? null)),
+      create: vi.fn().mockImplementation(({ data }) => {
+        const finding = { id: `finding_${analysisFindings.length + 1}`, ...data, optimizationUnitId: data.optimizationUnitId ?? null, userIntent: data.userIntent ?? null, platformCode: data.platformCode ?? null, relatedTaskId: data.relatedTaskId ?? null, createdAt: now, updatedAt: now };
+        analysisFindings.unshift(finding);
+        return Promise.resolve(finding);
+      }),
+      update: vi.fn().mockImplementation(({ where, data }) => {
+        const index = analysisFindings.findIndex((finding) => finding.id === where.id);
+        analysisFindings[index] = { ...analysisFindings[index], ...data, updatedAt: now };
+        return Promise.resolve(analysisFindings[index]);
       })
     },
     gEOMetricSnapshot: {
@@ -1132,9 +1204,175 @@ describe('PrismaPermissionsRepository', () => {
     expect(record).toMatchObject({ title: 'Publish Title', body: 'Publish Body', accountName: 'Brand Account', status: 'draft' });
     await expect(repository.updatePublishingRecordStatus('user_demo', 'brand_prisma', record?.id ?? '', { status: 'published', publishedUrl: ' https://example.com/published ' })).resolves.toMatchObject({
       status: 'published',
-      publishedUrl: 'https://example.com/published'
+      publishedUrl: 'https://example.com/published',
+      publishedAt: expect.any(String)
     });
     await expect(repository.getPublishingDashboard('user_demo', 'brand_prisma')).resolves.toMatchObject({ accounts: [{ id: account?.id }], records: [{ id: record?.id, body: 'Publish Body' }] });
+  });
+
+  it('persists page aggregation data and derives brand-scoped library and publishing views', async () => {
+    const prisma = createPrismaMock();
+    const repository = new PrismaPermissionsRepository(prisma as never);
+
+    await repository.saveBrandProfileLibrary('user_demo', 'brand_prisma', {
+      profile: {
+        intro: ' Brand library intro ',
+        valueProps: [' Trusted growth '],
+        offerings: [' GEO service '],
+        proofPoints: [' Customer case '],
+        targetCustomers: [' Operators '],
+        recommendedExpressions: [' Evidence based '],
+        blockedExpressions: [],
+        contentRules: [' Cite sources '],
+        competitors: [],
+        faqs: []
+      }
+    });
+    await repository.createKnowledgeSource('user_demo', 'brand_prisma', {
+      name: ' Official Guide ',
+      sourceType: 'webpage',
+      sourceUrl: 'https://example.com/guide'
+    });
+    const media = await repository.createBrandMediaAsset('user_demo', 'brand_prisma', {
+      title: ' Product Image ',
+      assetType: 'image',
+      applicablePlatforms: [' wechat_official ', 'wechat_official'],
+      contentUsage: ' Article cover ',
+      source: ' Brand team '
+    });
+    expect(media).toMatchObject({ title: 'Product Image', applicablePlatforms: ['wechat_official'], reviewStatus: 'pending' });
+    await expect(repository.updateBrandMediaAsset('user_demo', 'brand_prisma', media?.id ?? '', {
+      reviewStatus: 'approved'
+    })).resolves.toMatchObject({ reviewStatus: 'approved' });
+
+    const account = await repository.connectPublishingAccount('user_demo', 'brand_prisma', {
+      platform: 'wechat_official',
+      accountName: 'Brand Account'
+    });
+    const asset = await repository.createContentAsset('user_demo', 'brand_prisma', {
+      title: 'GEO Guide',
+      type: 'article',
+      platform: 'wechat_official',
+      url: 'https://example.com/geo',
+      targetKeywords: ['geo'],
+      status: 'published'
+    });
+    const record = await repository.createPublishingRecord('user_demo', 'brand_prisma', {
+      accountId: account?.id,
+      contentAssetId: asset?.id,
+      title: 'GEO Guide',
+      body: 'Published body',
+      targetPlatform: 'wechat_official'
+    });
+    await repository.updatePublishingRecordStatus('user_demo', 'brand_prisma', record?.id ?? '', { status: 'published' });
+
+    await expect(repository.getBrandProfileLibrary('user_demo', 'brand_prisma')).resolves.toMatchObject({
+      brandId: 'brand_prisma',
+      knowledgeSources: [{ name: 'Official Guide' }],
+      mediaAssets: [{ id: media?.id, reviewStatus: 'approved' }],
+      publishingAccounts: [{ id: account?.id }]
+    });
+    await expect(repository.listOwnedMediaAccounts('user_demo', 'brand_prisma')).resolves.toMatchObject([
+      { id: account?.id, platformName: '公众号', stats: { totalRecords: 1, publishedRecords: 1 } }
+    ]);
+    await expect(repository.listContentAssetPageItems('user_demo', 'brand_prisma')).resolves.toMatchObject([
+      { id: asset?.id, publishStatus: 'published', publishingStats: { totalRecords: 1, publishedRecords: 1 } }
+    ]);
+    prisma.userBrandPermission.findFirst.mockResolvedValueOnce(null);
+    await expect(repository.getBrandProfileLibrary('user_demo', 'other_brand')).resolves.toBeNull();
+  });
+
+  it('persists platform rules and analysis findings with JSON mapping and relation checks', async () => {
+    const prisma = createPrismaMock();
+    const repository = new PrismaPermissionsRepository(prisma as never);
+
+    const rule = await repository.createMediaPlatformRule('user_demo', 'brand_prisma', {
+      platform: ' wechat_official ',
+      name: ' 公众号 ',
+      contentFormats: [' article ', 'article'],
+      intentFit: '品牌认知',
+      recommendedFrequency: '每周一次',
+      coverRatio: '2.35:1',
+      publishingNote: '发布前复核引用'
+    });
+    expect(rule).toMatchObject({ platform: 'wechat_official', name: '公众号', contentFormats: ['article'] });
+    await expect(repository.createMediaPlatformRule('user_demo', 'brand_prisma', {
+      platform: 'wechat_official',
+      name: '重复规则',
+      contentFormats: [],
+      intentFit: '',
+      recommendedFrequency: '',
+      coverRatio: '',
+      publishingNote: ''
+    })).resolves.toBeNull();
+    await expect(repository.updateMediaPlatformRule('user_demo', 'brand_prisma', 'wechat_official', {
+      publishingNote: ' 发布后安排复测 '
+    })).resolves.toMatchObject({ publishingNote: '发布后安排复测' });
+
+    const finding = await repository.createAnalysisFinding('user_demo', 'brand_prisma', {
+      type: 'citation',
+      title: ' 权威引用不足 ',
+      optimizationUnitId: 'unit_prisma',
+      userIntent: ' 了解品牌可信度 ',
+      evidence: [' 官网引用偏少 ', '官网引用偏少'],
+      severity: 'high',
+      recommendedActions: [
+        { label: ' 补充官网内容 ', actionType: 'generate_content', targetId: ' unit_prisma ' }
+      ]
+    });
+    expect(finding).toMatchObject({
+      title: '权威引用不足',
+      evidence: ['官网引用偏少'],
+      recommendedActions: [{ label: '补充官网内容', targetId: 'unit_prisma' }]
+    });
+    await expect(repository.createAnalysisFinding('user_demo', 'brand_prisma', {
+      type: 'fact',
+      title: '无效关联',
+      optimizationUnitId: 'missing_unit',
+      evidence: [],
+      severity: 'medium',
+      recommendedActions: []
+    })).resolves.toBeNull();
+    await expect(repository.getAnalysisWorkbenchDashboard('user_demo', 'brand_prisma')).resolves.toMatchObject({
+      findings: [{ id: finding?.id }],
+      recommendedActions: [{ label: '补充官网内容', actionType: 'generate_content' }]
+    });
+    prisma.userBrandPermission.findFirst.mockResolvedValueOnce(null);
+    await expect(repository.listMediaPlatformRules('user_demo', 'other_brand')).resolves.toBeNull();
+  });
+
+  it('keeps memory and Prisma aggregation record mappings consistent', async () => {
+    const memoryRepository = new PermissionsRepository();
+    const memoryBrand = memoryRepository.createBrand('user_demo', {
+      name: 'Repository Consistency Brand',
+      industry: 'Enterprise Services',
+      businessScope: 'Brand operations',
+      targetAudience: 'Operators'
+    });
+    const prismaRepository = new PrismaPermissionsRepository(createPrismaMock() as never);
+    const mediaInput = {
+      title: ' Product Image ',
+      assetType: 'image' as const,
+      applicablePlatforms: [' wechat_official ', 'wechat_official'],
+      contentUsage: ' Article cover ',
+      source: ' Brand team '
+    };
+    const findingInput = {
+      type: 'citation' as const,
+      title: ' Authority citation gap ',
+      userIntent: ' Learn brand trust ',
+      evidence: [' Official source missing ', 'Official source missing'],
+      severity: 'high' as const,
+      recommendedActions: [{ label: ' Add official content ', actionType: 'generate_content' as const }]
+    };
+
+    const memoryMedia = memoryRepository.createBrandMediaAsset('user_demo', memoryBrand.brandId, mediaInput);
+    const prismaMedia = await prismaRepository.createBrandMediaAsset('user_demo', 'brand_prisma', mediaInput);
+    const memoryFinding = memoryRepository.createAnalysisFinding('user_demo', memoryBrand.brandId, findingInput);
+    const prismaFinding = await prismaRepository.createAnalysisFinding('user_demo', 'brand_prisma', findingInput);
+
+    expect(pickMediaMapping(prismaMedia)).toEqual(pickMediaMapping(memoryMedia));
+    expect(pickFindingMapping(prismaFinding)).toEqual(pickFindingMapping(memoryFinding));
   });
 
   it('persists optimization tasks, reports and advisor records', async () => {

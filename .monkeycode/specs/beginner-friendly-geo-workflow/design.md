@@ -194,11 +194,11 @@ type GrowthContentType = 'wechat_article' | 'xiaohongshu_note' | 'website_faq' |
 
 ## References
 
-- `.monkeycode/specs/beginner-friendly-geo-workflow/requirements.md`
-- `.monkeycode/specs/beginner-friendly-geo-workflow/tasklist.md`
-- `.monkeycode/specs/ai-platform-async-tasks/design.md`
-- `.monkeycode/specs/multi-brand-geo-platform/design.md`
-- `packages/shared-types/src/index.ts`
-- `apps/api/prisma/schema.prisma`
-- `apps/web/src/features/brand-workspace/`
-- `apps/web/src/features/monitoring/`
+- `当前工作区/.monkeycode/specs/beginner-friendly-geo-workflow/requirements.md`
+- `当前工作区/.monkeycode/specs/beginner-friendly-geo-workflow/tasklist.md`
+- `当前工作区/.monkeycode/specs/ai-platform-async-tasks/design.md`
+- `当前工作区/.monkeycode/specs/multi-brand-geo-platform/design.md`
+- `当前工作区/packages/shared-types/src/index.ts`
+- `当前工作区/apps/api/prisma/schema.prisma`
+- `当前工作区/apps/web/src/features/brand-workspace/`
+- `当前工作区/apps/web/src/features/monitoring/`

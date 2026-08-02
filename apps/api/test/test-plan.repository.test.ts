@@ -145,14 +145,14 @@ describe('test plan repository', () => {
     expect(result?.browserSteps).toEqual([expect.objectContaining({
       platformCode: 'doubao',
       method: 'browser',
-      status: 'needs_confirmation',
+      status: 'queued',
       question: '贵阳有哪些适合儿童的运动成长机构？',
-      message: expect.stringContaining('尚未接入真实回答回填')
+      message: expect.stringContaining('回填真实回答')
     })]);
-    expect(result?.browserSteps[0]?.runId).toBeUndefined();
+    expect(result?.browserSteps[0]?.runId).toBeTruthy();
     expect(result?.manualSteps).toEqual([expect.objectContaining({ platformCode: 'manual_input', method: 'manual', status: 'manual_required' })]);
     expect(result?.configurationItems).toEqual([expect.objectContaining({ platformCode: 'unconfigured_ai', status: 'needs_configuration' })]);
-    expect(result?.plan.monitoringRunIds).toEqual([result?.apiRuns[0]?.id]);
+    expect(result?.plan.monitoringRunIds).toEqual([result?.apiRuns[0]?.id, result?.browserSteps[0]?.runId]);
     expect(repository.listTestPlans('user_demo', 'brand_demo')?.find((item) => item.id === plan?.id)).toMatchObject({ status: 'running' });
   });
 

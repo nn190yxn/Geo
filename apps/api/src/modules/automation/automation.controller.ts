@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { ApiResponse, AutomationConfirmation, AutomationPackage, AutomationStepCode, RetestResultInput } from '@geo-platform/shared-types';
+import { sanitizePublicResponse } from '../../common/public-response';
 import { AutomationOrchestratorService, type CreateAutomationPackageInput } from './automation-orchestrator.service';
 import { ConfirmationQueueService, type CreateConfirmationInput, type ResolveConfirmationInput } from './confirmation-queue.service';
 
@@ -132,5 +133,5 @@ export class AutomationController {
 }
 
 function success<T>(data: T): ApiResponse<T> {
-  return { success: true, data };
+  return { success: true, data: sanitizePublicResponse(data) };
 }

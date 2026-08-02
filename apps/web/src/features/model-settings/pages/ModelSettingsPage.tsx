@@ -1,10 +1,11 @@
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, Tag, Tooltip, Typography, message } from 'antd';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PlatformConfig, PlatformConfigInput, PlatformMode, PlatformValidationResult } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
-import { EmptyState, PageErrorAlert } from '../../../components/PageState';
-import { getPlatformDisplayName } from '../../../utils/displayLabels';
+import { PageErrorAlert } from '../../../components/PageState';
+import { ProductPage } from '../../../components/ProductPage';
+import { getPlatformDisplayName, preferredAIPlatformSummary } from '../../../utils/displayLabels';
 
 type ModelFormValues = PlatformConfigInput;
 
@@ -15,12 +16,14 @@ export function ModelSettingsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<PlatformConfig | null>(null);
   const watchedPlatformCode = Form.useWatch('platformCode', form);
+  const watchedMode = Form.useWatch('mode', form);
   const activeGuide = getModelSetupGuide(watchedPlatformCode);
   const modelsQuery = useQuery({
     queryKey: ['model-settings'],
     queryFn: () => apiGet<PlatformConfig[]>('/platforms')
   });
   const models = modelsQuery.data?.success ? modelsQuery.data.data : [];
+  const platformCards = getPlatformCardItems(models);
   const saveMutation = useMutation({
     mutationFn: (values: ModelFormValues) => {
       const payload = toModelPayload(values, Boolean(editingModel));
@@ -52,13 +55,6 @@ export function ModelSettingsPage() {
     }
   });
 
-  const openCreateModal = () => {
-    setEditingModel(null);
-    form.resetFields();
-    form.setFieldsValue({ mode: 'api', enabled: true, rateLimitPerMinute: 20 });
-    setModalOpen(true);
-  };
-
   const openEditModal = (model: PlatformConfig) => {
     setEditingModel(model);
     form.setFieldsValue({
@@ -74,90 +70,74 @@ export function ModelSettingsPage() {
     setModalOpen(true);
   };
 
+  const openPlatformSetup = (item: PlatformCardItem) => {
+    const config = item.configId ? models.find((model) => model.id === item.configId) : undefined;
+    if (config) {
+      openEditModal(config);
+      return;
+    }
+
+    const guide = getModelSetupGuide(item.platformCode);
+    setEditingModel(null);
+    form.resetFields();
+    form.setFieldsValue({
+      platformCode: item.platformCode,
+      name: item.displayName,
+      mode: 'api',
+      endpointUrl: guide?.endpointUrl,
+      modelName: guide?.modelName,
+      rateLimitPerMinute: 20,
+      enabled: true
+    });
+    setModalOpen(true);
+  };
+
   return (
-    <Space direction="vertical" size={16} className="page-stack">
+    <ProductPage
+      title="AI 平台管理"
+      description="查看各 AI 平台是否可用于真实回复监测，并从统一入口完成连接、验证和接入方式管理。"
+      context={<Tag color="blue">内测优先：阶跃星辰 step-3.7-flash</Tag>}
+    >
+      <Space direction="vertical" size={16} className="page-stack">
       {contextHolder}
       <PageErrorAlert response={modelsQuery.data} />
-      <Card title="模型设置" extra={<Button type="primary" onClick={openCreateModal}>新增模型</Button>}>
-        <Typography.Paragraph>
-          当前内测优先使用阶跃星辰 step-3.7-flash。这里也保留 DeepSeek、小米模型、豆包、通义千问或其他兼容 OpenAI Chat Completions 的接入入口，后续可以按需要增加模型。
-        </Typography.Paragraph>
-        <Alert
-          type="info"
-          showIcon
-          message="API Key 只用于后台调用，页面只显示是否已填写"
-          description="可以直接填写供应商给的 API Key，也可以填写服务器环境变量名；编辑模型时密钥不会回填。"
-        />
-      </Card>
+      <Alert
+        type="info"
+        showIcon
+        message="连接信息按公开边界展示"
+        description={`主页面只展示脱敏连接状态、可用监测方式和最近验证结果。${preferredAIPlatformSummary}的具体配置统一在管理弹窗中维护。`}
+      />
 
-      <Card title="接入向导">
-        <Space direction="vertical" size={12} className="page-stack">
-          <Typography.Paragraph>
-            先完成阶跃星辰的 API Key、接口地址和模型名称配置，再按内测需要补充其他供应商。页面会保存密钥状态，后续通过“检查连接”确认是否可用。
-          </Typography.Paragraph>
-          <Table
-            rowKey="platformCode"
-            size="small"
-            pagination={false}
-            dataSource={modelSetupGuides}
-            columns={[
-              { title: '平台', dataIndex: 'displayName' },
-              { title: '需要准备', render: (_, record) => record.requiredItems.join('、') },
-              { title: '接口地址', dataIndex: 'endpointUrl' },
-              { title: '模型名称示例', dataIndex: 'modelName' },
-              { title: '建议', dataIndex: 'nextAction' }
-            ]}
-          />
-        </Space>
-      </Card>
-
-      <Card title="已接入模型" loading={modelsQuery.isLoading}>
-        <Table
-          rowKey="id"
-          dataSource={models}
-          pagination={{ pageSize: 8 }}
-          locale={{ emptyText: <EmptyState description="还没有模型设置，请先新增一个模型。" actionLabel="新增模型" onAction={openCreateModal} /> }}
-          scroll={{ x: 1100 }}
-          columns={[
-            { title: '模型', render: (_, record) => <Typography.Text>{record.name || getPlatformDisplayName(record.platformCode)}</Typography.Text> },
-            { title: '调用方式', dataIndex: 'mode', render: (value: PlatformMode) => modeLabels[value] },
-            { title: '接口地址', dataIndex: 'endpointUrl', render: (value) => value || '-' },
-            { title: '模型名称', dataIndex: 'modelName', render: (value) => value || '-' },
-            { title: '密钥', render: (_, record) => record.hasCredential ? <Tag color="green">已填写</Tag> : <Tag>未填写</Tag> },
-            { title: '启用', dataIndex: 'enabled', render: (enabled: boolean) => <Tag color={enabled ? 'green' : 'default'}>{enabled ? '启用中' : '已停用'}</Tag> },
-            { title: '最近检查', render: (_, record) => record.lastValidation ? <Tag color={record.lastValidation.ok ? 'green' : 'red'}>{record.lastValidation.message}</Tag> : <Tag>未检查</Tag> },
-            {
-              title: '操作',
-              render: (_, record) => (
-                <Space>
-                  <Button type="link" onClick={() => openEditModal(record)}>编辑</Button>
-                  <Button type="link" loading={validateMutation.isPending} onClick={() => validateMutation.mutate(record.id)}>检查连接</Button>
-                </Space>
-              )
-            }
-          ]}
-        />
-      </Card>
+      <PlatformConnectionCards items={platformCards} loading={modelsQuery.isLoading} onSetup={openPlatformSetup} />
 
       <Modal
-        title={editingModel ? '编辑模型设置' : '新增模型设置'}
+        title={editingModel ? '编辑 AI 平台设置' : '新增 AI 平台设置'}
         open={modalOpen}
         okText="保存"
         cancelText="取消"
         confirmLoading={saveMutation.isPending}
         onCancel={() => setModalOpen(false)}
         onOk={() => form.submit()}
+        footer={(_, { OkBtn, CancelBtn }) => (
+          <Space>
+            <CancelBtn />
+            {editingModel ? <Button loading={validateMutation.isPending} onClick={() => validateMutation.mutate(editingModel.id)}>检查连接</Button> : null}
+            <OkBtn />
+          </Space>
+        )}
       >
         <Form form={form} layout="vertical" onFinish={(values) => saveMutation.mutate(values)}>
           {activeGuide ? <Alert type="info" showIcon message={`${activeGuide.displayName} 接入提示`} description={`准备 ${activeGuide.requiredItems.join('、')}，接口地址可填 ${activeGuide.endpointUrl}，模型名称可先填 ${activeGuide.modelName}。`} style={{ marginBottom: 16 }} /> : null}
-          <Form.Item name="platformCode" label={<FieldLabel text="平台识别名" help="用于区分不同平台，建议用英文小写，例如 deepseek、kimi、xiaomi。" />} rules={[{ required: true, message: '请输入平台识别名' }]}>
-            <Input placeholder="例如：deepseek" />
+          <Form.Item name="platformCode" label={<FieldLabel text="AI 平台" help="用于选择要接入的 AI 平台，页面会统一显示为豆包、Kimi、DeepSeek、通义千问或阶跃星辰。" />} rules={[{ required: true, message: '请输入 AI 平台' }]}>
+            <Input placeholder="例如：DeepSeek" />
           </Form.Item>
-          <Form.Item name="name" label={<FieldLabel text="显示名称" help="给运营人员看的名称，例如 DeepSeek、Kimi、小米大模型。" />} rules={[{ required: true, message: '请输入显示名称' }]}>
+          <Form.Item name="name" label={<FieldLabel text="显示名称" help={`给运营人员看的名称，例如 ${preferredAIPlatformSummary}。`} />} rules={[{ required: true, message: '请输入显示名称' }]}>
             <Input placeholder="例如：DeepSeek" />
           </Form.Item>
           <Form.Item name="mode" label={<FieldLabel text="调用方式" help="选择自动 API 监测后，系统会用接口地址和模型名称自动调用；手动录入用于复制问题后粘贴回答。" />} rules={[{ required: true, message: '请选择调用方式' }]}>
-            <Select options={Object.entries(modeLabels).map(([value, label]) => ({ value, label }))} />
+            <Select options={watchedMode === 'mock'
+              ? [...publicModeOptions, { value: 'mock', label: modeLabels.mock, disabled: true }]
+              : publicModeOptions} />
           </Form.Item>
           <Form.Item name="endpointUrl" label={<FieldLabel text="接口地址" help="填写兼容 OpenAI Chat Completions 的完整地址，例如 https://api.deepseek.com/chat/completions。" />}>
             <Input placeholder="https://api.deepseek.com/chat/completions" />
@@ -176,8 +156,106 @@ export function ModelSettingsPage() {
           </Form.Item>
         </Form>
       </Modal>
-    </Space>
+      </Space>
+    </ProductPage>
   );
+}
+
+export type PlatformCardItem = {
+  platformCode: string;
+  displayName: string;
+  statusLabel: string;
+  statusColor: string;
+  methodLabels: string[];
+  validationLabel: string;
+  nextAction: string;
+  configId?: string;
+};
+
+export function PlatformConnectionCards({ items, loading, onSetup }: { items: PlatformCardItem[]; loading: boolean; onSetup: (item: PlatformCardItem) => void }) {
+  return (
+    <Row gutter={[16, 16]}>
+      {items.map((item) => (
+        <Col key={item.platformCode} xs={24} md={12} xl={8}>
+          <Card className="geo-platform-stat-card" title={item.displayName} loading={loading}>
+            <Space direction="vertical" size={16} className="page-stack">
+              <Space wrap>
+                <Tag color={item.statusColor}>{item.statusLabel}</Tag>
+                <Typography.Text type="secondary">{item.validationLabel}</Typography.Text>
+              </Space>
+              <div>
+                <Typography.Text type="secondary">可用监测方式</Typography.Text>
+                <div>
+                  <Space wrap size={[4, 8]}>
+                    {item.methodLabels.map((label) => <Tag key={label}>{label}</Tag>)}
+                  </Space>
+                </div>
+              </div>
+              <Typography.Text type="secondary">{item.nextAction}</Typography.Text>
+              <Button block onClick={() => onSetup(item)}>{item.configId ? '管理接入' : '连接平台'}</Button>
+            </Space>
+          </Card>
+        </Col>
+      ))}
+    </Row>
+  );
+}
+
+export function getPlatformCardItems(configs: PlatformConfig[]): PlatformCardItem[] {
+  const matchedIds = new Set<string>();
+  const guideItems = modelSetupGuides.map((guide) => {
+    const config = configs.find((item) => normalizePlatformCode(item.platformCode) === normalizePlatformCode(guide.platformCode));
+    if (config) matchedIds.add(config.id);
+    return buildPlatformCardItem(guide.platformCode, guide.displayName, config);
+  });
+  const customItems = configs
+    .filter((config) => !matchedIds.has(config.id) && config.mode !== 'mock')
+    .map((config) => buildPlatformCardItem(config.platformCode, config.name || getPlatformDisplayName(config.platformCode), config));
+
+  return [...guideItems, ...customItems];
+}
+
+function buildPlatformCardItem(platformCode: string, displayName: string, config?: PlatformConfig): PlatformCardItem {
+  const status = getPlatformConnectionDisplay(config);
+  return {
+    platformCode,
+    displayName,
+    statusLabel: status.label,
+    statusColor: status.color,
+    methodLabels: getPlatformMethodLabels(config),
+    validationLabel: getPlatformValidationLabel(config),
+    nextAction: config?.nextAction || '连接后即可检查平台可用性并开始真实回复监测。',
+    configId: config?.id
+  };
+}
+
+export function getPlatformConnectionDisplay(config?: PlatformConfig): { label: string; color: string } {
+  if (!config) return { label: '未接入', color: 'default' };
+  if (!config.enabled) return { label: '已停用', color: 'default' };
+  const displays = {
+    ready: { label: '已连接', color: 'green' },
+    browser_available: { label: '浏览器辅助可用', color: 'blue' },
+    manual_available: { label: '手动录入可用', color: 'blue' },
+    needs_configuration: { label: '待配置', color: 'gold' },
+    needs_confirmation: { label: '待确认', color: 'gold' }
+  } as const;
+  return displays[config.connectionStatus];
+}
+
+export function getPlatformMethodLabels(config?: PlatformConfig): string[] {
+  const methods = config?.availableMethods ?? ['api', 'browser', 'manual'];
+  const labels = { api: '自动 API 监测', browser: '浏览器辅助', manual: '手动录入' } as const;
+  return methods.map((method) => labels[method]);
+}
+
+export function getPlatformValidationLabel(config?: PlatformConfig): string {
+  if (!config) return '连接后可验证';
+  if (!config.lastValidation) return '尚未验证';
+  return config.lastValidation.ok ? '最近验证成功' : '最近验证失败，请重新检查';
+}
+
+function normalizePlatformCode(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function FieldLabel({ text, help }: { text: string; help: string }) {
@@ -185,7 +263,7 @@ function FieldLabel({ text, help }: { text: string; help: string }) {
     <Space size={4}>
       <span>{text}</span>
       <Tooltip title={help}>
-        <Typography.Text type="secondary" aria-label={`${text}说明`} style={{ cursor: 'help' }}>?</Typography.Text>
+        <button type="button" className="field-help-button" aria-label={`查看${text}说明`}>?</button>
       </Tooltip>
     </Space>
   );
@@ -249,12 +327,12 @@ export const modelSetupGuides: ModelSetupGuide[] = [
     nextAction: '确认账号额度后再提高每分钟调用上限'
   },
   {
-    platformCode: 'xiaomi',
-    displayName: '小米模型',
-    requiredItems: ['OpenAI-compatible 地址', 'API Key', '模型名称'],
-    endpointUrl: '填写供应商提供的 Chat Completions 地址',
-    modelName: '填写供应商提供的 model 名称',
-    nextAction: '按 OpenAI-compatible 方式接入并检查连接'
+    platformCode: 'doubao',
+    displayName: '豆包',
+    requiredItems: ['API Key', '接口地址', '模型名称'],
+    endpointUrl: '填写豆包兼容 Chat Completions 的接口地址',
+    modelName: '填写豆包模型名称',
+    nextAction: '没有 API Key 时可先用浏览器辅助监测或手动录入'
   }
 ];
 
@@ -268,5 +346,11 @@ const modeLabels: Record<PlatformMode, string> = {
   api: '自动 API 调用',
   semi_auto: '浏览器或手动确认',
   manual: '手动录入',
-  mock: '示例回答'
+  mock: '不可用于指标'
 };
+
+const publicModeOptions: Array<{ value: Exclude<PlatformMode, 'mock'>; label: string }> = [
+  { value: 'api', label: modeLabels.api },
+  { value: 'semi_auto', label: modeLabels.semi_auto },
+  { value: 'manual', label: modeLabels.manual }
+];

@@ -1,10 +1,13 @@
-import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, Statistic, Tag, Typography, message } from 'antd';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AdvisorDashboard, AdvisorRecord, AdvisorRecordInput } from '@geo-platform/shared-types';
+import type { AdvisorDashboard, AdvisorFollowUpItem, AdvisorRecord, AdvisorRecordInput, AdvisorRecordType } from '@geo-platform/shared-types';
 import { apiGet, apiPost } from '../../../api/http';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
-import { EmptyState, PageErrorAlert } from '../../../components/PageState';
+import { EmptyState, GuidedEmptyState, PageSkeleton, RegionErrorState } from '../../../components/PageState';
+import { ManagementListPage, ManagementRowActions } from '../../../components/ManagementListPage';
+import { ProductPageSection } from '../../../components/ProductPage';
+import { UnifiedFilterBar } from '../../../components/UnifiedFilterBar';
 
 const advisorTypeLabels: Record<AdvisorRecord['type'], string> = {
   diagnosis: '品牌诊断',
@@ -23,6 +26,20 @@ const followUpStatusLabels: Record<AdvisorRecord['followUpItems'][number]['statu
   done: '已完成'
 };
 
+const serviceStatusLabels: Record<AdvisorServiceStatus, string> = {
+  recorded: '已记录',
+  todo: '待处理',
+  doing: '进行中',
+  done: '已完成'
+};
+
+const serviceStatusColors: Record<AdvisorServiceStatus, string> = {
+  recorded: 'blue',
+  todo: 'orange',
+  doing: 'gold',
+  done: 'green'
+};
+
 type AdvisorFormValues = AdvisorRecordInput & {
   issuesText?: string;
   recommendationsText?: string;
@@ -39,6 +56,30 @@ type AdvisorFormValues = AdvisorRecordInput & {
 export type AdvisorRecordSection = {
   title: string;
   content: string[];
+};
+
+export type AdvisorServiceStatus = 'recorded' | AdvisorFollowUpItem['status'];
+
+export type AdvisorServiceRow = {
+  id: string;
+  kind: 'record' | 'follow_up';
+  recordType: AdvisorRecordType | 'follow_up';
+  title: string;
+  context: string;
+  status: AdvisorServiceStatus;
+  owner: string;
+  serviceTime: string;
+  nextStep: string;
+  record: AdvisorRecord;
+  followUp?: AdvisorFollowUpItem;
+};
+
+export type AdvisorServiceFilters = {
+  search: string;
+  type: AdvisorRecordType | 'follow_up' | 'all';
+  status: AdvisorServiceStatus | 'all';
+  from?: string;
+  to?: string;
 };
 
 export function buildAdvisorRecordContent(values: AdvisorFormValues): string {
@@ -92,13 +133,24 @@ export function AdvisorWorkspacePage() {
   const queryClient = useQueryClient();
   const activeBrandId = useBrandContextStore((state) => state.activeBrandId);
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState<AdvisorRecord>();
+  const [selectedRowId, setSelectedRowId] = useState<string>();
+  const [filters, setFilters] = useState<AdvisorServiceFilters>(defaultAdvisorServiceFilters);
   const [form] = Form.useForm<AdvisorFormValues>();
   const dashboardQuery = useQuery({
     queryKey: ['advisor-dashboard', activeBrandId],
     queryFn: () => apiGet<AdvisorDashboard>(`/brands/${activeBrandId}/advisor-records`)
   });
   const dashboard = dashboardQuery.data?.success ? dashboardQuery.data.data : null;
+  const rows = buildAdvisorServiceRows(dashboard?.records ?? []);
+  const filteredRows = getFilteredAdvisorServiceRows(rows, filters);
+  const selectedRow = rows.find((row) => row.id === selectedRowId) ?? rows[0];
+  const listState = dashboardQuery.isLoading
+    ? 'loading'
+    : dashboardQuery.isError || (dashboardQuery.data && !dashboardQuery.data.success)
+      ? 'error'
+      : rows.length === 0
+        ? 'empty'
+        : 'ready';
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['advisor-dashboard', activeBrandId] });
   const createMutation = useMutation({
     mutationFn: (values: AdvisorRecordInput) => apiPost<AdvisorRecord>(`/brands/${activeBrandId}/advisor-records`, values),
@@ -106,7 +158,7 @@ export function AdvisorWorkspacePage() {
       if (response.success) {
         setCreateOpen(false);
         form.resetFields();
-        setSelectedRecord(response.data);
+        setSelectedRowId(`record:${response.data.id}`);
         void invalidate();
         void messageApi.success('顾问服务记录已创建');
       } else {
@@ -137,66 +189,59 @@ export function AdvisorWorkspacePage() {
   return (
     <Space direction="vertical" size={16} className="page-stack">
       {contextHolder}
-      <PageErrorAlert response={dashboardQuery.data} />
-      <Card title="顾问服务" extra={<Space><Button onClick={() => openCreateModal('diagnosis')}>新增诊断</Button><Button onClick={() => openCreateModal('service_plan')}>新增服务计划</Button><Button type="primary" onClick={() => openCreateModal('review')}>新增复盘</Button></Space>}>
-        <Typography.Paragraph>
-          汇总品牌诊断、服务计划、培训记录、行业规则更新和顾问备注，并关联客户交付报告形成服务履约记录。
-        </Typography.Paragraph>
-        <Space size={24} wrap>
-          <Typography.Text>服务记录：{dashboard?.records.length ?? 0}</Typography.Text>
-          <Typography.Text>待跟进事项：{dashboard?.pendingFollowUps.length ?? 0}</Typography.Text>
-          <Typography.Text>可引用报告：{dashboard?.relatedReports.length ?? 0}</Typography.Text>
-          <Typography.Text>最新诊断：{dashboard?.latestDiagnosis?.title ?? '暂无'}</Typography.Text>
-        </Space>
-      </Card>
-
-      <Card title="待跟进事项">
-        {(dashboard?.pendingFollowUps.length ?? 0) > 0 ? (
-          <Space direction="vertical" size={8} className="page-stack">
-            {dashboard?.pendingFollowUps.map((item) => (
-              <Alert key={item.id} type={item.status === 'doing' ? 'warning' : 'info'} message={item.title} description={[item.owner ? `负责人：${item.owner}` : '', item.dueDate ? `截止：${item.dueDate}` : '', `状态：${followUpStatusLabels[item.status]}`].filter(Boolean).join(' / ')} />
-            ))}
+      <ManagementListPage<AdvisorServiceRow>
+        title="顾问服务"
+        description="统一管理品牌诊断、服务计划、复盘、客户交付、培训和跟进事项，形成连续可追踪的服务履约记录。"
+        context={<Tag>当前品牌：{activeBrandId}</Tag>}
+        primaryAction={rows.length > 0 ? <Button type="primary" onClick={() => openCreateModal('service')}>新增服务记录</Button> : undefined}
+        summary={(
+          <Space size={24} wrap>
+            <Statistic title="服务记录" value={dashboard?.records.length ?? 0} />
+            <Statistic title="待跟进事项" value={dashboard?.pendingFollowUps.length ?? 0} />
+            <Statistic title="可引用报告" value={dashboard?.relatedReports.length ?? 0} />
+            <Statistic title="最新诊断" value={dashboard?.latestDiagnosis?.title ?? '暂无'} />
           </Space>
-        ) : <EmptyState description="暂无待跟进事项。" />}
-      </Card>
-
-      <Space align="start" size={16} className="page-stack" wrap>
-        <Card title="品牌服务列表" style={{ flex: 2, minWidth: 720 }}>
-          <Table
-            rowKey="id"
-            loading={dashboardQuery.isLoading}
-            dataSource={dashboard?.records ?? []}
-            locale={{ emptyText: <EmptyState description="暂无顾问服务记录，请先新增诊断或服务记录。" actionLabel="新增服务记录" onAction={() => openCreateModal('service_plan')} /> }}
-            columns={[
-              { title: '服务类型', render: (_, record) => <Tag>{advisorTypeLabels[record.type]}</Tag> },
-              { title: '标题', dataIndex: 'title' },
-              { title: '关联品牌', render: () => '当前品牌' },
-              { title: '服务时间', dataIndex: 'createdAt' },
-              { title: '跟进事项', render: (_, record) => record.followUpItems.length },
-              { title: '关联报告', render: (_, record) => record.relatedReport?.title ?? '暂无' },
-              { title: '操作', render: (_, record) => <Button size="small" onClick={() => setSelectedRecord(record)}>查看</Button> }
-            ]}
+        )}
+        filters={(
+          <UnifiedFilterBar
+            value={{ search: filters.search, platform: 'all', status: filters.status, from: filters.from, to: filters.to }}
+            onChange={(value) => setFilters((current) => ({ ...current, search: value.search, status: value.status as AdvisorServiceStatus | 'all', from: value.from, to: value.to }))}
+            onClear={() => setFilters(defaultAdvisorServiceFilters)}
+            statusOptions={advisorServiceStatusOptions}
+            searchPlaceholder="搜索服务标题、负责人或下一步"
+            resultCount={filteredRows.length}
+            totalCount={rows.length}
+            showPlatform={false}
+            hasAdditionalFilters={filters.type !== 'all'}
+            extraFilters={<Select aria-label="服务类型筛选" value={filters.type} options={advisorServiceTypeOptions} onChange={(type) => setFilters((current) => ({ ...current, type }))} />}
           />
-        </Card>
+        )}
+        state={listState}
+        loadingState={<PageSkeleton rows={4} />}
+        errorState={<RegionErrorState description="顾问服务记录加载失败，请重新加载后继续管理。" onRetry={() => void dashboardQuery.refetch()} />}
+        emptyState={<GuidedEmptyState title="还没有顾问服务记录" reason="当前品牌尚未建立诊断、计划或服务跟进记录。" impact="团队缺少可持续跟踪的服务目标、责任人与交付依据。" benefit="创建后可统一管理服务任务、关联报告和下一步行动。" actionLabel="新增首条服务记录" onAction={() => openCreateModal('service')} />}
+        tableTitle="服务任务与记录"
+        tableDescription="服务记录与跟进事项按统一状态、负责人、时间和下一步进行管理。"
+        tableAriaLabel="顾问服务任务与记录列表"
+        tableProps={{
+          rowKey: 'id',
+          dataSource: filteredRows,
+          pagination: filteredRows.length > 8 ? { pageSize: 8 } : false,
+          locale: { emptyText: <EmptyState title="没有匹配的服务任务" description="当前筛选条件下的顾问服务记录" reason="服务类型、状态、时间或搜索内容未匹配已有记录。" nextStep="清空部分筛选后重新查看。" /> },
+          columns: [
+            { title: '服务任务', render: (_, row) => <Space direction="vertical" size={2}><Typography.Text strong>{row.title}</Typography.Text><Typography.Text type="secondary">{row.context}</Typography.Text></Space> },
+            { title: '类型', render: (_, row) => <Tag>{row.recordType === 'follow_up' ? '跟进事项' : advisorTypeLabels[row.recordType]}</Tag> },
+            { title: '状态', render: (_, row) => <Tag color={serviceStatusColors[row.status]}>{serviceStatusLabels[row.status]}</Tag> },
+            { title: '负责人', dataIndex: 'owner' },
+            { title: '服务时间', dataIndex: 'serviceTime', render: (value) => formatAdvisorDate(value) },
+            { title: '下一步', dataIndex: 'nextStep' },
+            { title: '关联报告', render: (_, row) => row.record.relatedReport?.title ?? '待关联' },
+            { title: '操作', render: (_, row) => <ManagementRowActions primaryActions={[<Button key="detail" size="small" onClick={() => setSelectedRowId(row.id)}>查看详情</Button>]} /> }
+          ]
+        }}
+      />
 
-        <Card title="服务详情" style={{ flex: 1, minWidth: 360 }}>
-          {selectedRecord ? (
-            <Space direction="vertical" size={12} className="page-stack">
-              <Space wrap><Tag>{advisorTypeLabels[selectedRecord.type]}</Tag><Typography.Text>顾问记录</Typography.Text></Space>
-              <Typography.Title level={5}>{selectedRecord.title}</Typography.Title>
-              <Descriptions size="small" column={1} bordered items={getAdvisorRecordSections(selectedRecord.content).map((section) => ({ key: section.title, label: section.title, children: section.content.join('；') }))} />
-              <Card size="small" title="关联报告">
-                {selectedRecord.relatedReport ? `${selectedRecord.relatedReport.title}（${selectedRecord.relatedReport.periodStart} 至 ${selectedRecord.relatedReport.periodEnd}）` : '暂无关联报告'}
-              </Card>
-              <Card size="small" title="跟进事项">
-                {selectedRecord.followUpItems.length ? selectedRecord.followUpItems.map((item) => (
-                  <Alert key={item.id} type={item.status === 'done' ? 'success' : 'info'} message={`${item.title}：${followUpStatusLabels[item.status]}`} style={{ marginBottom: 8 }} />
-                )) : <Alert type="success" message="暂无待跟进事项" />}
-              </Card>
-            </Space>
-          ) : <EmptyState description="请选择一条服务记录查看详情。" />}
-        </Card>
-      </Space>
+      {selectedRow ? <AdvisorServiceDetail row={selectedRow} /> : null}
 
       <Modal title="新增顾问服务记录" open={createOpen} okText="保存" cancelText="取消" onCancel={() => setCreateOpen(false)} onOk={() => form.submit()} confirmLoading={createMutation.isPending}>
         <Form form={form} layout="vertical" initialValues={{ type: 'service' }} onFinish={handleSubmit}>
@@ -221,6 +266,119 @@ export function AdvisorWorkspacePage() {
 }
 
 const advisorTypeOptions = Object.entries(advisorTypeLabels).map(([value, label]) => ({ value, label }));
+const advisorServiceStatusOptions = Object.entries(serviceStatusLabels).map(([value, label]) => ({ value, label }));
+const advisorServiceTypeOptions = [{ value: 'all', label: '全部类型' }, ...advisorTypeOptions, { value: 'follow_up', label: '跟进事项' }];
+export const defaultAdvisorServiceFilters: AdvisorServiceFilters = { search: '', type: 'all', status: 'all' };
+
+export function buildAdvisorServiceRows(records: AdvisorRecord[]): AdvisorServiceRow[] {
+  return records.flatMap((record) => {
+    const sections = getAdvisorRecordSections(record.content);
+    const owner = getSectionValue(sections, '负责人') || record.createdBy;
+    const pendingFollowUp = record.followUpItems.find((item) => item.status !== 'done');
+    const nextStep = getSectionValue(sections, '下一步') || pendingFollowUp?.title || '查看服务记录并确认后续安排';
+    const recordRow: AdvisorServiceRow = {
+      id: `record:${record.id}`,
+      kind: 'record',
+      recordType: record.type,
+      title: record.title,
+      context: advisorTypeLabels[record.type],
+      status: getAdvisorRecordStatus(record.followUpItems),
+      owner,
+      serviceTime: record.createdAt,
+      nextStep,
+      record
+    };
+    const followUpRows = record.followUpItems.map<AdvisorServiceRow>((followUp) => ({
+      id: `follow-up:${followUp.id}`,
+      kind: 'follow_up',
+      recordType: 'follow_up',
+      title: followUp.title,
+      context: `${record.title} · 跟进事项`,
+      status: followUp.status,
+      owner: followUp.owner || owner,
+      serviceTime: followUp.dueDate || record.createdAt,
+      nextStep: getFollowUpNextStep(followUp.status),
+      record,
+      followUp
+    }));
+    return [recordRow, ...followUpRows];
+  });
+}
+
+export function getFilteredAdvisorServiceRows(rows: AdvisorServiceRow[], filters: AdvisorServiceFilters): AdvisorServiceRow[] {
+  const search = filters.search.trim().toLocaleLowerCase();
+  return rows.filter((row) => {
+    const searchableText = `${row.title} ${row.context} ${row.owner} ${row.nextStep} ${row.record.relatedReport?.title ?? ''}`.toLocaleLowerCase();
+    const serviceDate = row.serviceTime.slice(0, 10);
+    return (!search || searchableText.includes(search))
+      && (filters.type === 'all' || row.recordType === filters.type)
+      && (filters.status === 'all' || row.status === filters.status)
+      && (!filters.from || serviceDate >= filters.from)
+      && (!filters.to || serviceDate <= filters.to);
+  });
+}
+
+export function AdvisorServiceDetail({ row }: { row: AdvisorServiceRow }) {
+  const sections = getAdvisorRecordSections(row.record.content);
+  return (
+    <ProductPageSection title="服务详情" description="查看当前服务记录的状态、责任人、关联报告和连续行动。" className="advisor-service-detail">
+      <Space direction="vertical" size={16} className="page-stack">
+        <Card size="small" title={row.title}>
+          <Descriptions
+            size="small"
+            column={{ xs: 1, sm: 2, lg: 3 }}
+            items={[
+              { key: 'type', label: '类型', children: row.recordType === 'follow_up' ? '跟进事项' : advisorTypeLabels[row.recordType] },
+              { key: 'status', label: '状态', children: <Tag color={serviceStatusColors[row.status]}>{serviceStatusLabels[row.status]}</Tag> },
+              { key: 'owner', label: '负责人', children: row.owner },
+              { key: 'time', label: row.followUp?.dueDate ? '截止时间' : '服务时间', children: formatAdvisorDate(row.serviceTime) },
+              { key: 'next-step', label: '下一步', children: row.nextStep },
+              { key: 'brand', label: '品牌', children: row.record.brandId }
+            ]}
+          />
+        </Card>
+        <Card size="small" title="关联报告">
+          {row.record.relatedReport
+            ? `${row.record.relatedReport.title}（${row.record.relatedReport.periodStart} 至 ${row.record.relatedReport.periodEnd}）`
+            : <Alert type="info" showIcon message="当前服务记录尚未关联报告" />}
+        </Card>
+        <Card size="small" title="服务记录">
+          {sections.length
+            ? <Descriptions size="small" column={1} bordered items={sections.map((section) => ({ key: section.title, label: section.title, children: section.content.join('；') }))} />
+            : <EmptyState description="当前记录暂无服务正文。" />}
+        </Card>
+        <Card size="small" title={`跟进事项（${row.record.followUpItems.length}）`}>
+          {row.record.followUpItems.length ? row.record.followUpItems.map((item) => (
+            <Alert key={item.id} type={item.status === 'done' ? 'success' : item.status === 'doing' ? 'warning' : 'info'} message={item.title} description={[`状态：${followUpStatusLabels[item.status]}`, item.owner ? `负责人：${item.owner}` : '', item.dueDate ? `截止：${item.dueDate}` : ''].filter(Boolean).join(' / ')} style={{ marginBottom: 8 }} />
+          )) : <Alert type="success" showIcon message="当前服务记录暂无待跟进事项" />}
+        </Card>
+      </Space>
+    </ProductPageSection>
+  );
+}
+
+function getAdvisorRecordStatus(items: AdvisorFollowUpItem[]): AdvisorServiceStatus {
+  if (items.some((item) => item.status === 'doing')) return 'doing';
+  if (items.some((item) => item.status === 'todo')) return 'todo';
+  if (items.length > 0) return 'done';
+  return 'recorded';
+}
+
+function getSectionValue(sections: AdvisorRecordSection[], prefix: string): string {
+  const item = sections.flatMap((section) => section.content).find((content) => content.startsWith(`${prefix}：`));
+  return item?.slice(prefix.length + 1).trim() ?? '';
+}
+
+function getFollowUpNextStep(status: AdvisorFollowUpItem['status']): string {
+  if (status === 'todo') return '开始处理该跟进事项';
+  if (status === 'doing') return '完成并记录处理结果';
+  return '查看关联服务记录';
+}
+
+function formatAdvisorDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+}
 
 function toLines(value?: string): string[] {
   return value?.split('\n').map((item) => item.trim()).filter(Boolean) ?? [];

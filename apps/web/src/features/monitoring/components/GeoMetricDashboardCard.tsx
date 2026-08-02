@@ -50,7 +50,7 @@ export function GeoMetricDashboardCard({ brandId, onStartTest }: Props) {
               showIcon
               message="当前品牌样本不足"
               description="请先创建一次 AI 回复监测，录入或获取 AI 原始回复后点击解读，系统会更新推荐表现。"
-              action={onStartTest ? <Button size="small" type="primary" onClick={onStartTest}>去新建监测</Button> : undefined}
+              action={onStartTest ? <Button size="small" onClick={onStartTest}>去新建监测</Button> : undefined}
             />
           ) : null}
           <Table
@@ -74,12 +74,12 @@ export function GeoMetricDashboardCard({ brandId, onStartTest }: Props) {
             loading={rankingQuery.isLoading}
             pagination={false}
             dataSource={ranking}
-            locale={{ emptyText: <EmptyState description="暂无多品牌排行数据。" /> }}
+            locale={{ emptyText: <EmptyState title="还没有多品牌排行" description="可对比的品牌推荐表现数据" reason="排行需要多个品牌完成真实回复监测和解读。" nextStep="完成更多品牌的 AI 回复监测后再查看。" /> }}
             columns={rankingColumns}
           />
         </Space>
       ) : (
-        <EmptyState description="还没有推荐表现数据，请先创建一次 AI 回复监测并完成解读。" actionLabel={onStartTest ? '去新建监测' : undefined} onAction={onStartTest} />
+        <EmptyState title="还没有推荐表现数据" description="品牌提及、排名、准确度、情绪和引用来源指标" reason="这些指标只从真实 AI 回复、浏览器辅助结果或手动录入真实回复中计算。" nextStep="创建一次 AI 回复监测并完成结果解读。" actionLabel={onStartTest ? '去新建监测' : undefined} onAction={onStartTest} />
       )}
     </Card>
   );
@@ -118,7 +118,7 @@ const rankingColumns = [
 export function getMetricDimensionLabel(record: Pick<GEOMetricSnapshot, 'platformCode' | 'optimizationUnitId' | 'intentId' | 'category'>): string {
   if (record.platformCode) return getPlatformDisplayName(record.platformCode);
   if (record.category) return intentCategoryLabels[record.category] ?? '监测意图';
-  if (record.optimizationUnitId) return '监测主题';
+  if (record.optimizationUnitId) return '优化单元';
   if (record.intentId) return '监测问题';
   return '整体';
 }

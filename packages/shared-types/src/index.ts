@@ -114,6 +114,40 @@ export type BrandProfile = {
 
 export type BrandProfileInput = Omit<BrandProfile, 'brandId' | 'completenessScore' | 'missingFields' | 'completenessPrompts' | 'updatedAt'>;
 
+export type BrandProfileLibrarySectionKey =
+  | 'basic-info'
+  | 'products'
+  | 'audiences'
+  | 'brand-knowledge'
+  | 'media-assets'
+  | 'owned-media'
+  | 'competitors';
+
+export type BrandProfileLibrarySection = {
+  key: BrandProfileLibrarySectionKey;
+  title: string;
+  description: string;
+  completeness: number;
+  missingItems: string[];
+  itemCount: number;
+};
+
+export type BrandProfileLibrary = {
+  brandId: BrandId;
+  profile: BrandProfile;
+  sections: BrandProfileLibrarySection[];
+  knowledgeSources: KnowledgeSource[];
+  mediaAssets: BrandMediaAsset[];
+  contentAssets: ContentAsset[];
+  publishingAccounts: PublishingAccount[];
+  competitors: Competitor[];
+  updatedAt: string;
+};
+
+export type BrandProfileLibraryInput = {
+  profile?: BrandProfileInput;
+};
+
 export type BrandProfileCompleteness = {
   score: number;
   missingFields: string[];
@@ -143,6 +177,38 @@ export type KnowledgeSourceInput = {
   sourceUrl?: string;
   fileRef?: string;
   status?: KnowledgeSourceStatus;
+};
+
+export type BrandMediaAssetType = 'image' | 'document' | 'webpage' | 'content_asset';
+
+export type BrandMediaAssetReviewStatus = 'pending' | 'approved' | 'rejected' | 'needs_review';
+
+export type BrandMediaAsset = {
+  id: string;
+  brandId: BrandId;
+  title: string;
+  assetType: BrandMediaAssetType;
+  applicablePlatforms: string[];
+  contentUsage: string;
+  source: string;
+  reviewStatus: BrandMediaAssetReviewStatus;
+  relatedContentTaskId?: string;
+  sourceUrl?: string;
+  fileRef?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BrandMediaAssetInput = {
+  title?: string;
+  assetType?: BrandMediaAssetType;
+  applicablePlatforms?: string[];
+  contentUsage?: string;
+  source?: string;
+  reviewStatus?: BrandMediaAssetReviewStatus;
+  relatedContentTaskId?: string;
+  sourceUrl?: string;
+  fileRef?: string;
 };
 
 export type SupportedBrandImportFormat = 'markdown' | 'word' | 'pdf';
@@ -416,6 +482,8 @@ export type BrowserConnectionStatus = 'not_started' | 'opening' | 'login_require
 
 export type BrowserConnectionIssueType = 'captcha' | 'risk_control' | 'login_expired' | 'platform_limit' | 'page_changed' | 'unknown';
 
+export type BrowserConnectionEvent = 'login_confirmed' | 'issue_reported' | 'answer_captured' | 'session_stopped';
+
 export type BrowserConnectionSession = {
   id: string;
   brandId: BrandId;
@@ -441,12 +509,21 @@ export type BrowserConnectionStartInput = {
 };
 
 export type BrowserConnectionStatusInput = {
-  status: BrowserConnectionStatus;
-  loginDetected?: boolean;
-  lastOperation?: string;
+  event: BrowserConnectionEvent;
   lastIssueType?: BrowserConnectionIssueType;
   lastMessage?: string;
-  lastAvailableAt?: string;
+};
+
+export type BrowserResponseCaptureInput = {
+  runId: string;
+  rawText: string;
+  modelName?: string;
+  citations?: string[];
+};
+
+export type BrowserResponseCaptureResult = {
+  session: BrowserConnectionSession;
+  run: MonitoringRunDetail;
 };
 
 export type RunPromptInput = {
@@ -1497,6 +1574,7 @@ export type CompetitorComparisonItem = {
   recommendationReason: string;
   citationSources: string[];
   runId: string;
+  capturedAt: string;
 };
 
 export type CompetitorDashboard = {
@@ -1543,6 +1621,35 @@ export type ContentAssetInput = {
   publishedAt?: string;
 };
 
+export type ContentAssetReviewStatus = 'pending' | 'approved' | 'needs_revision';
+
+export type ContentAssetPublishStatus = 'not_started' | 'draft' | 'pending' | 'published' | 'failed';
+
+export type ContentAssetPublishingStats = {
+  brandId: BrandId;
+  totalRecords: number;
+  publishedRecords: number;
+  failedRecords: number;
+  citationCount: number;
+  relatedIntentCount: number;
+};
+
+export type ContentAssetPageItem = ContentAsset & {
+  optimizationUnitId?: string;
+  userIntent?: string;
+  sourceReferences: Array<{ type: 'citation' | 'knowledge' | 'manual'; title: string; url?: string }>;
+  reviewStatus: ContentAssetReviewStatus;
+  publishStatus: ContentAssetPublishStatus;
+  retestPlanId?: string;
+  publishingStats: ContentAssetPublishingStats;
+};
+
+export type ContentAssetPageInput = ContentAssetInput & {
+  optimizationUnitId?: string;
+  userIntent?: string;
+  sourceReferences?: Array<{ type: 'citation' | 'knowledge' | 'manual'; title: string; url?: string }>;
+};
+
 export type ContentAssetFilter = {
   type?: string;
   platform?: string;
@@ -1570,12 +1677,22 @@ export type CitationSource = {
 
 export type CitationDashboard = {
   brandId: BrandId;
+  sampleCount: number;
+  citedSampleCount: number;
+  citationRate: number;
   totalCitations: number;
   contentCitationRate: number;
   officialCitationRate: number;
   authoritySourceRate: number;
   sourceTypeBreakdown: Array<{ sourceType: CitationSourceType; citationCount: number; rate: number }>;
-  trend: Array<{ date: string; citationCount: number; contentCitationRate: number }>;
+  trend: Array<{
+    date: string;
+    sampleCount: number;
+    citedSampleCount: number;
+    citationRate: number;
+    citationCount: number;
+    contentCitationRate: number;
+  }>;
   sources: CitationSource[];
   contentAssets: ContentAsset[];
 };
@@ -1600,6 +1717,38 @@ export type AnalysisResult = {
   updatedAt: string;
 };
 
+export type AnalysisFindingType = 'competitor' | 'evaluation' | 'citation' | 'fact';
+
+export type AnalysisFindingSeverity = 'high' | 'medium' | 'low';
+
+export type AnalysisRecommendedAction = {
+  label: string;
+  actionType: 'create_task' | 'generate_content' | 'update_knowledge' | 'schedule_retest';
+  targetId?: string;
+};
+
+export type AnalysisFinding = {
+  id: string;
+  brandId: BrandId;
+  type: AnalysisFindingType;
+  title: string;
+  optimizationUnitId?: string;
+  userIntent?: string;
+  platformCode?: string;
+  evidence: string[];
+  severity: AnalysisFindingSeverity;
+  recommendedActions: AnalysisRecommendedAction[];
+  relatedTaskId?: string;
+};
+
+export type AnalysisFindingInput = Omit<AnalysisFinding, 'id' | 'brandId'>;
+
+export type AnalysisWorkbenchDashboard = {
+  brandId: BrandId;
+  findings: AnalysisFinding[];
+  recommendedActions: AnalysisRecommendedAction[];
+};
+
 export type AnalysisResultInput = Partial<Omit<AnalysisResult, 'id' | 'responseId' | 'runId' | 'brandId' | 'updatedAt'>>;
 
 export type EvaluationIssueType = 'misinformation' | 'missing_selling_point' | 'blocked_expression' | 'negative_expression' | 'low_accuracy';
@@ -1615,6 +1764,7 @@ export type EvaluationIssue = {
   runId: string;
   promptId: string;
   promptText: string;
+  userIntent?: string;
   platformCode: string;
   issueType: EvaluationIssueType;
   rawFragment: string;
@@ -1893,7 +2043,9 @@ export type ContentGenerationWorkspace = {
 
 export type PublishingAuthStatus = 'connected' | 'expired' | 'error' | 'disconnected';
 
-export type PublishingRecordStatus = 'draft' | 'pending' | 'published' | 'failed';
+export type PublishingMode = 'manual' | 'assisted' | 'automatic';
+
+export type PublishingRecordStatus = 'draft' | 'pending' | 'queued' | 'publishing' | 'published' | 'failed';
 
 export type PublishingLoginMode = 'oauth' | 'manual' | 'cookie';
 
@@ -1911,6 +2063,7 @@ export type PublishingAccount = {
   platform: string;
   accountName: string;
   loginMode: PublishingLoginMode;
+  publishingMode?: PublishingMode;
   authStatus: PublishingAuthStatus;
   lastAuthorizedAt?: string;
   errorMessage?: string;
@@ -1922,8 +2075,13 @@ export type PublishingAccountInput = {
   platform: string;
   accountName: string;
   loginMode?: PublishingLoginMode;
+  publishingMode?: PublishingMode;
   authStatus?: PublishingAuthStatus;
   errorMessage?: string;
+};
+
+export type PublishingModeInput = {
+  publishingMode: PublishingMode;
 };
 
 export type PublishingRecord = {
@@ -1937,8 +2095,12 @@ export type PublishingRecord = {
   body: string;
   platform: string;
   accountName?: string;
+  publishingMode?: PublishingMode;
   status: PublishingRecordStatus;
+  externalPlatformId?: string;
   publishedUrl?: string;
+  lastAttemptAt?: string;
+  publishedAt?: string;
   errorMessage?: string;
   createdAt: string;
   updatedAt: string;
@@ -1956,11 +2118,65 @@ export type PublishingStatusInput = {
   errorMessage?: string;
 };
 
+export type PublishingExecutionStatusInput = PublishingStatusInput & {
+  externalPlatformId?: string;
+  lastAttemptAt?: string;
+  publishedAt?: string;
+};
+
+export type PublishingExecutionOutcome = 'published' | 'already_published' | 'failed';
+
+export type PublishingExecutionResult = {
+  outcome: PublishingExecutionOutcome;
+  idempotencyKey: string;
+  record: PublishingRecord;
+};
+
 export type PublishingDashboard = {
   brandId: BrandId;
   platforms: PublishingPlatform[];
   accounts: PublishingAccount[];
   records: PublishingRecord[];
+};
+
+export type PublishingChannelStats = {
+  brandId: BrandId;
+  platform: string;
+  totalRecords: number;
+  draftRecords: number;
+  pendingRecords: number;
+  publishedRecords: number;
+  failedRecords: number;
+};
+
+export type OwnedMediaAccount = PublishingAccount & {
+  platformName: string;
+  stats: PublishingChannelStats;
+};
+
+export type MediaPlatformRule = {
+  brandId: BrandId;
+  platform: string;
+  name: string;
+  contentFormats: string[];
+  intentFit: string;
+  recommendedFrequency: string;
+  coverRatio: string;
+  publishingNote: string;
+};
+
+export type MediaPlatformRuleInput = Omit<MediaPlatformRule, 'brandId'>;
+
+export type PublishingRecordPerformance = {
+  brandId: BrandId;
+  recordId: string;
+  contentAssetId?: string;
+  sourceStatus: 'linked' | 'unidentified';
+  citationCount: number;
+  relatedIntentCount: number;
+  retestStatus: 'not_planned' | 'planned' | 'completed' | 'improved' | 'not_improved';
+  latestRetestRecordId?: string;
+  nextSuggestion: string;
 };
 
 export type OptimizationTaskStatus = 'todo' | 'doing' | 'review' | 'retest' | 'done' | 'reopened';
@@ -2254,12 +2470,15 @@ export type InnerTestFeedbackType = 'usability' | 'bug' | 'copy' | 'data' | 'wor
 
 export type InnerTestFeedbackStatus = 'open' | 'triaged' | 'in_progress' | 'resolved';
 
+export type InnerTestFeedbackSeverity = 'high' | 'medium' | 'low';
+
 export type InnerTestFeedback = {
   id: string;
   brandId: BrandId;
   page: string;
   module: string;
   type: InnerTestFeedbackType;
+  severity: InnerTestFeedbackSeverity;
   description: string;
   status: InnerTestFeedbackStatus;
   reporterId: string;
@@ -2272,11 +2491,13 @@ export type InnerTestFeedbackInput = {
   page: string;
   module: string;
   type: InnerTestFeedbackType;
+  severity?: InnerTestFeedbackSeverity;
   description: string;
 };
 
 export type InnerTestFeedbackUpdateInput = {
   status?: InnerTestFeedbackStatus;
+  severity?: InnerTestFeedbackSeverity;
   resolutionNote?: string;
 };
 
@@ -2321,6 +2542,117 @@ export type MonitoringRunDetail = MonitoringRun & {
   promptText: string;
   response?: AIResponse;
   analysis?: AnalysisResult;
+};
+
+export function hasRealMonitoringResponseSample(
+  run: Pick<MonitoringRunDetail, 'platformCode' | 'response'>,
+): boolean {
+  return run.platformCode !== 'mock_ai' && Boolean(run.response?.rawText.trim());
+}
+
+export type DashboardNextAction = {
+  actionType:
+    | 'complete_profile'
+    | 'create_monitoring_object'
+    | 'collect_real_response'
+    | 'prepare_content'
+    | 'publish_content'
+    | 'review_risk'
+    | 'schedule_retest'
+    | 'review_results';
+  label: string;
+  reason: string;
+  targetId?: string;
+};
+
+export type BeginnerHomeResultSummary = {
+  recommendationRate: number;
+  averageRank: number | null;
+  citationHitRate: number;
+  pendingIssueCount: number;
+  sampleSize: number;
+  rankedSampleSize: number;
+};
+
+export type BeginnerHomeDashboard = {
+  brandId: BrandId;
+  profileCompleteness: Pick<BrandProfile, 'completenessScore' | 'missingFields'>;
+  monitoringObjectCount: number;
+  realResponseStatus: {
+    total: number;
+    collected: number;
+    pending: number;
+    reviewRequired: number;
+    failed: number;
+  };
+  contentTaskStatus: Record<ContentGenerationStatus, number>;
+  publishingStatus: {
+    totalRecords: number;
+    publishedRecords: number;
+    failedRecords: number;
+    citationCount: number;
+    pendingRetestCount: number;
+  };
+  analysisRisk: {
+    total: number;
+    high: number;
+    byType: Record<AnalysisFindingType, number>;
+  };
+  resultSummary: BeginnerHomeResultSummary;
+  currentSprint?: Pick<VisibilitySprint, 'sprintId' | 'status' | 'currentStep' | 'metricSummary' | 'updatedAt'>;
+  nextAction: DashboardNextAction;
+};
+
+export type MonitoringObjectTask = Pick<
+  OptimizationTask,
+  'id' | 'title' | 'status' | 'relatedPromptId' | 'priority' | 'retestRecords'
+> & {
+  retestStatus: PublishingRecordPerformance['retestStatus'];
+};
+
+export type MonitoringObjectDashboard = {
+  brandId: BrandId;
+  objects: Array<{
+    optimizationUnit: Pick<OptimizationUnit, 'id' | 'name' | 'type' | 'priority' | 'enabled'>;
+    intents: Array<Pick<UserIntent, 'id' | 'category' | 'text' | 'monitoringFrequency' | 'enabled' | 'platformMetrics'>>;
+    prompts: Array<Pick<BrandPrompt, 'id' | 'intentId' | 'text' | 'platformCodes' | 'monitoringFrequency' | 'enabled'>>;
+    contentTasks: MonitoringObjectTask[];
+  }>;
+};
+
+export type ContentOperationTemplate = {
+  contentType: GrowthContentType | string;
+  title: string;
+  targetPlatforms: string[];
+};
+
+export type ContentOperationDashboard = {
+  brandId: BrandId;
+  tasks: ContentGenerationTask[];
+  templates: ContentOperationTemplate[];
+  materials: BrandMediaAsset[];
+  assets: ContentAssetPageItem[];
+  publishingPreparation?: SprintPublishingPreparationDashboard;
+  publishingStats: PublishingChannelStats[];
+  retest?: Pick<
+    SprintRetestTrendDashboard,
+    'plannedTaskCount' | 'completedRetestCount' | 'improvedRetestCount' | 'items' | 'updatedAt'
+  >;
+};
+
+export type PublishingOperationDashboard = {
+  brandId: BrandId;
+  accounts: OwnedMediaAccount[];
+  platformRules: MediaPlatformRule[];
+  records: PublishingRecord[];
+  citations: CitationSource[];
+  performance: PublishingRecordPerformance[];
+  channelStats: PublishingChannelStats[];
+  pendingRetestItems: SprintRetestTrendItem[];
+};
+
+export type AnalysisDiagnosisDashboard = AnalysisWorkbenchDashboard & {
+  findingGroups: Record<AnalysisFindingType, AnalysisFinding[]>;
 };
 
 export type MonitoringRunInput = {

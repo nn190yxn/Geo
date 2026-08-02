@@ -5,27 +5,28 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@geo-platform/shared-types": "0.1.0",
+    "@tanstack/react-query": "latest",
     "@vitejs/plugin-react": "latest",
     "antd": "latest",
-    "vite": "latest",
-    "typescript": "5.9.3",
+    "echarts": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "react-router-dom": "latest",
-    "@tanstack/react-query": "latest",
-    "zustand": "latest",
-    "echarts": "latest",
-    "reactflow": "latest"
+    "react-router": "8.3.0",
+    "reactflow": "latest",
+    "typescript": "5.9.3",
+    "vite": "latest",
+    "zustand": "latest"
   },
   "devDependencies": {
-    "vitest": "latest",
     "@types/react": "latest",
-    "@types/react-dom": "latest"
+    "@types/react-dom": "latest",
+    "vitest": "latest"
   }
 }

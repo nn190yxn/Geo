@@ -16,13 +16,13 @@ describe('TestQuestionCandidateCard generation notices', () => {
   });
 
   it('explains fallback generation in business language', () => {
-    expect(getGenerationNotice('监测主题已生成', {
+    expect(getGenerationNotice('优化单元已生成', {
       items: [],
       missingProfileFields: [],
       generationNotes: [],
       source: 'fallback'
     })).toEqual({
-      title: '监测主题已生成',
+      title: '优化单元已生成',
       type: 'info',
       description: '当前先用基础模板生成，补齐平台密钥后可使用大模型生成。'
     });

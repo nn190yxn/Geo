@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AutomationOrchestratorService } from '../src/modules/automation/automation-orchestrator.service';
 import { AutomationRepository } from '../src/modules/automation/automation.repository';
 import { ConfirmationQueueService } from '../src/modules/automation/confirmation-queue.service';
@@ -35,9 +35,20 @@ describe('QuestionPoolService', () => {
   });
 
   it('does not select duplicate question text from different themes', async () => {
-    const { automationService, permissionsRepository } = createServices();
-    permissionsRepository.createTestQuestionCandidate('user_demo', 'brand_demo', {
-      themeId: 'theme_duplicate_a',
+    const testQuestionService = new TestQuestionService();
+    vi.spyOn(testQuestionService, 'generateCandidatesWithLLM').mockResolvedValue({
+      items: [],
+      missingProfileFields: [],
+      generationNotes: [],
+      source: 'fallback'
+    });
+    const { automationService, permissionsRepository } = createServices(testQuestionService);
+    const existingCandidates = permissionsRepository.listTestQuestionCandidates('user_demo', 'brand_demo') ?? [];
+    existingCandidates.forEach((candidate) => {
+      permissionsRepository.updateTestQuestionCandidate('user_demo', 'brand_demo', candidate.id, { priority: 'low' });
+    });
+    const firstDuplicate = permissionsRepository.createTestQuestionCandidate('user_demo', 'brand_demo', {
+      themeId: 'theme_demo_local_recommendation',
       question: '如果要选择追光小牛，需要重点了解哪些信息？',
       purposes: ['brand_mentioned'],
       targetPlatforms: ['doubao'],
@@ -46,8 +57,8 @@ describe('QuestionPoolService', () => {
       editable: true,
       selected: false
     });
-    permissionsRepository.createTestQuestionCandidate('user_demo', 'brand_demo', {
-      themeId: 'theme_duplicate_b',
+    const secondDuplicate = permissionsRepository.createTestQuestionCandidate('user_demo', 'brand_demo', {
+      themeId: 'theme_demo_age_group',
       question: '如果要选择追光小牛，需要重点了解哪些信息?',
       purposes: ['value_prop_accuracy'],
       targetPlatforms: ['kimi'],
@@ -56,13 +67,15 @@ describe('QuestionPoolService', () => {
       editable: true,
       selected: false
     });
+    expect(firstDuplicate).not.toBeNull();
+    expect(secondDuplicate).not.toBeNull();
     const automationPackage = automationService.createPackage('user_demo', 'brand_demo');
 
     const started = await automationService.startPackage('user_demo', 'brand_demo', automationPackage.packageId);
     const confirmation = started.confirmations.find((item) => item.type === 'test_questions');
     const selectedQuestions = getSelectedQuestionTexts(confirmation?.payload);
 
-    expect(selectedQuestions.filter((question) => question === '如果要选择追光小牛，需要重点了解哪些信息？')).toHaveLength(1);
+    expect(selectedQuestions.filter((question) => question.replace(/[？?]/g, '') === '如果要选择追光小牛，需要重点了解哪些信息')).toHaveLength(1);
   });
 
   it('selects newly generated questions when a brand starts without candidates', async () => {
@@ -106,7 +119,7 @@ describe('QuestionPoolService', () => {
   });
 });
 
-function createServices() {
+function createServices(testQuestionService = new TestQuestionService()) {
   const automationRepository = new AutomationRepository();
   const permissionsRepository = new PermissionsRepository();
   const confirmationQueue = new ConfirmationQueueService(automationRepository, permissionsRepository);
@@ -114,7 +127,7 @@ function createServices() {
     automationRepository,
     permissionsRepository,
     new TestThemeService(),
-    new TestQuestionService(),
+    testQuestionService,
     confirmationQueue
   );
   const automationService = new AutomationOrchestratorService(automationRepository, permissionsRepository, confirmationQueue, questionPoolService);

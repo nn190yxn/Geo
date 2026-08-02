@@ -51,7 +51,7 @@
     - 已在部署运行手册中补充生产试运行环境变量和依赖配置说明
   - [x] 4.3 编写部署运行手册
     - 覆盖安装、迁移、构建、启动、健康检查、回滚和排障，覆盖 Requirement P4.4
-    - 已新增 `.monkeycode/docs/DEPLOYMENT_RUNBOOK.md`
+    - 已新增 `当前工作区/.monkeycode/docs/DEPLOYMENT_RUNBOOK.md`
 
 - [x] 5. 第四阶段检查点 - 确保所有测试通过
   - [x] 5.1 运行完整验证门禁

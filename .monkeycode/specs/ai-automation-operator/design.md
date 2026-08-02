@@ -260,7 +260,7 @@ npm run prisma:generate
 
 ## References
 
-- .monkeycode/docs/ARCHITECTURE.md
-- .monkeycode/docs/INTERFACES.md
-- .monkeycode/specs/beginner-friendly-geo-workflow/requirements.md
-- .monkeycode/specs/llm-api-integration/tasklist.md
+- 当前工作区/.monkeycode/docs/ARCHITECTURE.md
+- 当前工作区/.monkeycode/docs/INTERFACES.md
+- 当前工作区/.monkeycode/specs/beginner-friendly-geo-workflow/requirements.md
+- 当前工作区/.monkeycode/specs/llm-api-integration/tasklist.md

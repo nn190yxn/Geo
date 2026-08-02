@@ -13,6 +13,7 @@ import type {
   QuestionGenerationInput,
   QuestionGenerationOutput
 } from '@geo-platform/shared-types';
+import { sanitizePublicResponse } from '../../common/public-response';
 import { LLMOrchestrationService } from './llm-orchestration.service';
 
 @Controller('brands/:brandId/llm/tasks')
@@ -72,5 +73,5 @@ export class LLMController {
 }
 
 function success<T>(data: T): ApiResponse<T> {
-  return { success: true, data };
+  return { success: true, data: sanitizePublicResponse(data) };
 }

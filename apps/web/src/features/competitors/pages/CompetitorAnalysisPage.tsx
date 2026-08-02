@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Card, Checkbox, Drawer, Form, Input, InputNumber, Modal, Select, Space, Statistic, Table, Tag, Typography, message } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocation, useNavigate } from 'react-router';
 import type {
   Competitor,
   CompetitorCandidate,
@@ -15,6 +16,14 @@ import type {
 } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
+import { getPlatformDisplayName } from '../../../utils/displayLabels';
+import { readWorkflowRouteContext, workflowStagePath, type WorkflowRouteContext } from '../../../app/routePaths';
+import { ManagementListPage, ManagementRowActions } from '../../../components/ManagementListPage';
+import { AccessibleDropdown } from '../../../components/AccessibleDropdown';
+import { EmptyState } from '../../../components/PageState';
+import { AnalysisWorkbench } from '../../analysis/components/AnalysisWorkbench';
+import { AnalysisScopeBar } from '../../analysis/components/AnalysisScopeBar';
+import { clearAnalysisScopeQuery, mergeAnalysisScopeQuery, readAnalysisScopeQuery, type AnalysisScopeValue } from '../../analysis/analysisScopeQuery';
 
 type CompetitorFormValues = Omit<CompetitorInput, 'aliases' | 'industryTags'> & {
   aliasesText?: string;
@@ -25,6 +34,9 @@ export function CompetitorAnalysisPage() {
   const [messageApi, contextHolder] = message.useMessage();
   const queryClient = useQueryClient();
   const activeBrandId = useBrandContextStore((state) => state.activeBrandId);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pageMode = getCompetitorPageMode(location.pathname);
   const [modalOpen, setModalOpen] = useState(false);
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const [discoveryFilter, setDiscoveryFilter] = useState<NonNullable<CompetitorDiscoveryCandidatesQuery['filter']>>('all');
@@ -42,6 +54,14 @@ export function CompetitorAnalysisPage() {
     enabled: Boolean(activeBrandId && activeDiscoveryRun?.runId)
   });
   const dashboard = dashboardQuery.data?.success ? dashboardQuery.data.data : null;
+  const analysisScope = readAnalysisScopeQuery(location.search, { statuses: ['suppressed', 'clear'] as const });
+  const comparisonRows = getFilteredCompetitorComparisons(dashboard?.comparisons ?? [], analysisScope);
+  const scopeSummary = getCompetitorScopeSummary(comparisonRows);
+  const platformMatrixRows = getCompetitorPlatformMatrix(comparisonRows);
+  const trendRows = getCompetitorTrend(comparisonRows);
+  const riskIntentRows = getCompetitorRiskIntents(comparisonRows);
+  const workflowContext = readWorkflowRouteContext(location.search);
+  const updateAnalysisScope = (value: typeof analysisScope) => navigate({ pathname: location.pathname, search: mergeAnalysisScopeQuery(location.search, value), hash: location.hash }, { replace: true });
   const saveMutation = useMutation({
     mutationFn: (values: CompetitorFormValues) => {
       const payload = toCompetitorPayload(values);
@@ -120,74 +140,108 @@ export function CompetitorAnalysisPage() {
   return (
     <Space direction="vertical" size={16} className="page-stack">
       {contextHolder}
-      <Card
+      {pageMode === 'profile' ? (
+        <CompetitorProfileManagement
+          dashboard={dashboard}
+          loading={dashboardQuery.isLoading}
+          failed={Boolean(dashboardQuery.data && !dashboardQuery.data.success)}
+          onCreate={openCreateModal}
+          onDiscover={openDiscoveryDrawer}
+          onEdit={openEditModal}
+        />
+      ) : (
+      <AnalysisWorkbench
         title="竞品分析"
-        extra={(
-          <Space>
-            <Button onClick={openDiscoveryDrawer}>地图发现竞品</Button>
-            <Button type="primary" onClick={openCreateModal}>新增竞品</Button>
+        description="聚合同监测问题、同平台、同用户意图下的推荐顺序、压制情况和高风险场景。"
+        findings={getCompetitorAnalysisFindings(dashboard, comparisonRows)}
+        actions={['更新竞品资料', '生成内容策略', '创建再次监测']}
+        extra={<Button onClick={() => navigate({ pathname: '/competitor-profile', search: location.search, hash: location.hash })}>管理竞品资料</Button>}
+        loading={dashboardQuery.isLoading}
+        state={dashboardQuery.isLoading ? 'loading' : dashboardQuery.data && !dashboardQuery.data.success ? 'error' : 'ready'}
+        onRetry={() => void dashboardQuery.refetch()}
+        scopeDescription="竞品提及率保留品牌整体真实样本口径；推荐排名、压制风险、平台矩阵、趋势和证据明细使用当前筛选范围。"
+        filters={(
+          <AnalysisScopeBar
+            value={analysisScope}
+            onChange={updateAnalysisScope}
+            onClear={() => navigate({ pathname: location.pathname, search: clearAnalysisScopeQuery(location.search), hash: location.hash }, { replace: true })}
+            statusOptions={[{ value: 'suppressed', label: '发生压制' }, { value: 'clear', label: '未压制' }]}
+            optimizationUnitOptions={getCompetitorOptimizationUnitOptions(dashboard?.comparisons ?? [])}
+            intentOptions={getCompetitorIntentOptions(dashboard?.comparisons ?? [])}
+            resultCount={comparisonRows.length}
+            totalCount={dashboard?.comparisons.length ?? 0}
+          />
+        )}
+        trend={(
+          <Card size="small" title="竞品趋势">
+            <Table
+              rowKey="date"
+              dataSource={trendRows}
+              pagination={false}
+              columns={[
+                { title: '日期', dataIndex: 'date' },
+                { title: '对比样本', dataIndex: 'sampleCount' },
+                { title: '品牌平均推荐排名', dataIndex: 'averageBrandRank', render: (value) => value === null ? '未提及' : `第 ${value} 名` },
+                { title: '压制风险', dataIndex: 'suppressionRate', render: (value) => `${value}%` }
+              ]}
+            />
+          </Card>
+        )}
+        distribution={(
+          <Card size="small" title="AI 平台矩阵">
+            <Table
+              rowKey="platformCode"
+              dataSource={platformMatrixRows}
+              pagination={false}
+              columns={[
+                { title: 'AI 平台', dataIndex: 'platformCode', render: (value: string) => getPlatformDisplayName(value) },
+                { title: '对比样本', dataIndex: 'sampleCount' },
+                { title: '品牌平均推荐排名', dataIndex: 'averageBrandRank', render: (value) => value === null ? '未提及' : `第 ${value} 名` },
+                { title: '压制样本', dataIndex: 'suppressedCount' },
+                { title: '压制风险', dataIndex: 'suppressionRate', render: (value) => `${value}%` }
+              ]}
+            />
+          </Card>
+        )}
+        details={(
+          <Space direction="vertical" size={16} className="full-width">
+            <Card size="small" title="高风险用户意图">
+              <Table
+                rowKey="intentId"
+                dataSource={riskIntentRows}
+                pagination={false}
+                columns={[
+                  { title: '用户意图', dataIndex: 'text' },
+                  { title: '被压制次数', dataIndex: 'suppressionCount' }
+                ]}
+              />
+            </Card>
+            <Card size="small" title="竞品对比证据">
+              <Table
+                rowKey={(record) => `${record.runId}-${record.competitorName}`}
+                dataSource={comparisonRows}
+                pagination={{ pageSize: 8 }}
+                columns={[
+                  { title: '竞品', dataIndex: 'competitorName' },
+                  { title: '平台', dataIndex: 'platformCode', render: (value: string) => getPlatformDisplayName(value) },
+                  { title: '用户意图', dataIndex: 'intentText' },
+                  { title: '品牌排名', dataIndex: 'brandRank', render: (value) => value ?? '未提及' },
+                  { title: '竞品排名', dataIndex: 'competitorRank', render: (value) => value ?? '未提及' },
+                  { title: '排名差', dataIndex: 'rankGap', render: (value) => value ?? '-' },
+                  { title: '压制', dataIndex: 'suppressed', render: (value) => value ? <Tag color="red">是</Tag> : <Tag>否</Tag> },
+                  { title: '推荐理由', dataIndex: 'recommendationReason' },
+                  { title: '操作', render: (_, record) => <CompetitorComparisonActions record={record} context={workflowContext} /> }
+                ]}
+              />
+            </Card>
           </Space>
         )}
       >
-        <Typography.Paragraph>
-          维护竞品档案，聚合同监测问题、同平台、同场景下的推荐顺序、压制情况和高风险场景。
-        </Typography.Paragraph>
-        <Space size={24} wrap>
-          <Statistic title="竞品数量" value={dashboard?.competitors.length ?? 0} />
-          <Statistic title="竞品提及率" value={dashboard?.mentionRate ?? 0} suffix="%" />
-          <Statistic title="竞品压制率" value={dashboard?.suppressionRate ?? 0} suffix="%" />
-          <Statistic title="平均排名差" value={dashboard?.averageRankGap ?? 0} />
-          <Statistic title="高风险意图" value={dashboard?.highRiskIntents.length ?? 0} />
-        </Space>
-      </Card>
-
-      <Card title="竞品档案" loading={dashboardQuery.isLoading}>
-        <Table
-          rowKey="id"
-          dataSource={dashboard?.competitors ?? []}
-          pagination={false}
-          columns={[
-            { title: '竞品名称', dataIndex: 'name' },
-            { title: '别名', render: (_, record) => record.aliases.map((alias) => <Tag key={alias}>{alias}</Tag>) },
-            { title: '行业标签', render: (_, record) => record.industryTags.map((tag) => <Tag key={tag}>{tag}</Tag>) },
-            { title: '确认标签', render: (_, record) => record.confirmationLabel ? <Tag color={getCompetitorLabelColor(record.confirmationLabel)}>{competitorLabelText[record.confirmationLabel]}</Tag> : '-' },
-            { title: '最近校区距离', dataIndex: 'nearestCampusDistanceKm', render: (value) => typeof value === 'number' ? `${value} 公里` : '-' },
-            { title: '来源', dataIndex: 'sourceProvider', render: (value) => value ? sourceProviderText[value as keyof typeof sourceProviderText] ?? value : '手动维护' },
-            { title: '连续压制阈值', render: (_, record) => record.suppressionRule.consecutiveThreshold },
-            { title: '操作', render: (_, record) => <Button size="small" onClick={() => openEditModal(record)}>编辑</Button> }
-          ]}
-        />
-      </Card>
-
-      <Card title="高风险意图" loading={dashboardQuery.isLoading}>
-        <Table
-          rowKey="intentId"
-          dataSource={dashboard?.highRiskIntents ?? []}
-          pagination={false}
-          columns={[
-            { title: '用户场景', dataIndex: 'text' },
-            { title: '被压制次数', dataIndex: 'suppressionCount' }
-          ]}
-        />
-      </Card>
-
-      <Card title="竞品对比明细" loading={dashboardQuery.isLoading}>
-        <Table
-          rowKey={(record) => `${record.runId}-${record.competitorName}`}
-          dataSource={dashboard?.comparisons ?? []}
-          pagination={{ pageSize: 8 }}
-          columns={[
-            { title: '竞品', dataIndex: 'competitorName' },
-            { title: '平台', dataIndex: 'platformCode' },
-            { title: '用户场景', dataIndex: 'intentText' },
-            { title: '品牌排名', dataIndex: 'brandRank', render: (value) => value ?? '未提及' },
-            { title: '竞品排名', dataIndex: 'competitorRank', render: (value) => value ?? '未提及' },
-            { title: '排名差', dataIndex: 'rankGap', render: (value) => value ?? '-' },
-            { title: '压制', dataIndex: 'suppressed', render: (value) => value ? <Tag color="red">是</Tag> : <Tag>否</Tag> },
-            { title: '推荐理由', dataIndex: 'recommendationReason' }
-          ]}
-        />
-      </Card>
+        <Statistic title="竞品提及率" value={dashboard?.mentionRate ?? 0} suffix="%" />
+        <Statistic title="品牌平均推荐排名" value={scopeSummary.averageBrandRank ?? '暂无排名'} suffix={scopeSummary.averageBrandRank === null ? undefined : '名'} />
+        <Statistic title="竞品压制风险" value={scopeSummary.suppressionRate} suffix="%" />
+      </AnalysisWorkbench>
+      )}
 
       <Modal
         title={editingCompetitor ? '编辑竞品' : '新增竞品'}
@@ -285,6 +339,225 @@ export function CompetitorAnalysisPage() {
   );
 }
 
+type CompetitorPageMode = 'profile' | 'analysis';
+
+export function getCompetitorPageMode(pathname: string): CompetitorPageMode {
+  return pathname === '/competitor-profile' ? 'profile' : 'analysis';
+}
+
+export function CompetitorProfileManagement({
+  dashboard,
+  loading,
+  failed,
+  onCreate,
+  onDiscover,
+  onEdit
+}: {
+  dashboard: CompetitorDashboard | null;
+  loading: boolean;
+  failed: boolean;
+  onCreate: () => void;
+  onDiscover: () => void;
+  onEdit: (competitor: Competitor) => void;
+}) {
+  const competitors = dashboard?.competitors ?? [];
+  const state = loading ? 'loading' : failed ? 'error' : competitors.length === 0 ? 'empty' : 'ready';
+
+  return (
+    <ManagementListPage<Competitor>
+      title="竞品信息"
+      description="维护需要持续对照的直接竞品、标杆品牌和地图发现对象，为后续排名与压制分析提供统一档案。"
+      primaryAction={competitors.length > 0 ? <Button type="primary" onClick={onCreate}>新增竞品</Button> : undefined}
+      secondaryActions={<Button onClick={onDiscover}>地图发现竞品</Button>}
+      summary={(
+        <Space size={24} wrap>
+          <Statistic title="竞品档案" value={competitors.length} />
+          <Statistic title="直接竞品" value={competitors.filter((item) => item.confirmationLabel === 'direct_competitor').length} />
+          <Statistic title="标杆品牌" value={competitors.filter((item) => item.confirmationLabel === 'national_benchmark').length} />
+        </Space>
+      )}
+      tableTitle="竞品档案列表"
+      tableDescription="名称、分类、来源和压制规则集中维护；排名与风险结论请前往竞品分析。"
+      state={state}
+      emptyState={(
+        <EmptyState
+          title="还没有竞品档案"
+          description="直接竞品、行业标杆及其别名和对比说明"
+          reason="竞品档案用于识别 AI 回复中的竞品提及、排名差和连续压制。"
+          nextStep="新增一个已知竞品，或从地图发现候选。"
+          actionLabel="新增竞品"
+          onAction={onCreate}
+        />
+      )}
+      tableProps={{
+        rowKey: 'id',
+        dataSource: competitors,
+        pagination: false,
+        columns: [
+          { title: '竞品名称', dataIndex: 'name' },
+          { title: '竞品分类', render: (_, record) => record.confirmationLabel ? <Tag color={getCompetitorLabelColor(record.confirmationLabel)}>{competitorLabelText[record.confirmationLabel]}</Tag> : <Tag>待分类</Tag> },
+          { title: '别名', render: (_, record) => record.aliases.length > 0 ? record.aliases.map((alias) => <Tag key={alias}>{alias}</Tag>) : '-' },
+          { title: '行业标签', render: (_, record) => record.industryTags.length > 0 ? record.industryTags.map((tag) => <Tag key={tag}>{tag}</Tag>) : '-' },
+          { title: '资料来源', dataIndex: 'sourceProvider', render: (value) => value ? sourceProviderText[value as keyof typeof sourceProviderText] ?? value : '手动维护' },
+          { title: '压制提醒', render: (_, record) => `连续 ${record.suppressionRule.consecutiveThreshold} 次` },
+          { title: '操作', render: (_, record) => <Button size="small" onClick={() => onEdit(record)}>编辑资料</Button> }
+        ]
+      }}
+    />
+  );
+}
+
+export function getCompetitorAnalysisFindings(dashboard: CompetitorDashboard | null, rows = dashboard?.comparisons ?? []): string[] {
+  if (!dashboard) return [];
+
+  const summary = getCompetitorScopeSummary(rows);
+  const riskIntents = getCompetitorRiskIntents(rows);
+  const findings = [`竞品提及率 ${dashboard.mentionRate}%`];
+  if (summary.averageBrandRank !== null) findings.push(`品牌平均推荐排名第 ${summary.averageBrandRank} 名`);
+  if (summary.suppressionRate > 0) findings.push(`当前范围竞品压制风险 ${summary.suppressionRate}%`);
+  if (riskIntents.length > 0) findings.push(`${riskIntents.length} 个用户意图需要优先处理`);
+  return findings;
+}
+
+type CompetitorActionRecord = Pick<CompetitorDashboard['comparisons'][number], 'suppressed' | 'rankGap'> & Partial<Pick<CompetitorDashboard['comparisons'][number], 'promptText' | 'optimizationUnitId' | 'intentId' | 'promptId' | 'runId' | 'platformCode'>>;
+
+export function getCompetitorComparisonActions(record: CompetitorActionRecord, context: WorkflowRouteContext = {}): Array<{ label: string; href: string }> {
+  const routeContext: WorkflowRouteContext = {
+    ...context,
+    question: record.promptText ?? context.question,
+    optimizationUnitId: record.optimizationUnitId ?? context.optimizationUnitId,
+    intentId: record.intentId ?? context.intentId,
+    promptId: record.promptId ?? context.promptId,
+    runId: record.runId ?? context.runId,
+    platformCode: record.platformCode ?? context.platformCode
+  };
+  const actions = [
+    { label: '创建竞品改进任务', href: workflowStagePath('/tasks', { ...routeContext, action: 'create' }) },
+    { label: '生成竞品回应内容', href: workflowStagePath('/content-generation', routeContext) },
+    { label: '再次监测', href: workflowStagePath('/monitoring', routeContext) }
+  ];
+
+  if (record.suppressed || (typeof record.rankGap === 'number' && record.rankGap > 0)) {
+    return [{ label: '生成对比内容', href: workflowStagePath('/content-generation', routeContext) }, ...actions];
+  }
+
+  return actions;
+}
+
+export function getFilteredCompetitorComparisons(
+  rows: CompetitorDashboard['comparisons'],
+  scope: AnalysisScopeValue<'suppressed' | 'clear'>
+): CompetitorDashboard['comparisons'] {
+  const search = scope.search.trim().toLowerCase();
+  return rows.filter((row) => {
+    const capturedDate = row.capturedAt.slice(0, 10);
+    if (scope.from && capturedDate < scope.from) return false;
+    if (scope.to && capturedDate > scope.to) return false;
+    if (scope.platform !== 'all' && row.platformCode !== scope.platform) return false;
+    if (scope.optimizationUnitId && row.optimizationUnitId !== scope.optimizationUnitId) return false;
+    if (scope.intentId && row.intentId !== scope.intentId) return false;
+    if (scope.status === 'suppressed' && !row.suppressed) return false;
+    if (scope.status === 'clear' && row.suppressed) return false;
+    return !search || [row.competitorName, row.promptText, row.intentText, row.recommendationReason].some((value) => value?.toLowerCase().includes(search));
+  }).sort((left, right) => Number(right.suppressed) - Number(left.suppressed) || Math.abs(right.rankGap ?? 0) - Math.abs(left.rankGap ?? 0));
+}
+
+export function getCompetitorScopeSummary(rows: CompetitorDashboard['comparisons']): { sampleCount: number; averageBrandRank: number | null; suppressionRate: number } {
+  const samples = getCompetitorRunSamples(rows);
+  const ranked = samples.map((sample) => sample.brandRank).filter((value): value is number => value !== null);
+  return {
+    sampleCount: samples.length,
+    averageBrandRank: ranked.length === 0 ? null : roundToOneDecimal(ranked.reduce((sum, value) => sum + value, 0) / ranked.length),
+    suppressionRate: samples.length === 0 ? 0 : Math.round((samples.filter((sample) => sample.suppressed).length / samples.length) * 100)
+  };
+}
+
+export function getCompetitorPlatformMatrix(rows: CompetitorDashboard['comparisons']) {
+  const groups = new Map<string, CompetitorDashboard['comparisons']>();
+  for (const row of rows) groups.set(row.platformCode, [...(groups.get(row.platformCode) ?? []), row]);
+  return [...groups.entries()].map(([platformCode, platformRows]) => {
+    const summary = getCompetitorScopeSummary(platformRows);
+    return {
+      platformCode,
+      sampleCount: summary.sampleCount,
+      averageBrandRank: summary.averageBrandRank,
+      suppressedCount: getCompetitorRunSamples(platformRows).filter((sample) => sample.suppressed).length,
+      suppressionRate: summary.suppressionRate
+    };
+  }).sort((left, right) => right.suppressionRate - left.suppressionRate || left.platformCode.localeCompare(right.platformCode));
+}
+
+export function getCompetitorTrend(rows: CompetitorDashboard['comparisons']) {
+  const groups = new Map<string, CompetitorDashboard['comparisons']>();
+  for (const row of rows) {
+    const date = row.capturedAt.slice(0, 10);
+    groups.set(date, [...(groups.get(date) ?? []), row]);
+  }
+  return [...groups.entries()].map(([date, dateRows]) => ({ date, ...getCompetitorScopeSummary(dateRows) })).sort((left, right) => left.date.localeCompare(right.date));
+}
+
+export function getCompetitorRiskIntents(rows: CompetitorDashboard['comparisons']) {
+  const groups = new Map<string, { intentId: string; text: string; suppressionCount: number }>();
+  for (const row of rows.filter((item) => item.suppressed)) {
+    const current = groups.get(row.intentId);
+    groups.set(row.intentId, { intentId: row.intentId, text: row.intentText, suppressionCount: (current?.suppressionCount ?? 0) + 1 });
+  }
+  return [...groups.values()].sort((left, right) => right.suppressionCount - left.suppressionCount);
+}
+
+function getCompetitorRunSamples(rows: CompetitorDashboard['comparisons']) {
+  const samples = new Map<string, { brandRank: number | null; suppressed: boolean }>();
+  for (const row of rows) {
+    const current = samples.get(row.runId);
+    samples.set(row.runId, { brandRank: current?.brandRank ?? row.brandRank, suppressed: Boolean(current?.suppressed || row.suppressed) });
+  }
+  return [...samples.values()];
+}
+
+function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function CompetitorComparisonActions({ record, context }: { record: CompetitorDashboard['comparisons'][number]; context: WorkflowRouteContext }) {
+  const navigate = useNavigate();
+  const actions = getCompetitorComparisonActions(record, context);
+  const primaryActions = actions.slice(0, 2);
+  return (
+    <ManagementRowActions
+      primaryActions={[
+        <Button key={primaryActions[0].label} size="small" onClick={() => navigate(primaryActions[0].href)}>{primaryActions[0].label}</Button>,
+        <Button key={primaryActions[1].label} size="small" onClick={() => navigate(primaryActions[1].href)}>{primaryActions[1].label}</Button>
+      ]}
+      moreAction={actions.length > 2 ? (
+        <AccessibleDropdown
+          label={`竞品“${record.competitorName}”的更多操作`}
+          menu={{
+            items: actions.slice(2).map((action, index) => ({ key: String(index), label: action.label })),
+            onClick: ({ key }) => {
+              const action = actions.slice(2)[Number(key)];
+              if (action) navigate(action.href);
+            }
+          }}
+          trigger={['click']}
+        >
+          <Button size="small">更多</Button>
+        </AccessibleDropdown>
+      ) : undefined}
+    />
+  );
+}
+
+function getCompetitorOptimizationUnitOptions(rows: CompetitorDashboard['comparisons']) {
+  return [...new Set(rows.map((row) => row.optimizationUnitId).filter(Boolean))]
+    .map((value, index) => ({ value, label: `优化单元 ${index + 1}` }));
+}
+
+function getCompetitorIntentOptions(rows: CompetitorDashboard['comparisons']) {
+  return [...new Map(rows.map((row) => [row.intentId, row.intentText] as const)).entries()]
+    .filter(([value]) => Boolean(value))
+    .map(([value, label]) => ({ value, label }));
+}
+
 type CompetitorDiscoveryFormValues = {
   city?: string;
   campusRadiusKm?: number;
@@ -318,21 +591,21 @@ export function toDiscoveryPayload(values: CompetitorDiscoveryFormValues): Compe
 
 export function getProviderStatusDescription(run: Pick<CompetitorDiscoveryRun, 'providerStatus' | 'cacheHit' | 'sourceProvider'>): string {
   if (run.cacheHit) {
-    return '本次复用了相同城市、半径和关键词下的候选结果。勾选“重新从地图拉取”可以请求最新地图数据。';
+    return '已显示相同城市、范围和关键词下的最近结果；需要最新数据时可重新发现。';
   }
   if (run.providerStatus === 'configured' && run.sourceProvider === 'amap') {
-    return '本次已连接高德地图服务端 POI，候选机构来自真实地图数据，并已过滤自有门店和弱相关机构。';
+    return '候选机构来自高德地图，并已过滤自有门店和弱相关机构。';
   }
   if (run.providerStatus === 'fallback') {
-    return '当前使用内测候选源继续完成流程，可配置高德服务端 Key 后重新发现。';
+    return '地图数据暂时不可用，当前候选仅供人工筛选；恢复连接后可重新发现。';
   }
   if (run.providerStatus === 'rate_limited') {
     return '地图服务配额暂不可用，可稍后勾选“重新从地图拉取”再试。';
   }
   if (run.providerStatus === 'disabled') {
-    return '地图服务当前已停用，系统会使用内测候选源保留人工筛选流程。';
+    return '地图发现当前已停用，仍可手动添加和筛选竞品。';
   }
-  return '地图服务请求失败时，系统会保留候选确认流程，方便继续人工筛选。';
+  return '地图数据暂时无法获取，仍可继续手动添加和筛选竞品。';
 }
 
 export function splitKeywordText(value?: string): string[] {

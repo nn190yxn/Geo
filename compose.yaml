@@ -1,0 +1,65 @@
+version: '2.4'
+
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-geo_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-geo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-geo_test_password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geo} -d ${POSTGRES_DB:-geo_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      target: api-test
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:-postgresql://geo:geo_test_password@database:5432/geo_platform?schema=public}
+      GEO_REPOSITORY_DRIVER: prisma
+      GEO_SEED_ON_START: ${GEO_SEED_ON_START:-true}
+      CORS_ORIGIN: ${GEO_WEB_ORIGIN:-http://localhost:4173}
+      GEO_AI_PLATFORM_CONFIGURED: ${GEO_AI_PLATFORM_CONFIGURED:-false}
+      STEPFUN_API_KEY: ${STEPFUN_API_KEY:-}
+      GEO_AMAP_API_KEY: ${GEO_AMAP_API_KEY:-}
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ports:
+      - "${GEO_API_PORT:-3001}:3001"
+    volumes:
+      - geo_uploads:/app/apps/api/uploads
+
+  web:
+    build:
+      context: .
+      target: web-test
+      args:
+        VITE_API_BASE_URL: ${GEO_PUBLIC_API_URL:-http://localhost:3001/api/v1}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "${GEO_WEB_PORT:-4173}:4173"
+
+volumes:
+  postgres_data:
+  geo_uploads:

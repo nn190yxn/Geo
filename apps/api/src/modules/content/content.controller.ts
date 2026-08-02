@@ -2,9 +2,12 @@ import { BadRequestException, Body, Controller, Get, NotFoundException, Param, P
 import type { Request } from 'express';
 import type {
   ApiResponse,
+  CitationSource,
   ContentAsset,
   ContentAssetFilter,
   ContentAssetInput,
+  ContentAssetPageInput,
+  ContentAssetPageItem,
   ContentAssetStatus,
   ContentCenterDashboard,
   ContentExportRecord,
@@ -18,7 +21,9 @@ import type {
   ContentStrategyType,
   ContentVersionInput,
   GrowthOptimizationContentTaskInput,
-  PublishingEntryPayload
+  OptimizationTask,
+  PublishingEntryPayload,
+  PublishingRecord
 } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -218,6 +223,111 @@ export class ContentController {
 
     return { success: true, data: payload };
   }
+}
+
+@Controller('brands/:brandId/content-assets')
+export class ContentAssetsPageController {
+  constructor(private readonly permissionsService: PermissionsService) {}
+
+  @Get()
+  async listContentAssetsPage(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<ContentAssetPageItem[]>> {
+    const assets = await this.permissionsService.listContentAssets(request.context.userId, brandId, {});
+    const citationDashboard = await this.permissionsService.getCitationDashboard(request.context.userId, brandId);
+    const publishingDashboard = await this.permissionsService.getPublishingDashboard(request.context.userId, brandId);
+    const growthWorkspace = await this.permissionsService.getGrowthOptimizationWorkspace(request.context.userId, brandId);
+
+    if (!assets || !citationDashboard || !publishingDashboard || !growthWorkspace) {
+      throw new NotFoundException('内容资产不存在或当前用户无权访问');
+    }
+
+    return {
+      success: true,
+      data: buildContentAssetPageItems(assets, citationDashboard.sources, publishingDashboard.records, growthWorkspace.relatedTasks)
+    };
+  }
+
+  @Post()
+  async createContentAssetPageItem(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Body() input: ContentAssetPageInput
+  ): Promise<ApiResponse<ContentAssetPageItem>> {
+    const normalized = normalizeContentAssetPageInput(input);
+    const asset = await this.permissionsService.createContentAsset(request.context.userId, brandId, normalizeAssetInput(normalized, true));
+
+    if (!asset) {
+      throw new NotFoundException('内容资产关联对象不存在或当前用户无权访问');
+    }
+
+    const citationDashboard = await this.permissionsService.getCitationDashboard(request.context.userId, brandId);
+    const publishingDashboard = await this.permissionsService.getPublishingDashboard(request.context.userId, brandId);
+    const growthWorkspace = await this.permissionsService.getGrowthOptimizationWorkspace(request.context.userId, brandId);
+
+    return {
+      success: true,
+      data: buildContentAssetPageItem(asset, citationDashboard?.sources ?? [], publishingDashboard?.records ?? [], growthWorkspace?.relatedTasks ?? [])
+    };
+  }
+}
+
+function buildContentAssetPageItems(assets: ContentAsset[], citations: CitationSource[], publishingRecords: PublishingRecord[], tasks: OptimizationTask[]): ContentAssetPageItem[] {
+  return assets.map((asset) => buildContentAssetPageItem(asset, citations, publishingRecords, tasks));
+}
+
+function buildContentAssetPageItem(asset: ContentAsset, citations: CitationSource[], publishingRecords: PublishingRecord[], tasks: OptimizationTask[]): ContentAssetPageItem {
+  const assetCitations = citations.filter((citation) => citation.contentAssetId === asset.id);
+  const assetPublishingRecords = publishingRecords.filter((record) => record.contentAssetId === asset.id);
+  const relatedTask = tasks.find((task) => task.contentLink === asset.url || task.contentLink === asset.id);
+  const publishedRecords = assetPublishingRecords.filter((record) => record.status === 'published').length;
+  const failedRecords = assetPublishingRecords.filter((record) => record.status === 'failed').length;
+
+  return {
+    ...asset,
+    optimizationUnitId: relatedTask?.optimizationUnitId,
+    userIntent: relatedTask?.relatedPromptId,
+    sourceReferences: assetCitations.length > 0
+      ? assetCitations.map((citation) => ({ type: 'citation', title: citation.title, url: citation.url }))
+      : [{ type: 'manual', title: asset.brandAdaptation || '手动补充内容来源', url: asset.url }],
+    reviewStatus: asset.status === 'archived' ? 'needs_revision' : asset.status === 'published' ? 'approved' : 'pending',
+    publishStatus: getContentAssetPublishStatus(assetPublishingRecords, asset.status),
+    retestPlanId: relatedTask?.retestRecords[0]?.id,
+    publishingStats: {
+      brandId: asset.brandId,
+      totalRecords: assetPublishingRecords.length,
+      publishedRecords,
+      failedRecords,
+      citationCount: assetCitations.reduce((total, citation) => total + citation.citationCount, 0),
+      relatedIntentCount: new Set(assetCitations.map((citation) => citation.promptId)).size
+    }
+  };
+}
+
+function getContentAssetPublishStatus(records: PublishingRecord[], assetStatus: ContentAssetStatus): ContentAssetPageItem['publishStatus'] {
+  if (records.some((record) => record.status === 'failed')) return 'failed';
+  if (records.some((record) => record.status === 'published') || assetStatus === 'published') return 'published';
+  if (records.some((record) => record.status === 'pending')) return 'pending';
+  if (records.some((record) => record.status === 'draft')) return 'draft';
+  return 'not_started';
+}
+
+export function normalizeContentAssetPageInput(input: ContentAssetPageInput): ContentAssetPageInput {
+  const normalized = {
+    ...normalizeAssetInput(input, true),
+    optimizationUnitId: input.optimizationUnitId?.trim(),
+    userIntent: input.userIntent?.trim(),
+    sourceReferences: input.sourceReferences?.map((source) => ({
+      type: source.type,
+      title: source.title.trim(),
+      url: source.url?.trim()
+    })).filter((source) => source.title)
+  };
+  const hasContext = Boolean(normalized.optimizationUnitId || normalized.userIntent || normalized.sourceReferences?.length);
+
+  if (!hasContext) {
+    throw new BadRequestException('内容资产需要关联来源资料、优化单元或用户意图');
+  }
+
+  return normalized;
 }
 
 function normalizeAssetInput(input: ContentAssetInput, required: boolean): ContentAssetInput {

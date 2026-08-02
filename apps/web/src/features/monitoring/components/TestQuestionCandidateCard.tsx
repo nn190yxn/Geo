@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { TestAssetGenerationResult, TestPlanCreationResult, TestPlanExecutionResult, TestQuestionCandidate, TestTheme } from '@geo-platform/shared-types';
+import type { BrowserConnectionSession, BrowserResponseCaptureResult, TestAssetGenerationResult, TestPlanCreationResult, TestPlanExecutionResult, TestPlanExecutionStep, TestQuestionCandidate, TestTheme } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
 import { EmptyState, PageErrorAlert } from '../../../components/PageState';
-import { getPlatformDisplayName } from '../../../utils/displayLabels';
+import { getPlatformDisplayName, getStatusDisplay } from '../../../utils/displayLabels';
 import { getConnectionSummaryLabel, getDefaultQuestionCandidates, getDurationLabel, getExecutionResultSummary, getPlatformPreview, getQuestionCandidateCountLabel, getThemeCandidateIds, priorityColors, priorityLabels, questionPurposeLabels, themeTypeLabels, toQuestionCandidateUpdateInput } from './testQuestionDisplay';
+import { getBrowserLoginUrl } from './platformConfigDisplay';
 
 type Props = {
   brandId: string;
+  actionType?: 'primary' | 'default';
 };
 
 type QuestionEditFormValues = {
@@ -19,7 +21,7 @@ type QuestionEditFormValues = {
   estimatedValue: string;
 };
 
-export function TestQuestionCandidateCard({ brandId }: Props) {
+export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: Props) {
   const [messageApi, contextHolder] = message.useMessage();
   const [editForm] = Form.useForm<QuestionEditFormValues>();
   const queryClient = useQueryClient();
@@ -27,6 +29,10 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
   const [editingCandidate, setEditingCandidate] = useState<TestQuestionCandidate | null>(null);
   const [savedPlan, setSavedPlan] = useState<TestPlanCreationResult | null>(null);
   const [executionResult, setExecutionResult] = useState<TestPlanExecutionResult | null>(null);
+  const [activeBrowserStep, setActiveBrowserStep] = useState<TestPlanExecutionStep | null>(null);
+  const [activeBrowserSession, setActiveBrowserSession] = useState<BrowserConnectionSession | null>(null);
+  const [browserAnswer, setBrowserAnswer] = useState('');
+  const [capturedRunIds, setCapturedRunIds] = useState<string[]>([]);
   const [generationNotice, setGenerationNotice] = useState<GenerationNotice | null>(null);
   const themesQuery = useQuery({
     queryKey: ['test-themes', brandId],
@@ -47,8 +53,8 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
     onSuccess: (response) => {
       if (response.success) {
         void queryClient.invalidateQueries({ queryKey: ['test-themes', brandId] });
-        setGenerationNotice(getGenerationNotice('监测主题已生成', response.data));
-        showGenerationMessage(messageApi, '监测主题已生成', response.data);
+        setGenerationNotice(getGenerationNotice('优化方向已生成', response.data));
+        showGenerationMessage(messageApi, '优化方向已生成', response.data);
       } else {
         void messageApi.error(response.error.message);
       }
@@ -127,6 +133,60 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
       }
     }
   });
+  const startBrowserSessionMutation = useMutation({
+    mutationFn: (step: TestPlanExecutionStep) => apiPost<BrowserConnectionSession>('/platforms/browser-sessions', {
+      platformCode: step.platformCode,
+      testPlanId: executionResult?.plan.id
+    }),
+    onSuccess: (response, step) => {
+      if (response.success) {
+        setActiveBrowserStep(step);
+        setActiveBrowserSession(response.data);
+        setBrowserAnswer('');
+        void messageApi.success('官方平台已打开，请登录后提交监测问题');
+      } else {
+        void messageApi.error(response.error.message);
+      }
+    }
+  });
+  const confirmBrowserLoginMutation = useMutation({
+    mutationFn: (sessionId: string) => apiPatch<BrowserConnectionSession>(`/platforms/browser-sessions/${sessionId}`, {
+      event: 'login_confirmed',
+      lastMessage: '用户已确认登录，并准备提交监测问题。'
+    }),
+    onSuccess: (response) => {
+      if (response.success) {
+        setActiveBrowserSession(response.data);
+        void messageApi.success('登录状态已确认，可以回填真实回答');
+      } else {
+        void messageApi.error(response.error.message);
+      }
+    }
+  });
+  const captureBrowserResponseMutation = useMutation({
+    mutationFn: () => {
+      if (!activeBrowserSession || !activeBrowserStep?.runId) {
+        throw new Error('浏览器会话或监测运行不存在');
+      }
+      return apiPost<BrowserResponseCaptureResult>(`/platforms/browser-sessions/${activeBrowserSession.id}/responses`, {
+        runId: activeBrowserStep.runId,
+        rawText: browserAnswer
+      });
+    },
+    onSuccess: (response) => {
+      if (response.success) {
+        setCapturedRunIds((current) => [...new Set([...current, response.data.run.id])]);
+        setActiveBrowserStep(null);
+        setActiveBrowserSession(null);
+        setBrowserAnswer('');
+        void queryClient.invalidateQueries({ queryKey: ['monitoring-runs', brandId] });
+        void queryClient.invalidateQueries({ queryKey: ['brand-workspace', brandId] });
+        void messageApi.success('真实回答已保存并完成分析');
+      } else {
+        void messageApi.error(response.error.message);
+      }
+    }
+  });
 
   const openEditCandidate = (candidate: TestQuestionCandidate) => {
     setEditingCandidate(candidate);
@@ -156,16 +216,22 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
     void executePlanMutation.mutate(plan.plan.id);
   };
 
+  const startBrowserAssistedMonitoring = (step: TestPlanExecutionStep) => {
+    window.open(getBrowserLoginUrl(step.platformCode), '_blank', 'noopener,noreferrer');
+    startBrowserSessionMutation.mutate(step);
+  };
+
   return (
     <Card
+      id="test-question-candidate-card"
       title="选择监测问题"
       extra={(
         <Space>
           {contextHolder}
-          <Button loading={generateThemesMutation.isPending} onClick={() => generateThemesMutation.mutate()}>生成监测主题</Button>
-          <Button type="primary" loading={generateCandidatesMutation.isPending} onClick={() => generateCandidatesMutation.mutate()}>生成监测问题</Button>
+          <Button loading={generateThemesMutation.isPending} onClick={() => generateThemesMutation.mutate()}>生成优化方向</Button>
+          <Button type={actionType} loading={generateCandidatesMutation.isPending} onClick={() => generateCandidatesMutation.mutate()}>生成监测问题</Button>
           <Button disabled={selectedCandidateIds.length === 0} loading={createPlanMutation.isPending} onClick={() => createPlanMutation.mutate()}>保存为监测计划</Button>
-          <Button type="primary" disabled={selectedCandidateIds.length === 0 && !savedPlan} loading={createPlanMutation.isPending || executePlanMutation.isPending} onClick={() => void startFirstRoundMonitoring()}>开始首轮监测</Button>
+          <Button type={actionType} disabled={selectedCandidateIds.length === 0 && !savedPlan} loading={createPlanMutation.isPending || executePlanMutation.isPending} onClick={() => void startFirstRoundMonitoring()}>开始首轮监测</Button>
         </Space>
       )}
     >
@@ -175,8 +241,8 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
         <Alert
           type="info"
           showIcon
-          message="先看监测主题，再选监测问题"
-          description="监测主题说明为什么要监测这个方向；监测问题会直接用于豆包、Kimi、DeepSeek、通义千问和阶跃星辰的首轮回复监测。"
+          message="先看优化方向，再选监测问题"
+          description="优化方向说明为什么要监测这个业务主题；监测问题会直接用于豆包、Kimi、DeepSeek、通义千问和阶跃星辰的首轮回复监测。"
         />
         <Alert
           type="success"
@@ -199,23 +265,40 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
                 <Descriptions.Item label="监测问题">{savedPlan.questionCount} 个</Descriptions.Item>
                 <Descriptions.Item label="目标平台">{getPlatformPreview(savedPlan.targetPlatforms)}</Descriptions.Item>
                 <Descriptions.Item label="预计耗时">{getDurationLabel(savedPlan.estimatedDurationMinutes)}</Descriptions.Item>
-                <Descriptions.Item label="计划状态">{savedPlan.plan.status}</Descriptions.Item>
+                <Descriptions.Item label="计划状态">{getStatusDisplay(savedPlan.plan.status)}</Descriptions.Item>
               </Descriptions>
               <Space wrap>
                 {savedPlan.connectionSummary.map((summary) => <Tag key={summary.platformCode}>{getConnectionSummaryLabel(summary)}</Tag>)}
               </Space>
               {savedPlan.confirmationItems.length > 0 ? <Alert type="warning" showIcon message="需要你确认的事项" description={savedPlan.confirmationItems.join('；')} /> : null}
-              <Button type="primary" loading={executePlanMutation.isPending} onClick={() => void executePlanMutation.mutate(savedPlan.plan.id)}>一键开始首轮监测</Button>
+              <Button type={actionType} loading={executePlanMutation.isPending} onClick={() => void executePlanMutation.mutate(savedPlan.plan.id)}>一键开始首轮监测</Button>
             </Space>
           </Card>
         ) : null}
         {executionResult ? (
-          <Alert
-            type={executionResult.configurationItems.length > 0 || executionResult.confirmationItems.length > 0 ? 'warning' : 'success'}
-            showIcon
-            message="首轮回复监测已开始"
-            description={`${getExecutionResultSummary(executionResult)}。${executionResult.confirmationItems.length > 0 ? `需要确认：${executionResult.confirmationItems.join('；')}` : '可以在下方 AI 回复监测记录查看自动结果，浏览器和手动录入会显示对应下一步。'}`}
-          />
+          <Space direction="vertical" size={12} className="page-stack">
+            <Alert
+              type={executionResult.configurationItems.length > 0 || executionResult.confirmationItems.length > 0 ? 'warning' : 'success'}
+              showIcon
+              message="首轮回复监测已开始"
+              description={`${getExecutionResultSummary(executionResult)}。${executionResult.confirmationItems.length > 0 ? `需要确认：${executionResult.confirmationItems.join('；')}` : '可以在下方 AI 回复监测记录查看自动结果，浏览器和手动录入会显示对应下一步。'}`}
+            />
+            {executionResult.browserSteps.filter((step) => step.runId).map((step) => (
+              <Card key={step.runId} size="small" title={`${getPlatformDisplayName(step.platformCode)} 浏览器辅助监测`}>
+                <Space direction="vertical" size={8} className="page-stack">
+                  <Typography.Paragraph copyable={{ text: step.question }}>{step.question}</Typography.Paragraph>
+                  <Space wrap>
+                    <Tag color={capturedRunIds.includes(step.runId!) ? 'green' : 'gold'}>{capturedRunIds.includes(step.runId!) ? '已回填并分析' : '等待真实回答'}</Tag>
+                    <Button
+                      disabled={capturedRunIds.includes(step.runId!)}
+                      loading={startBrowserSessionMutation.isPending}
+                      onClick={() => startBrowserAssistedMonitoring(step)}
+                    >开始辅助监测</Button>
+                  </Space>
+                </Space>
+              </Card>
+            ))}
+          </Space>
         ) : null}
         <Table
           rowKey="id"
@@ -223,9 +306,9 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
           loading={themesQuery.isLoading}
           dataSource={themes}
           pagination={false}
-          locale={{ emptyText: <EmptyState description="还没有监测主题，请先生成监测主题。" actionLabel="生成监测主题" onAction={() => generateThemesMutation.mutate()} /> }}
+          locale={{ emptyText: <EmptyState title="还没有优化方向" description="本轮需要监测的业务主题和优先级" reason="优化方向会决定默认监测问题、目标平台和首轮真实回复样本。" nextStep="根据品牌资料生成优化方向。" actionLabel="生成优化方向" onAction={() => generateThemesMutation.mutate()} /> }}
           columns={[
-            { title: '监测主题', dataIndex: 'name' },
+            { title: '优化方向', dataIndex: 'name' },
             { title: '类型', dataIndex: 'type', render: (value: TestTheme['type']) => themeTypeLabels[value] },
             { title: '推荐优先级', dataIndex: 'priority', render: (value: TestTheme['priority']) => <Tag color={priorityColors[value]}>{priorityLabels[value]}</Tag> },
             { title: '为什么要测', dataIndex: 'businessExplanation' },
@@ -262,10 +345,10 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
             onSelectAll: (selected, selectedRows, changedRows) => selectionMutation.mutate({ candidateIds: changedRows.map((row) => row.id), selected })
           }}
           pagination={false}
-          locale={{ emptyText: <EmptyState description="还没有监测问题，请先生成监测问题。" actionLabel="生成监测问题" onAction={() => generateCandidatesMutation.mutate()} /> }}
+          locale={{ emptyText: <EmptyState title="还没有监测问题" description="用户会向 AI 提出的真实问题" reason="监测问题是获取真实 AI 回复、生成分析诊断和安排内容任务的起点。" nextStep="生成监测问题，并勾选要进入首轮监测的问题。" actionLabel="生成监测问题" onAction={() => generateCandidatesMutation.mutate()} /> }}
           columns={[
             { title: '监测问题', dataIndex: 'question' },
-            { title: '所属主题', dataIndex: 'themeId', render: (value: string) => themeNameMap.get(value) ?? '-' },
+            { title: '所属优化方向', dataIndex: 'themeId', render: (value: string) => themeNameMap.get(value) ?? '-' },
             { title: '测试目的', dataIndex: 'purposes', render: (values: TestQuestionCandidate['purposes']) => <Space wrap>{values.map((value) => <Tag key={value}>{questionPurposeLabels[value]}</Tag>)}</Space> },
             { title: '目标平台', dataIndex: 'targetPlatforms', render: (values: string[]) => getPlatformPreview(values) },
             { title: '价值', dataIndex: 'estimatedValue' },
@@ -290,6 +373,50 @@ export function TestQuestionCandidateCard({ brandId }: Props) {
           </Form>
         </Modal>
       </Space>
+      <Modal
+        title={activeBrowserStep ? `${getPlatformDisplayName(activeBrowserStep.platformCode)} 真实回答回填` : '真实回答回填'}
+        open={Boolean(activeBrowserStep && activeBrowserSession)}
+        footer={null}
+        onCancel={() => {
+          setActiveBrowserStep(null);
+          setActiveBrowserSession(null);
+          setBrowserAnswer('');
+        }}
+      >
+        {activeBrowserStep && activeBrowserSession ? (
+          <Space direction="vertical" size={16} className="page-stack">
+            <Alert
+              type="info"
+              showIcon
+              message="在官方平台完成提交后回填回答"
+              description="系统只保存你主动粘贴的回答，不读取登录信息、浏览器存储或平台页面。"
+            />
+            <Typography.Paragraph copyable={{ text: activeBrowserStep.question }}>{activeBrowserStep.question}</Typography.Paragraph>
+            <Space wrap>
+              <Button onClick={() => window.open(getBrowserLoginUrl(activeBrowserStep.platformCode), '_blank', 'noopener,noreferrer')}>重新打开官方平台</Button>
+              <Button
+                type={activeBrowserSession.status === 'ready' ? 'default' : 'primary'}
+                disabled={activeBrowserSession.status === 'ready'}
+                loading={confirmBrowserLoginMutation.isPending}
+                onClick={() => confirmBrowserLoginMutation.mutate(activeBrowserSession.id)}
+              >{activeBrowserSession.status === 'ready' ? '已确认登录' : '我已完成登录'}</Button>
+            </Space>
+            <Input.TextArea
+              rows={8}
+              value={browserAnswer}
+              disabled={activeBrowserSession.status !== 'ready'}
+              placeholder="粘贴官方平台返回的完整真实回答"
+              onChange={(event) => setBrowserAnswer(event.target.value)}
+            />
+            <Button
+              type="primary"
+              disabled={activeBrowserSession.status !== 'ready' || !browserAnswer.trim()}
+              loading={captureBrowserResponseMutation.isPending}
+              onClick={() => captureBrowserResponseMutation.mutate()}
+            >保存回答并分析</Button>
+          </Space>
+        ) : null}
+      </Modal>
     </Card>
   );
 }

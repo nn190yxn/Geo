@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GrowthOptimizationPlan, OptimizationTask, SprintContentTaskDashboard, StandardAnswerAlignmentDashboard } from '@geo-platform/shared-types';
-import { getContentLinkDisplay, getPlanProgress, getPlanStatusCounts, getPlanTasks, splitPlatformText } from './GrowthOptimizationPage';
+import type { AnalysisFinding, GrowthOptimizationPlan, OptimizationTask, PublishingRecord, SprintContentTaskDashboard, StandardAnswerAlignmentDashboard } from '@geo-platform/shared-types';
+import { getAnalysisFindingActionPath, getContentLinkDisplay, getFilteredAnalysisFindings, getFilteredGrowthOptimizationPlans, getPlanProgress, getPlanStatusCounts, getRecommendationPublishingStatus, getRetestResultLabel, getPlanTasks, splitPlatformText } from './GrowthOptimizationPage';
 import { buildSprintDiagnosisRows, getAlignmentStatusDisplay, getGapTypeLabel } from './growthSprintDiagnostics';
 
 describe('GrowthOptimizationPage helpers', () => {
@@ -46,6 +46,61 @@ describe('GrowthOptimizationPage helpers', () => {
     expect(getPlanTasks(plan, tasks)).toEqual([expect.objectContaining({ id: 'task_retest', sourceRunId: 'run_before' })]);
   });
 
+  it('filters plans by date, status, optimization unit and evidence text', () => {
+    const plans = [createPlan({ id: 'plan-1', status: 'draft' }), createPlan({ id: 'plan-2', status: 'completed', summary: '其他计划' })];
+    const tasks = [createTask({ id: 'task-1', growthOptimizationPlanId: 'plan-1', optimizationUnitId: 'unit-1' })];
+
+    expect(getFilteredGrowthOptimizationPlans(plans, tasks, {
+      search: '追光小牛',
+      from: '2026-07-01',
+      to: '2026-07-10',
+      platform: 'all',
+      status: 'draft',
+      optimizationUnitId: 'unit-1'
+    })).toEqual([expect.objectContaining({ id: 'plan-1' })]);
+  });
+
+  it('filters diagnosis findings by platform, optimization unit and evidence text', () => {
+    const findings = [
+      createFinding({ id: 'finding-1', platformCode: 'doubao', optimizationUnitId: 'unit-1' }),
+      createFinding({ id: 'finding-2', title: '其他结论', platformCode: 'kimi', optimizationUnitId: 'unit-2' })
+    ];
+
+    expect(getFilteredAnalysisFindings(findings, {
+      search: '权威信源',
+      platform: 'doubao',
+      status: 'all',
+      optimizationUnitId: 'unit-1'
+    })).toEqual([expect.objectContaining({ id: 'finding-1' })]);
+  });
+
+  it('maps finding actions to task, content, knowledge and retest workflows', () => {
+    const finding = createFinding({ relatedTaskId: 'task-1', optimizationUnitId: 'unit-1', platformCode: 'doubao' });
+
+    expect(getAnalysisFindingActionPath(finding, { actionType: 'generate_content', label: '生成内容' }, { runId: 'run-1' }))
+      .toBe('/content-generation?runId=run-1&optimizationUnitId=unit-1&platformCode=doubao');
+    expect(getAnalysisFindingActionPath(finding, { actionType: 'update_knowledge', label: '更新资料' }, {}))
+      .toBe('/brand-profile?optimizationUnitId=unit-1&platformCode=doubao');
+    const taskPath = getAnalysisFindingActionPath(finding, { actionType: 'create_task', label: '查看任务' }, {});
+    expect(taskPath.split('?')[0]).toBe('/tasks');
+    expect(Object.fromEntries(new URLSearchParams(taskPath.split('?')[1]))).toMatchObject({
+      optimizationUnitId: 'unit-1',
+      taskId: 'task-1',
+      platformCode: 'doubao',
+      action: 'open'
+    });
+    expect(getAnalysisFindingActionPath(createFinding({ relatedTaskId: undefined }), { actionType: 'schedule_retest', label: '安排再次监测' }, {}))
+      .toContain('action=create');
+  });
+
+  it('summarizes publishing and retest states for associated content', () => {
+    const records = [createPublishingRecord({ generationTaskId: 'generation-1', status: 'published' })];
+    const publishedTag = getRecommendationPublishingStatus('generation-1', records);
+    expect(publishedTag.props.children).toBe('已发布');
+    expect(getRetestResultLabel(createTask({ retestRecords: [] }))).toBe('未安排');
+    expect(getRetestResultLabel(createTask({ retestRecords: [{ id: 'retest-1', taskId: 'task_demo', sourceRunId: 'run-1', retestRunId: 'run-2', plannedAt: '2026-07-20', completedAt: '2026-07-21', targetScore: 80, actualScore: 85, improved: true, createdAt: '2026-07-20', updatedAt: '2026-07-21' }] }))).toBe('已改善');
+  });
+
   it('builds Sprint diagnosis rows across real answers, standards and content assets', () => {
     const rows = buildSprintDiagnosisRows(createAlignmentDashboard(), createContentTaskDashboard());
 
@@ -80,6 +135,34 @@ function createPlan(partial: Partial<GrowthOptimizationPlan>): GrowthOptimizatio
     status: 'draft',
     createdAt: '2026-07-05T00:00:00.000Z',
     updatedAt: '2026-07-05T00:00:00.000Z',
+    ...partial
+  };
+}
+
+function createFinding(partial: Partial<AnalysisFinding>): AnalysisFinding {
+  return {
+    id: 'finding-demo',
+    brandId: 'brand_demo',
+    type: 'citation',
+    title: '品牌事实需要更多权威信源覆盖',
+    evidence: ['权威信源覆盖不足'],
+    severity: 'high',
+    recommendedActions: [],
+    ...partial
+  };
+}
+
+function createPublishingRecord(partial: Partial<PublishingRecord>): PublishingRecord {
+  return {
+    id: 'publishing-1',
+    brandId: 'brand_demo',
+    contentAssetId: 'asset-1',
+    title: '品牌 FAQ',
+    body: '正文',
+    platform: 'official_site',
+    status: 'pending',
+    createdAt: '2026-07-20',
+    updatedAt: '2026-07-20',
     ...partial
   };
 }

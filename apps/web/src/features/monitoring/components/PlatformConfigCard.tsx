@@ -9,13 +9,14 @@ import { advancedPlatformSettingFields, getBrowserIssueLabel, getBrowserLoginUrl
 
 type PlatformFormValues = PlatformConfigInput;
 
-export function PlatformConfigCard() {
+export function PlatformConfigCard({ actionType = 'primary' }: { actionType?: 'primary' | 'default' }) {
   const queryClient = useQueryClient();
   const [messageApi, contextHolder] = message.useMessage();
   const [form] = Form.useForm<PlatformFormValues>();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPlatformId, setEditingPlatformId] = useState<string | null>(null);
   const [browserPlatform, setBrowserPlatform] = useState<PlatformConfig | null>(null);
+  const selectedMode = Form.useWatch('mode', form);
   const platformsQuery = useQuery({
     queryKey: ['platform-configs'],
     queryFn: () => apiGet<PlatformConfig[]>('/platforms')
@@ -109,11 +110,8 @@ export function PlatformConfigCard() {
     updateBrowserSessionMutation.mutate({
       sessionId: selectedBrowserSession.id,
       input: {
-        status: 'ready',
-        loginDetected: true,
-        lastOperation: 'login_confirmed',
-        lastMessage: '用户已确认浏览器登录完成。',
-        lastAvailableAt: new Date().toISOString()
+        event: 'login_confirmed',
+        lastMessage: '用户已确认浏览器登录完成。'
       }
     });
   };
@@ -124,9 +122,7 @@ export function PlatformConfigCard() {
     updateBrowserSessionMutation.mutate({
       sessionId: selectedBrowserSession.id,
       input: {
-        status: 'needs_confirmation',
-        loginDetected: false,
-        lastOperation: 'manual_confirmation_required',
+        event: 'issue_reported',
         lastIssueType: 'risk_control',
         lastMessage: '用户反馈遇到验证码、登录失效、平台限制或风控提示。'
       }
@@ -134,7 +130,7 @@ export function PlatformConfigCard() {
   };
 
   return (
-    <Card title="连接要测试的 AI 平台" extra={<Button type="primary" onClick={openCreateModal}>新增平台</Button>}>
+    <Card title="连接要测试的 AI 平台" extra={<Button type={actionType} onClick={openCreateModal}>新增平台</Button>}>
       {contextHolder}
       <PageErrorAlert response={platformsQuery.data} />
       <Alert
@@ -156,7 +152,7 @@ export function PlatformConfigCard() {
               loading={platformsQuery.isLoading}
               dataSource={group.platforms}
               pagination={false}
-              locale={{ emptyText: <EmptyState description={`${group.title}里还没有平台。`} /> }}
+              locale={{ emptyText: <EmptyState title={`${group.title}里还没有平台`} description="可用于 AI 回复监测的平台连接" reason={group.description} nextStep="新增平台，选择自动监测、浏览器辅助监测或手动录入方式。" actionLabel="新增平台" onAction={openCreateModal} /> }}
               scroll={{ x: 980 }}
               columns={[
                 { title: '平台', render: (_, record) => <Typography.Text>{record.name || getPlatformDisplayName(record.platformCode)}</Typography.Text> },
@@ -196,14 +192,16 @@ export function PlatformConfigCard() {
         onOk={() => form.submit()}
       >
         <Form form={form} layout="vertical" onFinish={(values) => savePlatformMutation.mutate(values)}>
-          <Form.Item name="platformCode" label="平台代码" rules={[{ required: true, message: '请输入平台代码' }]}>
-            <Input placeholder="例如：deepseek" />
+          <Form.Item name="platformCode" label="AI 平台" rules={[{ required: true, message: '请输入 AI 平台' }]}>
+            <Input placeholder="例如：DeepSeek" />
           </Form.Item>
-          <Form.Item name="name" label="平台名称" rules={[{ required: true, message: '请输入平台名称' }]}>
+          <Form.Item name="name" label="界面显示名称" rules={[{ required: true, message: '请输入界面显示名称' }]}>
             <Input placeholder="例如：DeepSeek" />
           </Form.Item>
           <Form.Item name="mode" label="监测方式" rules={[{ required: true, message: '请选择监测方式' }]}>
-            <Select options={Object.entries(modeLabels).map(([value, label]) => ({ value, label }))} />
+            <Select options={selectedMode === 'mock'
+              ? [...publicModeOptions, { value: 'mock', label: modeLabels.mock, disabled: true }]
+              : publicModeOptions} />
           </Form.Item>
           <Form.Item name="credentialRef" label="平台密钥">
             <Input.Password placeholder="保存后只显示是否已填写" />
@@ -273,10 +271,16 @@ export function PlatformConfigCard() {
 
 const modeLabels: Record<PlatformMode, string> = {
   api: '自动监测',
-  manual: '人工录入',
+  manual: '手动录入',
   semi_auto: '浏览器辅助监测',
-  mock: '示例回答'
+  mock: '示例回答（不计入指标）'
 };
+
+const publicModeOptions: Array<{ value: Exclude<PlatformMode, 'mock'>; label: string }> = [
+  { value: 'api', label: modeLabels.api },
+  { value: 'semi_auto', label: modeLabels.semi_auto },
+  { value: 'manual', label: modeLabels.manual }
+];
 
 const connectionStatusColors: Record<PlatformConfig['connectionStatus'], string> = {
   ready: 'green',

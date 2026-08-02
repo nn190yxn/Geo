@@ -2,16 +2,16 @@
 
 - [x] 1. 明确技术边界和共享契约
   - [x] 1.1 创建本功能的技术设计文档骨架
-    - 在 `.monkeycode/specs/beginner-friendly-geo-workflow/design.md` 写入架构、组件、数据模型、错误处理和测试策略
+    - 在 `当前工作区/.monkeycode/specs/beginner-friendly-geo-workflow/design.md` 写入架构、组件、数据模型、错误处理和测试策略
     - 明确复用现有 `BrandProfile`、`KnowledgeSource`、`PlatformConfig`、`MonitoringRun`、`AnalysisResult`、`ContentStrategy`、`ContentGenerationTask`、`OptimizationTask` 和 `PublishingRecord` 的边界
     - 覆盖需求 1.1-17.5
   - [x] 1.2 扩展共享类型
-    - 在 `packages/shared-types/src/index.ts` 增加品牌资料导入、监测主题、监测问法候选、监测计划、浏览器连接、增长优化计划和内容生成类型相关接口
+    - 在 `当前工作区/packages/shared-types/src/index.ts` 增加品牌资料导入、监测主题、监测问法候选、监测计划、浏览器连接、增长优化计划和内容生成类型相关接口
     - 定义第一版平台枚举：`doubao`、`kimi`、`deepseek`、`qianwen`
     - 定义第一版内容类型枚举：公众号推文、小红书图文、官网 FAQ、短视频脚本、平台介绍文案、图片创意需求
     - 覆盖需求 1.1-1.5、3.1-5.4、6.1-9.4、15.1-15.9
   - [x] 1.3 扩展 Prisma schema
-    - 在 `apps/api/prisma/schema.prisma` 增加监测计划、监测问法候选、浏览器连接会话、增长优化计划和增长优化任务所需字段或模型
+    - 在 `当前工作区/apps/api/prisma/schema.prisma` 增加监测计划、监测问法候选、浏览器连接会话、增长优化计划和增长优化任务所需字段或模型
     - 保持所有新增业务数据带 `brandId`
     - 保持 API Key 和浏览器会话敏感信息只保存引用或状态摘要
     - 覆盖需求 5.1-5.4、7.1-7.7、15.1-16.5
@@ -22,7 +22,7 @@
 
 - [x] 2. 实现品牌资料上传导入
   - [x] 2.1 实现品牌资料上传 API
-    - 在 `apps/api/src/modules/brands/` 增加 Markdown、Word、PDF 文件上传入口
+    - 在 `当前工作区/apps/api/src/modules/brands/` 增加 Markdown、Word、PDF 文件上传入口
     - 复用或扩展 `KnowledgeSource` 保存上传来源、解析状态、错误信息和确认状态
     - 限制第一版支持格式为 Markdown、Word、PDF
     - 覆盖需求 1.1-1.5

@@ -105,7 +105,8 @@ describe('competitor analysis repository', () => {
       brandRank: 2,
       rankGap: 1,
       suppressed: true,
-      citationSources: ['https://example.com/compare']
+      citationSources: ['https://example.com/compare'],
+      capturedAt: expect.any(String)
     });
     expect(dashboard?.comparisons[0].recommendationReason).toContain('示例品牌');
   });

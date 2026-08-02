@@ -89,6 +89,7 @@ describe('citation analysis repository', () => {
     const breakdown = Object.fromEntries((dashboard?.sourceTypeBreakdown ?? []).map((item) => [item.sourceType, item.citationCount]));
 
     expect(dashboard?.totalCitations).toBe(5);
+    expect(dashboard).toMatchObject({ sampleCount: 1, citedSampleCount: 1, citationRate: 100 });
     expect(breakdown.official_site).toBe(1);
     expect(breakdown.media).toBe(1);
     expect(breakdown.social).toBe(1);
@@ -96,6 +97,20 @@ describe('citation analysis repository', () => {
     expect(breakdown.third_party).toBe(1);
     expect(dashboard?.sources.find((source) => source.sourceType === 'official_site')?.authorityLevel).toBe('high');
     expect(dashboard?.sources.find((source) => source.sourceType === 'third_party')?.authorityLevel).toBe('low');
+  });
+
+  it('calculates citation rate from all real response samples', () => {
+    const repository = new PermissionsRepository();
+    const brandId = createIsolatedBrand(repository);
+    const { promptId } = prepareCitationScenario(repository, brandId);
+    createCitationRun(repository, brandId, promptId, ['https://example.com/about']);
+    createCitationRun(repository, brandId, promptId, []);
+
+    const dashboard = repository.getCitationDashboard('user_demo', brandId);
+
+    expect(dashboard).toMatchObject({ sampleCount: 2, citedSampleCount: 1, citationRate: 50 });
+    expect(dashboard?.trend.reduce((sum, point) => sum + point.sampleCount, 0)).toBe(2);
+    expect(dashboard?.trend.reduce((sum, point) => sum + point.citedSampleCount, 0)).toBe(1);
   });
 
   it('binds a citation to a content asset and creates an authority citation strategy', () => {

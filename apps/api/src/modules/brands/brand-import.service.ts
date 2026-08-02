@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { existsSync, readFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { extname, relative, resolve, sep } from 'node:path';
 import type {
   BrandFaq,
   BrandId,
@@ -13,6 +13,7 @@ import type {
   KnowledgeSource,
   SupportedBrandImportFormat
 } from '@geo-platform/shared-types';
+import { DocumentTextExtractorService } from './document-text-extractor.service';
 
 type FieldValue = BrandImportField['value'];
 
@@ -51,7 +52,13 @@ const listFields = new Set<BrandImportFieldKey>([
 
 @Injectable()
 export class BrandImportService {
-  parseKnowledgeSource(brandId: BrandId, source: KnowledgeSource): BrandImportDraft {
+  constructor(private readonly documentTextExtractor: DocumentTextExtractorService = new DocumentTextExtractorService()) {}
+
+  validateUpload(fileName: string, mimeType: string, buffer: Buffer): SupportedBrandImportFormat {
+    return this.documentTextExtractor.validateUpload(fileName, mimeType, buffer);
+  }
+
+  async parseKnowledgeSource(brandId: BrandId, source: KnowledgeSource): Promise<BrandImportDraft> {
     if (source.brandId !== brandId || source.sourceType !== 'file' || !source.fileRef) {
       throw new BadRequestException('请选择当前品牌下的上传资料文件');
     }
@@ -61,16 +68,20 @@ export class BrandImportService {
       throw new BadRequestException('第一版仅支持 Markdown、Word 和 PDF 品牌资料');
     }
 
-    const filePath = resolveWorkspaceFile(source.fileRef);
-    if (!existsSync(filePath)) {
-      return this.createFailedDraft(brandId, source, format, '上传文件不存在，请重新上传品牌资料');
+    try {
+      const filePath = resolveBrandImportFile(source.fileRef);
+      const buffer = await readFile(filePath);
+      this.documentTextExtractor.validateUpload(source.fileRef, mimeTypeForFormat(format), buffer);
+      const text = await this.documentTextExtractor.extract(format, buffer);
+      return this.parseText(brandId, source.id, source.name, format, prepareDocumentText(text, format));
+    } catch (error) {
+      const message = error instanceof BadRequestException
+        ? error.message
+        : isMissingFileError(error)
+          ? '上传文件不存在，请重新上传品牌资料'
+          : '文档解析失败，请重新上传或更换文件';
+      return this.createFailedDraft(brandId, source, format, message);
     }
-
-    if (format !== 'markdown') {
-      return this.createFailedDraft(brandId, source, format, 'Word 和 PDF 资料已保存，当前解析服务需要接入文档转文本能力后继续处理');
-    }
-
-    return this.parseText(brandId, source.id, source.name, format, readFileSync(filePath, 'utf8'));
   }
 
   parseText(brandId: BrandId, sourceId: string, fileName: string, format: SupportedBrandImportFormat, text: string): BrandImportDraft {
@@ -164,7 +175,7 @@ function inferImportFormat(fileRef: string): SupportedBrandImportFormat | null {
     return 'markdown';
   }
 
-  if (extension === '.doc' || extension === '.docx') {
+  if (extension === '.docx') {
     return 'word';
   }
 
@@ -175,8 +186,30 @@ function inferImportFormat(fileRef: string): SupportedBrandImportFormat | null {
   return null;
 }
 
-function resolveWorkspaceFile(fileRef: string): string {
-  return fileRef.startsWith('/') ? fileRef : join(process.cwd(), fileRef);
+function resolveBrandImportFile(fileRef: string): string {
+  const uploadRoot = resolve(process.cwd(), 'uploads', 'brand-imports');
+  const filePath = resolve(process.cwd(), fileRef);
+  const relativePath = relative(uploadRoot, filePath);
+  if (!relativePath || relativePath.startsWith(`..${sep}`) || relativePath === '..' || relativePath.includes(sep)) {
+    throw new BadRequestException('上传文件路径无效，请重新上传品牌资料');
+  }
+  return filePath;
+}
+
+function mimeTypeForFormat(format: SupportedBrandImportFormat): string {
+  if (format === 'markdown') return 'text/markdown';
+  if (format === 'word') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  return 'application/pdf';
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+function prepareDocumentText(text: string, format: SupportedBrandImportFormat): string {
+  if (format === 'markdown') return text;
+  const sectionHeadings = ['品牌介绍', '品牌简介', '核心卖点', '课程体系', '产品', '服务', '权威背书', '目标客户画像', '推荐表达', '禁用表达', '内容规则', '竞品', '常见问题', 'FAQ'];
+  return text.split('\n').map((line) => sectionHeadings.includes(line.trim()) ? `## ${line.trim()}` : line).join('\n');
 }
 
 function parseMarkdownSections(text: string): Map<string, string> {
@@ -293,7 +326,7 @@ function normalizeFieldValue(key: BrandImportFieldKey, value: FieldValue): Field
 function findInlineValue(text: string, labels: string[]): string | null {
   for (const label of labels) {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = text.match(new RegExp(`${escaped}\s*[:：]\s*(.+)`, 'i'));
+    const match = text.match(new RegExp(`${escaped}\\s*[:：]\\s*(.+)`, 'i'));
     const value = match?.[1]?.trim();
     if (value) {
       return value.replace(/^[-*]\s*/, '');

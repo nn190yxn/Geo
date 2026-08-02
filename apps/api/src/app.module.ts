@@ -21,9 +21,11 @@ import { LLMModule } from './modules/llm/llm.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { SprintsModule } from './modules/sprints/sprints.module';
+import { AnalysisModule } from './modules/analysis/analysis.module';
+import { DashboardsModule } from './modules/dashboards/dashboards.module';
 
 @Module({
-  imports: [PrismaModule, HealthModule, BrandsModule, PermissionsModule, PlatformsModule, MonitoringModule, MetricsModule, CanvasModule, CompetitorsModule, CitationsModule, EvaluationsModule, ContentModule, PublishingModule, TasksModule, ReportsModule, AdvisorModule, LLMModule, AutomationModule, FeedbackModule, SprintsModule],
+  imports: [PrismaModule, HealthModule, BrandsModule, PermissionsModule, PlatformsModule, MonitoringModule, MetricsModule, CanvasModule, CompetitorsModule, CitationsModule, EvaluationsModule, ContentModule, PublishingModule, TasksModule, ReportsModule, AdvisorModule, LLMModule, AutomationModule, FeedbackModule, SprintsModule, AnalysisModule, DashboardsModule],
   providers: [BrandContextMiddleware, BrandAccessMiddleware]
 })
 export class AppModule implements NestModule {

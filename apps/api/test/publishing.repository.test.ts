@@ -89,6 +89,28 @@ describe('publishing repository', () => {
     });
   });
 
+  it('updates the direct publishing mode for an existing authorized account', () => {
+    const repository = new PermissionsRepository();
+    const account = repository.connectPublishingAccount('user_demo', 'brand_demo', {
+      platform: 'website',
+      accountName: '品牌官网',
+      publishingMode: 'manual'
+    });
+
+    const updated = repository.updatePublishingAccountMode('user_demo', 'brand_demo', account?.id ?? '', {
+      publishingMode: 'automatic'
+    });
+    const record = repository.createPublishingRecord('user_demo', 'brand_demo', {
+      accountId: account?.id,
+      title: '自动发布内容',
+      body: '正文',
+      targetPlatform: 'website'
+    });
+
+    expect(updated?.publishingMode).toBe('automatic');
+    expect(record?.publishingMode).toBe('automatic');
+  });
+
   it('creates publishing records linked to content task, version, account and generated asset', () => {
     const repository = new PermissionsRepository();
     const { taskId, versionId, publishPayload } = preparePublishingScenario(repository);
@@ -122,6 +144,7 @@ describe('publishing repository', () => {
       status: 'published',
       publishedUrl: 'https://example.com/published/article'
     });
+    expect(published?.publishedAt).toBeTruthy();
     expect(dashboard?.records.map((item) => item.id)).toContain(record?.id);
   });
 });

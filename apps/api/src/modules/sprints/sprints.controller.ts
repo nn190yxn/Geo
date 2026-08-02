@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { ApiResponse, BrandStandardAnswer, QuestionRadarDashboard, SprintContentGapTaskResult, SprintContentTaskDashboard, SprintPublishingPreparationDashboard, SprintPublishingPreparationInput, SprintPublishingPreparationResult, SprintRetestPlanInput, SprintRetestPlanResult, SprintRetestTrendDashboard, StandardAnswerAlignmentDashboard, VisibilitySprint, VisibilitySprintStatus, VisibilitySprintStepCode } from '@geo-platform/shared-types';
+import { sanitizePublicResponse } from '../../common/public-response';
 import { PermissionsService } from '../permissions/permissions.service';
 import type { VisibilitySprintCreateInput } from '../permissions/permissions.repository.port';
 import { QuestionRadarService } from './question-radar.service';
@@ -354,5 +355,5 @@ function normalizeStep(step: VisibilitySprintStepCode): VisibilitySprintStepCode
 }
 
 function success<T>(data: T): ApiResponse<T> {
-  return { success: true, data };
+  return { success: true, data: sanitizePublicResponse(data) };
 }

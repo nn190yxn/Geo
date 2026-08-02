@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { AIPlatformRuntimeConfig } from '../platforms/adapters/ai-platform.adapter';
 import { getMissingApiConfigMessage, getModeValidationMessage } from '../platforms/platform-validation-message';
+import { applyBrowserConnectionEvent } from '../platforms/browser-session-state';
 import type {
   AccessibleBrand,
   AIPlatformCallAudit,
@@ -25,10 +26,15 @@ import type {
   BrandDetail,
   BrandId,
   BrandImportFieldKey,
+  BrandMediaAsset,
+  BrandMediaAssetInput,
   BrandMutationInput,
   BrandProfile,
   BrandProfileCompletenessPrompt,
   BrandProfileInput,
+  BrandProfileLibrary,
+  BrandProfileLibraryInput,
+  BrandProfileLibrarySection,
   BrandPrompt,
   BrandPromptInput,
   BrandMetricDashboard,
@@ -40,9 +46,13 @@ import type {
   BrowserConnectionStatusInput,
   AIResponse,
   AIResponseParseStatus,
+  AnalysisFinding,
+  AnalysisFindingInput,
+  AnalysisRecommendedAction,
   AnalysisResult,
   AnalysisResultInput,
   AnalysisSentiment,
+  AnalysisWorkbenchDashboard,
   AdvisorDashboard,
   AdvisorFollowUpItem,
   AdvisorRecord,
@@ -63,6 +73,7 @@ import type {
   ContentAsset,
   ContentAssetFilter,
   ContentAssetInput,
+  ContentAssetPageItem,
   ContentAssetStatus,
   ContentCenterDashboard,
   ContentExportRecord,
@@ -104,6 +115,8 @@ import type {
   ManualTestAnswerInput,
   ManualTestAnswerBatchInput,
   ManualTestAnswerBatchResult,
+  MediaPlatformRule,
+  MediaPlatformRuleInput,
   MultiBrandReportSnapshot,
   MonitoringFrequency,
   MonitoringRunDetail,
@@ -120,6 +133,7 @@ import type {
   OptimizationUnitPriority,
   OptimizationUnitType,
   OrganizationMember,
+  OwnedMediaAccount,
   PlatformConfig,
   PlatformConfigInput,
   PlatformMode,
@@ -127,13 +141,16 @@ import type {
   PublishingAccount,
   PublishingAccountInput,
   PublishingAuthStatus,
+  PublishingChannelStats,
   PublishingDashboard,
   PublishingEntryPayload,
+  PublishingExecutionStatusInput,
   PublishingLoginMode,
+  PublishingMode,
+  PublishingModeInput,
   PublishingRecord,
   PublishingRecordInput,
   PublishingRecordStatus,
-  PublishingStatusInput,
   PromptBatchGenerateInput,
   PromptTemplate,
   PromptTemplateInput,
@@ -180,7 +197,6 @@ import type {
 } from '@geo-platform/shared-types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AIPlatformAdapterRegistry, AIPlatformAdapterSelectionError, createDefaultAIPlatformAdapters } from '../platforms/adapters/ai-platform-adapter.registry';
-import { BrowserConnectorRegistry, createDefaultBrowserConnectors } from '../platforms/browser-connectors/browser-connector.registry';
 import {
   buildMultiBrandDataGaps,
   buildReportTitle,
@@ -589,6 +605,52 @@ type PrismaContentAsset = {
   updatedAt: Date;
 };
 
+type PrismaBrandMediaAsset = {
+  id: string;
+  brandId: string;
+  title: string;
+  assetType: string;
+  applicablePlatforms: unknown;
+  contentUsage: string;
+  source: string;
+  reviewStatus: string;
+  relatedContentTaskId: string | null;
+  sourceUrl: string | null;
+  fileRef: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PrismaMediaPlatformRule = {
+  id: string;
+  brandId: string;
+  platform: string;
+  name: string;
+  contentFormats: unknown;
+  intentFit: string;
+  recommendedFrequency: string;
+  coverRatio: string;
+  publishingNote: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PrismaAnalysisFinding = {
+  id: string;
+  brandId: string;
+  type: string;
+  title: string;
+  optimizationUnitId: string | null;
+  userIntent: string | null;
+  platformCode: string | null;
+  evidence: unknown;
+  severity: string;
+  recommendedActions: unknown;
+  relatedTaskId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 type PrismaContentStrategy = {
   id: string;
   brandId: string;
@@ -737,6 +799,7 @@ type PrismaPublishingAccount = {
   platform: string;
   accountName: string;
   loginMode: string;
+  publishingMode: string;
   authStatus: string;
   errorMessage: string | null;
   lastAuthorizedAt: Date | null;
@@ -755,9 +818,13 @@ type PrismaPublishingRecord = {
   body: string;
   platform: string;
   accountName: string | null;
+  publishingMode: string;
   status: string;
+  externalPlatformId: string | null;
   publishedUrl: string | null;
   errorMessage: string | null;
+  lastAttemptAt: Date | null;
+  publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -820,6 +887,7 @@ type PrismaInnerTestFeedback = {
   page: string;
   module: string;
   type: string;
+  severity: string;
   description: string;
   status: string;
   reporterId: string;
@@ -849,7 +917,6 @@ const prismaCompetitorCandidateCache = new Map<string, PrismaCompetitorCandidate
 
 @Injectable()
 export class PrismaPermissionsRepository {
-  private readonly browserConnectors = new BrowserConnectorRegistry(createDefaultBrowserConnectors());
   private readonly aiAdapters = new AIPlatformAdapterRegistry(createDefaultAIPlatformAdapters());
 
   constructor(private readonly prisma: PrismaService) {}
@@ -1107,6 +1174,65 @@ export class PrismaPermissionsRepository {
     return toBrandProfile(profile, completeness.prompts);
   }
 
+  async getBrandProfileLibrary(userId: string, brandId: BrandId): Promise<BrandProfileLibrary | null> {
+    const brand = await this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) {
+      return null;
+    }
+
+    const [profileRecord, sourceRecords, mediaAssetRecords, contentAssetRecords, accountRecords, competitorRecords] = await Promise.all([
+      this.prisma.brandProfile.findUnique({ where: { brandId } }),
+      this.prisma.knowledgeSource.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.brandMediaAsset.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.contentAsset.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.publishingAccount.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.competitor.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } })
+    ]);
+    const profile = profileRecord ? toBrandProfile(profileRecord) : createEmptyProfile(brandId);
+    const knowledgeSources = sourceRecords.map(toKnowledgeSource);
+    const mediaAssets = mediaAssetRecords.map(toBrandMediaAsset);
+    const contentAssets = contentAssetRecords.map(toContentAsset);
+    const publishingAccounts = accountRecords.map(toPublishingAccount);
+    const competitors = competitorRecords.map(toCompetitor);
+
+    return {
+      brandId,
+      profile,
+      sections: buildPrismaBrandProfileLibrarySections(
+        brand,
+        profile,
+        knowledgeSources,
+        mediaAssets,
+        publishingAccounts,
+        competitors
+      ),
+      knowledgeSources,
+      mediaAssets,
+      contentAssets,
+      publishingAccounts,
+      competitors,
+      updatedAt: [
+        profile.updatedAt,
+        ...knowledgeSources.map((item) => item.updatedAt),
+        ...mediaAssets.map((item) => item.updatedAt),
+        ...contentAssets.map((item) => item.updatedAt),
+        ...publishingAccounts.map((item) => item.updatedAt),
+        ...competitors.map((item) => item.updatedAt)
+      ].sort((left, right) => right.localeCompare(left))[0] ?? brand.updatedAt
+    };
+  }
+
+  async saveBrandProfileLibrary(userId: string, brandId: BrandId, input: BrandProfileLibraryInput): Promise<BrandProfileLibrary | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+    if (input.profile && !(await this.saveBrandProfile(userId, brandId, input.profile))) {
+      return null;
+    }
+
+    return this.getBrandProfileLibrary(userId, brandId);
+  }
+
   async listKnowledgeSources(userId: string, brandId: BrandId): Promise<KnowledgeSource[] | null> {
     if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
       return null;
@@ -1159,6 +1285,80 @@ export class PrismaPermissionsRepository {
     });
 
     return toKnowledgeSource(updated);
+  }
+
+  async listBrandMediaAssets(userId: string, brandId: BrandId): Promise<BrandMediaAsset[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+
+    const assets = await this.prisma.brandMediaAsset.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } });
+    return assets.map(toBrandMediaAsset);
+  }
+
+  async createBrandMediaAsset(userId: string, brandId: BrandId, input: BrandMediaAssetInput): Promise<BrandMediaAsset | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+    const title = input.title?.trim();
+    if (!title || (input.relatedContentTaskId && !(await this.prisma.contentGenerationTask.findFirst({
+      where: { id: input.relatedContentTaskId, brandId }
+    })))) {
+      return null;
+    }
+
+    const asset = await this.prisma.brandMediaAsset.create({
+      data: {
+        brandId,
+        title,
+        assetType: input.assetType ?? 'image',
+        applicablePlatforms: toInputJsonArray(mergeStringLists(input.applicablePlatforms ?? [])),
+        contentUsage: input.contentUsage?.trim() ?? '',
+        source: input.source?.trim() ?? '',
+        reviewStatus: input.reviewStatus ?? 'pending',
+        relatedContentTaskId: input.relatedContentTaskId,
+        sourceUrl: input.sourceUrl?.trim() || undefined,
+        fileRef: input.fileRef?.trim() || undefined
+      }
+    });
+
+    return toBrandMediaAsset(asset);
+  }
+
+  async updateBrandMediaAsset(
+    userId: string,
+    brandId: BrandId,
+    assetId: string,
+    input: BrandMediaAssetInput
+  ): Promise<BrandMediaAsset | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+    const existing = await this.prisma.brandMediaAsset.findFirst({ where: { id: assetId, brandId } });
+    if (!existing || input.title?.trim() === '' || (input.relatedContentTaskId && !(await this.prisma.contentGenerationTask.findFirst({
+      where: { id: input.relatedContentTaskId, brandId }
+    })))) {
+      return null;
+    }
+
+    const asset = await this.prisma.brandMediaAsset.update({
+      where: { id: assetId },
+      data: {
+        ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+        ...(input.assetType !== undefined ? { assetType: input.assetType } : {}),
+        ...(input.applicablePlatforms !== undefined
+          ? { applicablePlatforms: toInputJsonArray(mergeStringLists(input.applicablePlatforms)) }
+          : {}),
+        ...(input.contentUsage !== undefined ? { contentUsage: input.contentUsage.trim() } : {}),
+        ...(input.source !== undefined ? { source: input.source.trim() } : {}),
+        ...(input.reviewStatus !== undefined ? { reviewStatus: input.reviewStatus } : {}),
+        ...(input.relatedContentTaskId !== undefined ? { relatedContentTaskId: input.relatedContentTaskId || null } : {}),
+        ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl.trim() || null } : {}),
+        ...(input.fileRef !== undefined ? { fileRef: input.fileRef.trim() || null } : {})
+      }
+    });
+
+    return toBrandMediaAsset(asset);
   }
 
   async listOptimizationUnits(userId: string, brandId: BrandId): Promise<OptimizationUnit[] | null> {
@@ -1820,11 +2020,11 @@ export class PrismaPermissionsRepository {
       data: {
         brandId,
         platformCode: input.platformCode.trim(),
-        status: 'opening',
+        status: 'login_required',
         loginDetected: false,
         authorizedScope: buildBrowserAuthorizedScope(brandId, input.platformCode.trim(), input.testPlanId),
-        lastOperation: 'open_login_page',
-        lastMessage: '正在打开浏览器登录页。'
+        lastOperation: 'await_user_login',
+        lastMessage: '请在官方平台登录，完成后回到这里确认。'
       }
     });
 
@@ -1841,15 +2041,17 @@ export class PrismaPermissionsRepository {
       return null;
     }
 
+    const transitioned = applyBrowserConnectionEvent(toBrowserConnectionSession(exists), input);
     const session = await this.prisma.browserConnectionSession.update({
       where: { id: sessionId },
       data: {
-        status: input.status,
-        ...(input.loginDetected !== undefined ? { loginDetected: input.loginDetected } : {}),
-        ...(input.lastOperation !== undefined ? { lastOperation: input.lastOperation } : {}),
-        ...(input.lastIssueType !== undefined ? { lastIssueType: input.lastIssueType } : {}),
-        ...(input.lastMessage !== undefined ? { lastMessage: input.lastMessage } : {}),
-        ...(input.lastAvailableAt !== undefined ? { lastAvailableAt: new Date(input.lastAvailableAt) } : {})
+        status: transitioned.status,
+        loginDetected: transitioned.loginDetected,
+        lastOperation: transitioned.lastOperation,
+        lastIssueType: transitioned.lastIssueType ?? null,
+        lastMessage: transitioned.lastMessage,
+        lastAvailableAt: transitioned.lastAvailableAt ? new Date(transitioned.lastAvailableAt) : null,
+        updatedAt: new Date(transitioned.updatedAt)
       }
     });
 
@@ -2449,49 +2651,19 @@ export class PrismaPermissionsRepository {
       };
     }
 
-    const connector = this.browserConnectors.selectConnector(platformCode);
-    if (!connector) {
-      return {
-        status: 'needs_confirmation',
-        message: '该平台浏览器适配器尚未注册，请改用手动录入路径。'
-      };
-    }
-
-    const connectorInput = { brandId, platformCode, testPlanId, question: question.question, promptId: question.promptId };
-    const operations = [
-      await connector.openLoginPage(connectorInput),
-      await connector.detectLogin(connectorInput),
-      await connector.sendQuestion(connectorInput),
-      await connector.waitForAnswer(connectorInput)
-    ];
-    const blocked = operations.find((operation) => operation.status !== 'ready');
-    if (blocked) {
-      return toBrowserStepConfirmation(blocked.message);
-    }
-
-    const answer = await connector.extractAnswer(connectorInput);
-    if (answer.status !== 'ready' || !answer.rawText) {
-      return toBrowserStepConfirmation(answer.message);
-    }
-
     const run = await this.createMonitoringRun(userId, brandId, { promptId: question.promptId, platformCode });
     if (!run) {
       return {
         status: 'needs_confirmation',
-        message: '浏览器辅助监测运行创建失败，请确认 Prompt 与平台连接。'
+        message: '浏览器辅助监测运行创建失败，请确认监测问题与平台连接。'
       };
     }
 
     await this.prisma.monitoringRun.update({ where: { id: run.id }, data: { testPlanId } });
-    await this.addManualResponse(userId, brandId, run.id, {
-      rawText: answer.rawText,
-      modelName: answer.modelName
-    });
-    await this.parseAnalysisResult(userId, brandId, run.id);
 
     return {
-      status: 'queued',
-      message: answer.message,
+      status: 'needs_confirmation',
+      message: '已准备浏览器辅助监测，请登录官方平台、提交问题并回填真实回答。',
       run: await this.getMonitoringRun(userId, brandId, run.id) ?? run
     };
   }
@@ -2711,6 +2883,89 @@ export class PrismaPermissionsRepository {
     await this.prisma.aIResponse.update({ where: { id: result.responseId }, data: { parseStatus: result.reviewRequired ? 'review_required' : 'parsed' } });
 
     return toAnalysisResult(result);
+  }
+
+  async listAnalysisFindings(userId: string, brandId: BrandId): Promise<AnalysisFinding[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+
+    const findings = await this.prisma.analysisFinding.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } });
+    return findings.map(toAnalysisFinding);
+  }
+
+  async createAnalysisFinding(userId: string, brandId: BrandId, input: AnalysisFindingInput): Promise<AnalysisFinding | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId)) || !(await this.hasValidAnalysisFindingRelations(brandId, input))) {
+      return null;
+    }
+    const title = input.title.trim();
+    if (!title) {
+      return null;
+    }
+
+    const finding = await this.prisma.analysisFinding.create({
+      data: {
+        brandId,
+        type: input.type,
+        title,
+        optimizationUnitId: input.optimizationUnitId,
+        userIntent: input.userIntent?.trim() || undefined,
+        platformCode: input.platformCode?.trim() || undefined,
+        evidence: toInputJsonArray(mergeStringLists(input.evidence)),
+        severity: input.severity,
+        recommendedActions: toInputJsonArray(normalizeAnalysisRecommendedActions(input.recommendedActions)),
+        relatedTaskId: input.relatedTaskId
+      }
+    });
+
+    return toAnalysisFinding(finding);
+  }
+
+  async updateAnalysisFinding(
+    userId: string,
+    brandId: BrandId,
+    findingId: string,
+    input: Partial<AnalysisFindingInput>
+  ): Promise<AnalysisFinding | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId)) || !(await this.hasValidAnalysisFindingRelations(brandId, input))) {
+      return null;
+    }
+    const existing = await this.prisma.analysisFinding.findFirst({ where: { id: findingId, brandId } });
+    if (!existing || input.title?.trim() === '') {
+      return null;
+    }
+
+    const finding = await this.prisma.analysisFinding.update({
+      where: { id: findingId },
+      data: {
+        ...(input.type !== undefined ? { type: input.type } : {}),
+        ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+        ...(input.optimizationUnitId !== undefined ? { optimizationUnitId: input.optimizationUnitId || null } : {}),
+        ...(input.userIntent !== undefined ? { userIntent: input.userIntent.trim() || null } : {}),
+        ...(input.platformCode !== undefined ? { platformCode: input.platformCode.trim() || null } : {}),
+        ...(input.evidence !== undefined ? { evidence: toInputJsonArray(mergeStringLists(input.evidence)) } : {}),
+        ...(input.severity !== undefined ? { severity: input.severity } : {}),
+        ...(input.recommendedActions !== undefined
+          ? { recommendedActions: toInputJsonArray(normalizeAnalysisRecommendedActions(input.recommendedActions)) }
+          : {}),
+        ...(input.relatedTaskId !== undefined ? { relatedTaskId: input.relatedTaskId || null } : {})
+      }
+    });
+
+    return toAnalysisFinding(finding);
+  }
+
+  async getAnalysisWorkbenchDashboard(userId: string, brandId: BrandId): Promise<AnalysisWorkbenchDashboard | null> {
+    const findings = await this.listAnalysisFindings(userId, brandId);
+    if (!findings) {
+      return null;
+    }
+
+    return {
+      brandId,
+      findings,
+      recommendedActions: dedupePrismaAnalysisRecommendedActions(findings.flatMap((finding) => finding.recommendedActions))
+    };
   }
 
   async getBrandMetricDashboard(userId: string, brandId: BrandId): Promise<BrandMetricDashboard | null> {
@@ -3114,6 +3369,77 @@ export class PrismaPermissionsRepository {
         (!filter.platform || asset.platform === filter.platform) &&
         (!filter.status || asset.status === filter.status) &&
         (!filter.keyword || asset.targetKeywords.some((keyword) => keyword.includes(filter.keyword as string)));
+    });
+  }
+
+  async listContentAssetPageItems(
+    userId: string,
+    brandId: BrandId,
+    filter: ContentAssetFilter = {}
+  ): Promise<ContentAssetPageItem[] | null> {
+    const assets = await this.listContentAssets(userId, brandId, filter);
+    if (!assets) {
+      return null;
+    }
+
+    const [recordRows, citationRows, generationTaskRows, strategyRows, intentRows, optimizationTaskRows] = await Promise.all([
+      this.prisma.publishingRecord.findMany({ where: { brandId }, orderBy: { updatedAt: 'desc' } }),
+      this.prisma.citationSource.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.contentGenerationTask.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.contentStrategy.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.userIntent.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.optimizationTask.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } })
+    ]);
+    const records = recordRows.map(toPublishingRecord);
+    const generationTasks = generationTaskRows.map(toContentGenerationTask);
+    const strategies = strategyRows.map(toContentStrategy);
+    const intents = intentRows.map(toUserIntent);
+    const optimizationTasks = optimizationTaskRows.map(toOptimizationTask);
+
+    return assets.map((asset) => {
+      const assetRecords = records.filter((record) => record.contentAssetId === asset.id);
+      const citations = citationRows.filter((citation) => citation.contentAssetId === asset.id);
+      const generationTaskIds = new Set(assetRecords.flatMap((record) => record.generationTaskId ? [record.generationTaskId] : []));
+      const relatedTasks = generationTasks.filter((task) => generationTaskIds.has(task.id));
+      const relatedStrategies = strategies.filter((strategy) => relatedTasks.some((task) => task.strategyId === strategy.id));
+      const relatedGrowthPlanIds = new Set(relatedTasks.flatMap(
+        (task) => task.growthOptimizationPlanId ? [task.growthOptimizationPlanId] : []
+      ));
+      const relatedIntentIds = new Set(relatedStrategies.map((strategy) => strategy.intentId));
+      const relatedIntent = intents.find((intent) => relatedIntentIds.has(intent.id));
+      const relatedStrategyIds = new Set(relatedStrategies.map((strategy) => strategy.id));
+      const retestTask = optimizationTasks.find((task) =>
+        ((task.strategyId && relatedStrategyIds.has(task.strategyId)) ||
+          (task.growthOptimizationPlanId && relatedGrowthPlanIds.has(task.growthOptimizationPlanId))) &&
+        (task.retestPlanAt || task.retestRecords.length > 0)
+      );
+      const latestRetestRecord = retestTask?.retestRecords
+        .slice()
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+
+      return {
+        ...asset,
+        optimizationUnitId: relatedStrategies[0]?.optimizationUnitId,
+        userIntent: relatedIntent?.text,
+        sourceReferences: citations.map((citation) => ({
+          type: 'citation' as const,
+          title: citation.title,
+          url: citation.url
+        })),
+        reviewStatus: asset.status === 'published' ? 'approved' : 'pending',
+        publishStatus: assetRecords[0]?.status === 'queued' || assetRecords[0]?.status === 'publishing'
+          ? 'pending'
+          : assetRecords[0]?.status ?? (asset.status === 'published' ? 'published' : 'not_started'),
+        retestPlanId: latestRetestRecord?.id ?? (retestTask?.retestPlanAt ? retestTask.id : undefined),
+        publishingStats: {
+          brandId,
+          totalRecords: assetRecords.length,
+          publishedRecords: assetRecords.filter((record) => record.status === 'published').length,
+          failedRecords: assetRecords.filter((record) => record.status === 'failed').length,
+          citationCount: citations.reduce((sum, citation) => sum + citation.citationCount, 0),
+          relatedIntentCount: relatedIntentIds.size
+        }
+      };
     });
   }
 
@@ -3669,6 +3995,112 @@ export class PrismaPermissionsRepository {
     };
   }
 
+  async listOwnedMediaAccounts(userId: string, brandId: BrandId): Promise<OwnedMediaAccount[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+    const [accountRows, recordRows] = await Promise.all([
+      this.prisma.publishingAccount.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.publishingRecord.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } })
+    ]);
+    const records = recordRows.map(toPublishingRecord);
+
+    return accountRows.map((row) => {
+      const account = toPublishingAccount(row);
+      return {
+        ...account,
+        platformName: getPrismaPublishingPlatformName(account.platform),
+        stats: buildPrismaPublishingChannelStats(
+          brandId,
+          account.platform,
+          records.filter((record) => record.accountId === account.id)
+        )
+      };
+    });
+  }
+
+  async listMediaPlatformRules(userId: string, brandId: BrandId): Promise<MediaPlatformRule[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+
+    const rules = await this.prisma.mediaPlatformRule.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } });
+    return rules.map(toMediaPlatformRule);
+  }
+
+  async createMediaPlatformRule(userId: string, brandId: BrandId, input: MediaPlatformRuleInput): Promise<MediaPlatformRule | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+    const platform = input.platform.trim();
+    const name = input.name.trim();
+    if (!platform || !name || await this.prisma.mediaPlatformRule.findFirst({ where: { brandId, platform } })) {
+      return null;
+    }
+
+    const rule = await this.prisma.mediaPlatformRule.create({
+      data: {
+        brandId,
+        platform,
+        name,
+        contentFormats: toInputJsonArray(mergeStringLists(input.contentFormats)),
+        intentFit: input.intentFit.trim(),
+        recommendedFrequency: input.recommendedFrequency.trim(),
+        coverRatio: input.coverRatio.trim(),
+        publishingNote: input.publishingNote.trim()
+      }
+    });
+    return toMediaPlatformRule(rule);
+  }
+
+  async updateMediaPlatformRule(
+    userId: string,
+    brandId: BrandId,
+    platform: string,
+    input: Partial<MediaPlatformRuleInput>
+  ): Promise<MediaPlatformRule | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+    const existing = await this.prisma.mediaPlatformRule.findFirst({ where: { brandId, platform } });
+    if (!existing || input.name?.trim() === '') {
+      return null;
+    }
+
+    const rule = await this.prisma.mediaPlatformRule.update({
+      where: { id: existing.id },
+      data: {
+        ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+        ...(input.contentFormats !== undefined
+          ? { contentFormats: toInputJsonArray(mergeStringLists(input.contentFormats)) }
+          : {}),
+        ...(input.intentFit !== undefined ? { intentFit: input.intentFit.trim() } : {}),
+        ...(input.recommendedFrequency !== undefined ? { recommendedFrequency: input.recommendedFrequency.trim() } : {}),
+        ...(input.coverRatio !== undefined ? { coverRatio: input.coverRatio.trim() } : {}),
+        ...(input.publishingNote !== undefined ? { publishingNote: input.publishingNote.trim() } : {})
+      }
+    });
+    return toMediaPlatformRule(rule);
+  }
+
+  async getPublishingChannelStats(userId: string, brandId: BrandId): Promise<PublishingChannelStats[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+    const [accountRows, recordRows] = await Promise.all([
+      this.prisma.publishingAccount.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.publishingRecord.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } })
+    ]);
+    const records = recordRows.map(toPublishingRecord);
+    const platforms = new Set([...accountRows.map((account) => account.platform), ...records.map((record) => record.platform)]);
+
+    return Array.from(platforms).map((platform) => buildPrismaPublishingChannelStats(
+      brandId,
+      platform,
+      records.filter((record) => record.platform === platform)
+    ));
+  }
+
   async connectPublishingAccount(userId: string, brandId: BrandId, input: PublishingAccountInput): Promise<PublishingAccount | null> {
     if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
       return null;
@@ -3686,6 +4118,7 @@ export class PrismaPermissionsRepository {
         platform: normalized.platform,
         accountName: normalized.accountName,
         loginMode: normalized.loginMode ?? inferPublishingLoginMode(normalized.platform),
+        publishingMode: normalized.publishingMode ?? 'manual',
         authStatus,
         errorMessage: authStatus === 'error' ? normalized.errorMessage : undefined,
         lastAuthorizedAt: authStatus === 'error' ? undefined : new Date()
@@ -3736,6 +4169,17 @@ export class PrismaPermissionsRepository {
     return toPublishingAccount(account);
   }
 
+  async updatePublishingAccountMode(userId: string, brandId: BrandId, accountId: string, input: PublishingModeInput): Promise<PublishingAccount | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const existing = await this.prisma.publishingAccount.findFirst({ where: { id: accountId, brandId } });
+    if (!existing) return null;
+    const account = await this.prisma.publishingAccount.update({
+      where: { id: accountId },
+      data: { publishingMode: normalizePublishingMode(input.publishingMode) }
+    });
+    return toPublishingAccount(account);
+  }
+
   async createPublishingRecord(userId: string, brandId: BrandId, input: PublishingRecordInput): Promise<PublishingRecord | null> {
     if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
       return null;
@@ -3770,6 +4214,7 @@ export class PrismaPermissionsRepository {
         body: input.body?.trim() || (version as PrismaContentVersion | null)?.body || '',
         platform: input.targetPlatform?.trim() || account?.platform || asset.platform,
         accountName: account?.accountName,
+        publishingMode: account?.publishingMode ?? 'manual',
         status: input.status ? normalizePublishingRecordStatus(input.status) : 'draft'
       }
     });
@@ -3777,7 +4222,7 @@ export class PrismaPermissionsRepository {
     return toPublishingRecord(record);
   }
 
-  async updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingStatusInput): Promise<PublishingRecord | null> {
+  async updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingExecutionStatusInput): Promise<PublishingRecord | null> {
     if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
       return null;
     }
@@ -3792,8 +4237,11 @@ export class PrismaPermissionsRepository {
       where: { id: recordId },
       data: {
         status,
+        externalPlatformId: input.externalPlatformId?.trim(),
         publishedUrl: input.publishedUrl?.trim(),
-        errorMessage: status === 'failed' ? input.errorMessage?.trim() || '发布失败，请检查平台账号状态' : null
+        errorMessage: status === 'failed' ? input.errorMessage?.trim() || '发布失败，请检查平台账号状态' : null,
+        lastAttemptAt: input.lastAttemptAt ? new Date(input.lastAttemptAt) : undefined,
+        publishedAt: input.publishedAt ? new Date(input.publishedAt) : status === 'published' ? new Date() : undefined
       }
     });
 
@@ -4227,6 +4675,7 @@ export class PrismaPermissionsRepository {
         page: normalized.page,
         module: normalized.module,
         type: normalized.type,
+        severity: normalized.severity,
         description: normalized.description,
         reporterId: userId
       }
@@ -4257,6 +4706,7 @@ export class PrismaPermissionsRepository {
       where: { id: feedbackId },
       data: {
         ...(normalized.status ? { status: normalized.status } : {}),
+        ...(normalized.severity ? { severity: normalized.severity } : {}),
         ...(normalized.resolutionNote !== undefined ? { resolutionNote: normalized.resolutionNote } : {})
       }
     });
@@ -4470,6 +4920,22 @@ export class PrismaPermissionsRepository {
     };
   }
 
+  private async hasValidAnalysisFindingRelations(
+    brandId: BrandId,
+    input: Pick<Partial<AnalysisFindingInput>, 'optimizationUnitId' | 'relatedTaskId'>
+  ): Promise<boolean> {
+    const [optimizationUnit, relatedTask] = await Promise.all([
+      input.optimizationUnitId
+        ? this.prisma.optimizationUnit.findFirst({ where: { id: input.optimizationUnitId, brandId } })
+        : Promise.resolve(null),
+      input.relatedTaskId
+        ? this.prisma.optimizationTask.findFirst({ where: { id: input.relatedTaskId, brandId } })
+        : Promise.resolve(null)
+    ]);
+
+    return (!input.optimizationUnitId || Boolean(optimizationUnit)) && (!input.relatedTaskId || Boolean(relatedTask));
+  }
+
   private async findAccessiblePermission(userId: string, brandId: BrandId): Promise<PrismaAccessibleBrandPermission | null> {
     return this.prisma.userBrandPermission.findFirst({
       where: {
@@ -4537,7 +5003,7 @@ export class PrismaPermissionsRepository {
         this.prisma.monitoringRun.findFirst({ where: { id: result.runId, brandId } }),
         this.prisma.aIResponse.findFirst({ where: { id: result.responseId, brandId } })
       ]);
-      if (!run || !response) {
+      if (!run || !response || run.platformCode === 'mock_ai' || !response.rawText.trim()) {
         return null;
       }
 
@@ -4983,6 +5449,78 @@ function toBrandProfile(profile: PrismaBrandProfile, completenessPrompts?: Brand
     missingFields,
     completenessPrompts: completenessPrompts ?? buildCompletenessPromptsFromMissingFields(missingFields),
     updatedAt: profile.updatedAt.toISOString()
+  };
+}
+
+function toBrandMediaAsset(asset: PrismaBrandMediaAsset): BrandMediaAsset {
+  return {
+    id: asset.id,
+    brandId: asset.brandId,
+    title: asset.title,
+    assetType: asset.assetType as BrandMediaAsset['assetType'],
+    applicablePlatforms: toStringArray(asset.applicablePlatforms),
+    contentUsage: asset.contentUsage,
+    source: asset.source,
+    reviewStatus: asset.reviewStatus as BrandMediaAsset['reviewStatus'],
+    relatedContentTaskId: asset.relatedContentTaskId ?? undefined,
+    sourceUrl: asset.sourceUrl ?? undefined,
+    fileRef: asset.fileRef ?? undefined,
+    createdAt: asset.createdAt.toISOString(),
+    updatedAt: asset.updatedAt.toISOString()
+  };
+}
+
+function buildPrismaBrandProfileLibrarySections(
+  brand: BrandDetail,
+  profile: BrandProfile,
+  knowledgeSources: KnowledgeSource[],
+  mediaAssets: BrandMediaAsset[],
+  publishingAccounts: PublishingAccount[],
+  competitors: Competitor[]
+): BrandProfileLibrarySection[] {
+  return [
+    buildPrismaBrandProfileLibrarySection('basic-info', '基础信息', '品牌定位、行业、业务范围和介绍', [
+      ['品牌名称', brand.name], ['所属行业', brand.industry], ['业务范围', brand.businessScope],
+      ['目标人群', brand.targetAudience], ['品牌介绍', profile.intro]
+    ], 1),
+    buildPrismaBrandProfileLibrarySection('products', '产品与价值', '产品服务、核心价值和可信证明', [
+      ['产品服务', profile.offerings.length], ['核心价值', profile.valueProps.length], ['可信证明', profile.proofPoints.length]
+    ], profile.offerings.length),
+    buildPrismaBrandProfileLibrarySection('audiences', '目标客户', '目标客户和典型决策人群', [
+      ['目标客户', profile.targetCustomers.length], ['目标人群说明', brand.targetAudience]
+    ], profile.targetCustomers.length),
+    buildPrismaBrandProfileLibrarySection('brand-knowledge', '品牌知识', '知识来源、常见问题和内容规则', [
+      ['知识来源', knowledgeSources.length], ['常见问题', profile.faqs.length], ['内容规则', profile.contentRules.length]
+    ], knowledgeSources.length + profile.faqs.length),
+    buildPrismaBrandProfileLibrarySection('media-assets', '品牌素材', '图片、文档、网页和内容素材', [
+      ['品牌素材', mediaAssets.length]
+    ], mediaAssets.length),
+    buildPrismaBrandProfileLibrarySection('owned-media', '自有媒体', '品牌官网和媒体账号', [
+      ['自有媒体账号', publishingAccounts.length]
+    ], publishingAccounts.length),
+    buildPrismaBrandProfileLibrarySection('competitors', '竞品资料', '竞品档案和差异说明', [
+      ['竞品档案', competitors.length]
+    ], competitors.length)
+  ];
+}
+
+function buildPrismaBrandProfileLibrarySection(
+  key: BrandProfileLibrarySection['key'],
+  title: string,
+  description: string,
+  fields: Array<[string, string | number]>,
+  itemCount: number
+): BrandProfileLibrarySection {
+  const missingItems = fields
+    .filter(([, value]) => typeof value === 'number' ? value === 0 : value.trim() === '')
+    .map(([label]) => label);
+  return {
+    key,
+    title,
+    description,
+    completeness: Math.round(((fields.length - missingItems.length) / fields.length) * 100),
+    missingItems,
+    itemCount
   };
 }
 
@@ -5639,13 +6177,6 @@ type BrowserTestPlanStepResult = {
   message: string;
   run?: MonitoringRunDetail;
 };
-
-function toBrowserStepConfirmation(message: string): BrowserTestPlanStepResult {
-  return {
-    status: 'needs_confirmation',
-    message
-  };
-}
 
 function normalizeApiExecutionError(error: unknown): { code: string; message: string; retryable: boolean } {
   if (error instanceof AIPlatformAdapterSelectionError) {
@@ -6460,12 +6991,56 @@ function toPublishingAccount(account: PrismaPublishingAccount): PublishingAccoun
     platform: account.platform,
     accountName: account.accountName,
     loginMode: account.loginMode as PublishingLoginMode,
+    publishingMode: account.publishingMode as PublishingMode,
     authStatus: account.authStatus as PublishingAuthStatus,
     lastAuthorizedAt: dateToIso(account.lastAuthorizedAt),
     errorMessage: account.errorMessage ?? undefined,
     createdAt: account.createdAt.toISOString(),
     updatedAt: account.updatedAt.toISOString()
   };
+}
+
+function toMediaPlatformRule(rule: PrismaMediaPlatformRule): MediaPlatformRule {
+  return {
+    brandId: rule.brandId,
+    platform: rule.platform,
+    name: rule.name,
+    contentFormats: toStringArray(rule.contentFormats),
+    intentFit: rule.intentFit,
+    recommendedFrequency: rule.recommendedFrequency,
+    coverRatio: rule.coverRatio,
+    publishingNote: rule.publishingNote
+  };
+}
+
+function buildPrismaPublishingChannelStats(
+  brandId: BrandId,
+  platform: string,
+  records: PublishingRecord[]
+): PublishingChannelStats {
+  return {
+    brandId,
+    platform,
+    totalRecords: records.length,
+    draftRecords: records.filter((record) => record.status === 'draft').length,
+    pendingRecords: records.filter((record) => ['pending', 'queued', 'publishing'].includes(record.status)).length,
+    publishedRecords: records.filter((record) => record.status === 'published').length,
+    failedRecords: records.filter((record) => record.status === 'failed').length
+  };
+}
+
+function getPrismaPublishingPlatformName(platform: string): string {
+  const names: Record<string, string> = {
+    wechat: '公众号',
+    wechat_official: '公众号',
+    toutiao: '头条号',
+    sohu: '搜狐号',
+    baijiahao: '百家号',
+    xiaohongshu: '小红书',
+    zhihu: '知乎',
+    website: '官网'
+  };
+  return names[platform] ?? platform;
 }
 
 function toPublishingRecord(record: PrismaPublishingRecord): PublishingRecord {
@@ -6480,9 +7055,13 @@ function toPublishingRecord(record: PrismaPublishingRecord): PublishingRecord {
     body: record.body,
     platform: record.platform,
     accountName: record.accountName ?? undefined,
+    publishingMode: record.publishingMode as PublishingMode,
     status: record.status as PublishingRecordStatus,
+    externalPlatformId: record.externalPlatformId ?? undefined,
     publishedUrl: record.publishedUrl ?? undefined,
     errorMessage: record.errorMessage ?? undefined,
+    lastAttemptAt: dateToIso(record.lastAttemptAt),
+    publishedAt: dateToIso(record.publishedAt),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString()
   };
@@ -6566,6 +7145,7 @@ function toInnerTestFeedback(record: PrismaInnerTestFeedback): InnerTestFeedback
     page: record.page,
     module: record.module,
     type: record.type as InnerTestFeedback['type'],
+    severity: record.severity as InnerTestFeedback['severity'],
     description: record.description,
     status: record.status as InnerTestFeedbackStatus,
     reporterId: record.reporterId,
@@ -6607,6 +7187,7 @@ function normalizePublishingAccountInput(input: PublishingAccountInput): Publish
     platform: input.platform.trim(),
     accountName: input.accountName.trim(),
     loginMode: input.loginMode,
+    publishingMode: input.publishingMode ? normalizePublishingMode(input.publishingMode) : undefined,
     authStatus: input.authStatus,
     errorMessage: input.errorMessage?.trim()
   };
@@ -6660,12 +7241,14 @@ function normalizeAdvisorRecordInput(input: AdvisorRecordInput): AdvisorRecordIn
 
 const innerTestFeedbackTypes: InnerTestFeedback['type'][] = ['usability', 'bug', 'copy', 'data', 'workflow', 'configuration', 'other'];
 const innerTestFeedbackStatuses: InnerTestFeedbackStatus[] = ['open', 'triaged', 'in_progress', 'resolved'];
+const innerTestFeedbackSeverities: InnerTestFeedback['severity'][] = ['high', 'medium', 'low'];
 
 function normalizeInnerTestFeedbackInput(input: InnerTestFeedbackInput): InnerTestFeedbackInput {
   return {
     page: input.page.trim(),
     module: input.module.trim(),
     type: innerTestFeedbackTypes.includes(input.type) ? input.type : 'other',
+    severity: input.severity && innerTestFeedbackSeverities.includes(input.severity) ? input.severity : 'medium',
     description: input.description.trim()
   };
 }
@@ -6673,6 +7256,7 @@ function normalizeInnerTestFeedbackInput(input: InnerTestFeedbackInput): InnerTe
 function normalizeInnerTestFeedbackUpdateInput(input: InnerTestFeedbackUpdateInput): InnerTestFeedbackUpdateInput {
   return {
     status: input.status && innerTestFeedbackStatuses.includes(input.status) ? input.status : undefined,
+    severity: input.severity && innerTestFeedbackSeverities.includes(input.severity) ? input.severity : undefined,
     resolutionNote: input.resolutionNote?.trim()
   };
 }
@@ -6904,8 +7488,12 @@ function normalizePublishingAuthStatus(status: PublishingAuthStatus): Publishing
   return ['connected', 'expired', 'error', 'disconnected'].includes(status) ? status : 'disconnected';
 }
 
+function normalizePublishingMode(mode: PublishingMode): PublishingMode {
+  return ['manual', 'assisted', 'automatic'].includes(mode) ? mode : 'manual';
+}
+
 function normalizePublishingRecordStatus(status: PublishingRecordStatus): PublishingRecordStatus {
-  return ['draft', 'pending', 'published', 'failed'].includes(status) ? status : 'draft';
+  return ['draft', 'pending', 'queued', 'publishing', 'published', 'failed'].includes(status) ? status : 'draft';
 }
 
 function buildPublishingPlatforms(accounts: PublishingAccount[]) {
@@ -7289,6 +7877,55 @@ function toAnalysisResult(result: PrismaAnalysisResult): AnalysisResult {
     reviewRequired: result.reviewRequired,
     updatedAt: result.updatedAt.toISOString()
   };
+}
+
+function toAnalysisFinding(finding: PrismaAnalysisFinding): AnalysisFinding {
+  return {
+    id: finding.id,
+    brandId: finding.brandId,
+    type: finding.type as AnalysisFinding['type'],
+    title: finding.title,
+    optimizationUnitId: finding.optimizationUnitId ?? undefined,
+    userIntent: finding.userIntent ?? undefined,
+    platformCode: finding.platformCode ?? undefined,
+    evidence: toStringArray(finding.evidence),
+    severity: finding.severity as AnalysisFinding['severity'],
+    recommendedActions: toAnalysisRecommendedActions(finding.recommendedActions),
+    relatedTaskId: finding.relatedTaskId ?? undefined
+  };
+}
+
+function toAnalysisRecommendedActions(value: unknown): AnalysisRecommendedAction[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (!item || typeof item !== 'object') {
+          return [];
+        }
+        const action = item as Partial<AnalysisRecommendedAction>;
+        return typeof action.label === 'string' && typeof action.actionType === 'string'
+          ? [{
+              label: action.label,
+              actionType: action.actionType as AnalysisRecommendedAction['actionType'],
+              targetId: typeof action.targetId === 'string' ? action.targetId : undefined
+            }]
+          : [];
+      })
+    : [];
+}
+
+function normalizeAnalysisRecommendedActions(actions: AnalysisRecommendedAction[]): AnalysisRecommendedAction[] {
+  return actions.map((action) => ({
+    ...action,
+    label: action.label.trim(),
+    targetId: action.targetId?.trim() || undefined
+  }));
+}
+
+function dedupePrismaAnalysisRecommendedActions(actions: AnalysisRecommendedAction[]): AnalysisRecommendedAction[] {
+  return Array.from(new Map(actions.map((action) => [
+    `${action.actionType}:${action.label}:${action.targetId ?? ''}`,
+    action
+  ])).values());
 }
 
 function buildGrowthOptimizationPlanDraft(

@@ -2,7 +2,7 @@
 
 ## 目标
 
-本清单用于第五阶段试点客户演示。默认内存仓储内置一套最小 demo 数据；Prisma 演示环境可通过 `apps/api/prisma/seed.js` 写入稳定 demo 数据，覆盖品牌、监测、内容、发布、任务、报告和顾问记录，支持按固定路径完成演示、验收和反馈回填。
+本清单用于第五阶段试点客户演示。默认内存仓储内置一套最小 demo 数据；Prisma 演示环境可通过 `当前工作区/apps/api/prisma/seed.js` 写入稳定 demo 数据，覆盖品牌、监测、内容、发布、任务、报告和顾问记录，支持按固定路径完成演示、验收和反馈回填。
 
 ## 演示数据
 
@@ -10,7 +10,6 @@
 
 ```bash
 # 进入 GEO 平台工程
-cd geo-platform
 
 # 生成 Prisma Client 并写入 demo seed
 npm run db:prepare
@@ -75,7 +74,7 @@ npm run db:prepare
 
 ## 反馈转需求记录格式
 
-试点演示反馈统一按以下格式记录。已确认进入产品迭代的反馈，后续在 `.monkeycode/specs/` 下建立或更新对应需求、设计和任务清单。
+试点演示反馈统一按以下格式记录。已确认进入产品迭代的反馈，后续在 `当前工作区/.monkeycode/specs/` 下建立或更新对应需求、设计和任务清单。
 
 ```markdown
 ### [反馈标题]
@@ -94,7 +93,7 @@ npm run db:prepare
 - Owner: 负责人
 - Acceptance Criteria:
   - WHEN [触发条件], the system SHALL [可验证结果].
-- Follow-up Spec: .monkeycode/specs/[feature-name]/requirements.md
+- Follow-up Spec: 当前工作区/.monkeycode/specs/[feature-name]/requirements.md
 ```
 
 ## 演示前门禁
@@ -103,7 +102,6 @@ npm run db:prepare
 
 ```bash
 # 进入 GEO 平台工程
-cd geo-platform
 
 # 构建验证
 npm run build

@@ -31,6 +31,7 @@ model Brand {
   permissions     UserBrandPermission[]
   profile         BrandProfile?
   knowledgeSources KnowledgeSource[]
+  brandMediaAssets BrandMediaAsset[]
   optimizationUnits OptimizationUnit[]
   testThemes TestTheme[]
   testQuestionCandidates TestQuestionCandidate[]
@@ -52,6 +53,8 @@ model Brand {
   contentExportRecords ContentExportRecord[]
   publishingAccounts PublishingAccount[]
   publishingRecords PublishingRecord[]
+  mediaPlatformRules MediaPlatformRule[]
+  analysisFindings AnalysisFinding[]
   automationPackages AutomationPackage[]
   automationConfirmations AutomationConfirmation[]
   visibilitySprints VisibilitySprint[]
@@ -135,6 +138,7 @@ model OptimizationUnit {
   testThemes TestTheme[]
   contentStrategies ContentStrategy[]
   optimizationTasks OptimizationTask[]
+  analysisFindings AnalysisFinding[]
 
   @@index([brandId])
   @@index([type])
@@ -775,6 +779,31 @@ model ContentAsset {
   @@map("content_assets")
 }
 
+model BrandMediaAsset {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  title String
+  assetType String @default("image") @map("asset_type")
+  applicablePlatforms Json @default("[]") @map("applicable_platforms")
+  contentUsage String @default("") @map("content_usage")
+  source String @default("")
+  reviewStatus String @default("pending") @map("review_status")
+  relatedContentTaskId String? @map("related_content_task_id")
+  sourceUrl String? @map("source_url")
+  fileRef String? @map("file_ref")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  relatedContentTask ContentGenerationTask? @relation(fields: [relatedContentTaskId], references: [id], onDelete: SetNull)
+
+  @@index([brandId])
+  @@index([assetType])
+  @@index([reviewStatus])
+  @@index([relatedContentTaskId])
+  @@map("brand_media_assets")
+}
+
 model EvaluationIssue {
   id String @id @default(cuid())
   brandId String @map("brand_id")
@@ -855,6 +884,7 @@ model ContentGenerationTask {
   versions ContentVersion[]
   exports ContentExportRecord[]
   publishingRecords PublishingRecord[]
+  brandMediaAssets BrandMediaAsset[]
 
   @@index([brandId])
   @@index([strategyId])
@@ -1122,6 +1152,7 @@ model PublishingAccount {
   platform String
   accountName String @map("account_name")
   loginMode String @map("login_mode")
+  publishingMode String @default("manual") @map("publishing_mode")
   authStatus String @default("connected") @map("auth_status")
   errorMessage String? @map("error_message")
   lastAuthorizedAt DateTime? @map("last_authorized_at")
@@ -1148,9 +1179,13 @@ model PublishingRecord {
   body String @default("")
   platform String
   accountName String? @map("account_name")
+  publishingMode String @default("manual") @map("publishing_mode")
   status String @default("draft")
+  externalPlatformId String? @map("external_platform_id")
   publishedUrl String? @map("published_url")
   errorMessage String? @map("error_message")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  publishedAt DateTime? @map("published_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1165,6 +1200,53 @@ model PublishingRecord {
   @@index([accountId])
   @@index([status])
   @@map("publishing_records")
+}
+
+model MediaPlatformRule {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  platform String
+  name String
+  contentFormats Json @default("[]") @map("content_formats")
+  intentFit String @default("") @map("intent_fit")
+  recommendedFrequency String @default("") @map("recommended_frequency")
+  coverRatio String @default("") @map("cover_ratio")
+  publishingNote String @default("") @map("publishing_note")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@unique([brandId, platform])
+  @@index([brandId])
+  @@map("media_platform_rules")
+}
+
+model AnalysisFinding {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  type String
+  title String
+  optimizationUnitId String? @map("optimization_unit_id")
+  userIntent String? @map("user_intent")
+  platformCode String? @map("platform_code")
+  evidence Json @default("[]")
+  severity String @default("medium")
+  recommendedActions Json @default("[]") @map("recommended_actions")
+  relatedTaskId String? @map("related_task_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  optimizationUnit OptimizationUnit? @relation(fields: [optimizationUnitId], references: [id], onDelete: SetNull)
+  relatedTask OptimizationTask? @relation(fields: [relatedTaskId], references: [id], onDelete: SetNull)
+
+  @@index([brandId])
+  @@index([type])
+  @@index([severity])
+  @@index([optimizationUnitId])
+  @@index([relatedTaskId])
+  @@map("analysis_findings")
 }
 
 model OptimizationTask {
@@ -1196,6 +1278,7 @@ model OptimizationTask {
   relatedPrompt BrandPrompt? @relation(fields: [relatedPromptId], references: [id], onDelete: SetNull)
   strategy ContentStrategy? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
   growthOptimizationPlan GrowthOptimizationPlan? @relation(fields: [growthOptimizationPlanId], references: [id], onDelete: SetNull)
+  analysisFindings AnalysisFinding[]
 
   @@index([brandId])
   @@index([optimizationUnitId])
@@ -1255,6 +1338,7 @@ model InnerTestFeedback {
   page String
   module String
   type String
+  severity String @default("medium")
   description String
   status String @default("open")
   reporterId String @map("reporter_id")
@@ -1267,5 +1351,6 @@ model InnerTestFeedback {
   @@index([brandId])
   @@index([status])
   @@index([type])
+  @@index([severity])
   @@map("inner_test_feedback")
 }

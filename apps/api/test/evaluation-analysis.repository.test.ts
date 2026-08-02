@@ -106,6 +106,7 @@ describe('evaluation analysis repository', () => {
     expect(issueTypes.has('negative_expression')).toBe(true);
     expect(issueTypes.has('missing_selling_point')).toBe(true);
     expect(issue?.severity).toBe('medium');
+    expect(issue?.userIntent).toBe('选择 GEO 管理平台');
 
     const strategy = repository.createEvaluationCorrectionStrategy('user_demo', brandId, issue?.id ?? '');
     const profile = repository.updateBrandKnowledgeFromEvaluationIssue('user_demo', brandId, issue?.id ?? '');

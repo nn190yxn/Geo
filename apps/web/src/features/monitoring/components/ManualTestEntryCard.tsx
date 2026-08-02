@@ -130,7 +130,7 @@ export function ManualTestEntryCard({ brandId }: Props) {
           loading={plansQuery.isLoading}
           dataSource={rows}
           pagination={{ pageSize: 6 }}
-          locale={{ emptyText: <EmptyState description="暂无可手动录入的监测问题，请先保存监测计划。" /> }}
+          locale={{ emptyText: <EmptyState title="还没有可手动录入的问题" description="已保存监测计划中的题号、平台和问题" reason="手动录入需要先有监测计划，系统才能把 AI 原始回复匹配到正确问题和平台。" nextStep="先保存监测计划，再回到这里录入真实 AI 回复。" /> }}
           columns={[
             { title: '题号', dataIndex: 'questionNumber', width: 72, render: (value: number) => <Tag color="blue">第 {value} 题</Tag> },
             { title: '目标平台', dataIndex: 'platformLabel', render: (value: string) => <Tag>{value}</Tag> },

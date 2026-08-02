@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
-import type { ApiResponse, InnerTestFeedback, InnerTestFeedbackDashboard, InnerTestFeedbackInput, InnerTestFeedbackStatus, InnerTestFeedbackUpdateInput } from '@geo-platform/shared-types';
+import type { ApiResponse, InnerTestFeedback, InnerTestFeedbackDashboard, InnerTestFeedbackInput, InnerTestFeedbackSeverity, InnerTestFeedbackStatus, InnerTestFeedbackUpdateInput } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
 
 @Controller('brands/:brandId/inner-test-feedback')
@@ -43,6 +43,7 @@ function normalizeFeedbackInput(input: InnerTestFeedbackInput): InnerTestFeedbac
     page: input.page.trim(),
     module: input.module.trim(),
     type: feedbackTypes.includes(input.type) ? input.type : 'other',
+    severity: input.severity && feedbackSeverities.includes(input.severity) ? input.severity : 'medium',
     description: input.description.trim()
   };
 }
@@ -50,9 +51,11 @@ function normalizeFeedbackInput(input: InnerTestFeedbackInput): InnerTestFeedbac
 function normalizeFeedbackUpdateInput(input: InnerTestFeedbackUpdateInput): InnerTestFeedbackUpdateInput {
   return {
     status: input.status && feedbackStatuses.includes(input.status) ? input.status : undefined,
+    severity: input.severity && feedbackSeverities.includes(input.severity) ? input.severity : undefined,
     resolutionNote: input.resolutionNote?.trim()
   };
 }
 
 const feedbackTypes: InnerTestFeedback['type'][] = ['usability', 'bug', 'copy', 'data', 'workflow', 'configuration', 'other'];
 const feedbackStatuses: InnerTestFeedbackStatus[] = ['open', 'triaged', 'in_progress', 'resolved'];
+const feedbackSeverities: InnerTestFeedbackSeverity[] = ['high', 'medium', 'low'];

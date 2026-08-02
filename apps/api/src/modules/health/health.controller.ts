@@ -1,8 +1,16 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import type { ApiResponse, HealthCheck } from '@geo-platform/shared-types';
+import { PrismaService } from '../../common/prisma/prisma.service';
+
+interface ReadinessCheck {
+  status: 'ready';
+  database: 'ready' | 'not_required';
+}
 
 @Controller('health')
 export class HealthController {
+  constructor(private readonly prisma: PrismaService) {}
+
   @Get()
   getHealth(): ApiResponse<HealthCheck> {
     const missing = missingConfiguration();
@@ -18,6 +26,20 @@ export class HealthController {
         missingConfiguration: missing
       }
     };
+  }
+
+  @Get('ready')
+  async getReadiness(): Promise<ApiResponse<ReadinessCheck>> {
+    if (repositoryDriver() !== 'prisma') {
+      return { success: true, data: { status: 'ready', database: 'not_required' } };
+    }
+
+    try {
+      await this.prisma.$queryRawUnsafe('SELECT 1');
+      return { success: true, data: { status: 'ready', database: 'ready' } };
+    } catch {
+      throw new ServiceUnavailableException('Database is unavailable');
+    }
   }
 }
 

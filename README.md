@@ -1,6 +1,6 @@
 # 多品牌 GEO 管理平台
 
-这是多品牌 GEO 管理平台的工程骨架，采用 monorepo 组织前端、后端、共享类型和数据库迁移。
+这是多品牌 GEO 管理平台的完整工程，采用 monorepo 组织前端、后端、共享类型和数据库迁移。
 
 ## 目录
 
@@ -11,6 +11,8 @@ packages/shared-types  前后端共享契约
 ```
 
 ## 本地开发
+
+开发环境需要 Node.js 22.22 或更高版本。
 
 ```bash
 # 安装依赖
@@ -27,6 +29,10 @@ npm run dev:api
 ```
 
 前端开发服务通过 `/api` 代理到后端 `http://localhost:3001`。
+
+## 测试版封装
+
+Docker 测试版封装包含 Web、API、PostgreSQL、自动迁移和持久化卷。启动与环境配置说明见 `deploy/README.md`。
 
 ## 环境变量
 

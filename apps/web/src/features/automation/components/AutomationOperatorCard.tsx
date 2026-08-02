@@ -10,6 +10,8 @@ import type {
   AutomationStepStatus
 } from '@geo-platform/shared-types';
 import { apiGet, apiPost } from '../../../api/http';
+import { GuidedEmptyState, PageSkeleton, PartialDataNotice, RegionErrorState } from '../../../components/PageState';
+import { ProductPageSection } from '../../../components/ProductPage';
 import { getPlatformDisplayName } from '../../../utils/displayLabels';
 
 type AutomationPackageDetail = AutomationPackage & {
@@ -27,11 +29,12 @@ type AutomationOperatorCardProps = {
   source: AutomationPackageSource;
   title?: string;
   compact?: boolean;
+  secondaryAction?: boolean;
 };
 
 const defaultGoal = '让 AI 自动完成本轮测试、分析、内容生成、平台改写、发布建议和复测建议';
 
-export function AutomationOperatorCard({ brandId, source, title = 'AI 自动运营', compact = false }: AutomationOperatorCardProps) {
+export function AutomationOperatorCard({ brandId, source, title = 'AI 自动运营', compact = false, secondaryAction = false }: AutomationOperatorCardProps) {
   const [messageApi, contextHolder] = message.useMessage();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -43,8 +46,9 @@ export function AutomationOperatorCard({ brandId, source, title = 'AI 自动运�
   const activePackage = useMemo(() => selectActivePackage(packages), [packages]);
   const pendingConfirmations = activePackage?.confirmations?.filter((item) => item.status === 'pending') ?? [];
   const capabilitySummary = activePackage ? getAutomationCapabilitySummary(activePackage, pendingConfirmations) : null;
-  const completedStepCount = activePackage?.stepSummaries.filter((step) => step.status === 'completed').length ?? 0;
-  const progress = activePackage ? Math.round((completedStepCount / activePackage.stepSummaries.length) * 100) : 0;
+  const progress = activePackage ? getAutomationProgress(activePackage.stepSummaries) : 0;
+  const queryFailed = packagesQuery.isError || Boolean(packagesQuery.data && !packagesQuery.data.success);
+  const activeStepMessage = activePackage?.stepSummaries.find((step) => step.code === activePackage.currentStep)?.message;
 
   const invalidateAutomation = () => queryClient.invalidateQueries({ queryKey: ['automation-packages', brandId] });
   const handleResponse = (successText: string) => (response: { success: boolean; error?: { message: string } }) => {
@@ -91,55 +95,92 @@ export function AutomationOperatorCard({ brandId, source, title = 'AI 自动运�
   return (
     <Card
       title={title}
-      loading={packagesQuery.isLoading}
       extra={(
         <Space wrap>
           {pendingConfirmations.length > 0 ? <Button onClick={() => setDrawerOpen(true)}>处理确认事项</Button> : null}
-          {activePackage ? (
+          {activePackage && activePackage.status !== 'failed' ? (
             <Button
-              type="primary"
+              type={secondaryAction ? 'default' : 'primary'}
               disabled={!primaryAction?.enabled}
               loading={loading}
               onClick={() => handlePrimaryAction(activePackage, primaryAction, startMutation.mutate, continueMutation.mutate)}
             >
               {primaryAction?.label ?? '等待下一步'}
             </Button>
-          ) : <Button type="primary" loading={createMutation.isPending} onClick={() => createMutation.mutate()}>让 AI 帮我跑一轮</Button>}
+          ) : null}
         </Space>
       )}
     >
       {contextHolder}
-      {!activePackage ? (
-        <Alert type="info" showIcon message="把监测、分析、内容和发布建议交给 AI 串起来" description="AI 会先整理监测问题池，精选本轮问题让你确认，再继续执行后面的运营动作。" />
-      ) : (
+      {packagesQuery.isLoading ? <PageSkeleton rows={4} /> : null}
+      {queryFailed ? (
+        <RegionErrorState
+          title="自动化任务包加载失败"
+          description={packagesQuery.data && !packagesQuery.data.success ? packagesQuery.data.error.message : '暂时无法读取自动化任务包，请重新加载。'}
+          onRetry={() => void packagesQuery.refetch()}
+        />
+      ) : null}
+      {!packagesQuery.isLoading && !queryFailed && !activePackage ? (
+        <GuidedEmptyState
+          title="还没有自动化任务包"
+          reason="当前品牌尚未创建自动化运营任务。"
+          impact="监测、分析、内容和发布建议仍需分别推进。"
+          benefit="创建后，AI 会串联本轮运营步骤，并在高风险动作前集中确认。"
+          actionLabel="让 AI 帮我跑一轮"
+          onAction={() => createMutation.mutate()}
+          supportingText="任务会先整理监测问题池，再等待你确认本轮问题。"
+        />
+      ) : null}
+      {!packagesQuery.isLoading && !queryFailed && activePackage ? (
         <Space direction="vertical" size={12} className="page-stack">
-          <Space wrap>
-            <Tag color={getPackageStatusColor(activePackage.status)}>{getPackageStatusLabel(activePackage.status)}</Tag>
-            <Typography.Text type="secondary">当前步骤：{getStepLabel(activePackage.currentStep)}</Typography.Text>
-            {pendingConfirmations.length > 0 ? <Tag color="gold">待确认 {pendingConfirmations.length}</Tag> : null}
-          </Space>
-          <Progress percent={progress} size="small" />
-          <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 4 }}>
-            <Descriptions.Item label="品牌">{activePackage.context?.brandName ?? activePackage.brandId}</Descriptions.Item>
-            <Descriptions.Item label="档案完整度">{formatScore(activePackage.context?.completenessScore)}</Descriptions.Item>
-            <Descriptions.Item label="问题池">{activePackage.context?.questionPoolSize ?? 0} 个</Descriptions.Item>
-            <Descriptions.Item label="监测计划">{activePackage.context?.testPlanCount ?? 0} 个</Descriptions.Item>
-          </Descriptions>
-          {capabilitySummary ? <AutomationCapabilityAlert summary={capabilitySummary} /> : null}
-          {!compact ? (
-            <Steps
-              size="small"
-              current={Math.max(0, activePackage.stepSummaries.findIndex((step) => step.code === activePackage.currentStep))}
-              items={activePackage.stepSummaries.map((step) => ({
-                title: step.title,
-                description: step.message,
-                status: getAntStepStatus(step.status)
-              }))}
+          <ProductPageSection title="任务包状态" description="查看本轮目标、业务上下文和当前执行状态。">
+            <Space direction="vertical" size={12} className="page-stack">
+              <Space wrap>
+                <Tag color={getPackageStatusColor(activePackage.status)}>{getPackageStatusLabel(activePackage.status)}</Tag>
+                <Typography.Text type="secondary">当前步骤：{getStepLabel(activePackage.currentStep)}</Typography.Text>
+                {pendingConfirmations.length > 0 ? <Tag color="gold">待确认 {pendingConfirmations.length}</Tag> : null}
+              </Space>
+              <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 4 }}>
+                <Descriptions.Item label="品牌">{activePackage.context?.brandName ?? '品牌信息暂不可用'}</Descriptions.Item>
+                <Descriptions.Item label="档案完整度">{formatScore(activePackage.context?.completenessScore)}</Descriptions.Item>
+                <Descriptions.Item label="问题池">{activePackage.context?.questionPoolSize ?? 0} 个</Descriptions.Item>
+                <Descriptions.Item label="监测计划">{activePackage.context?.testPlanCount ?? 0} 个</Descriptions.Item>
+              </Descriptions>
+              {!activePackage.context ? <PartialDataNotice message="部分任务上下文暂不可用" description="任务仍可继续执行，品牌完整度、问题池和监测计划将在数据恢复后补齐。" /> : null}
+              {capabilitySummary ? <AutomationCapabilityAlert summary={capabilitySummary} /> : null}
+            </Space>
+          </ProductPageSection>
+          <ProductPageSection title="步骤进度" description="已完成和跳过的步骤均计入整体进度。">
+            <Space direction="vertical" size={12} className="page-stack">
+              <Progress percent={progress} size="small" />
+              {!compact ? (
+                <Steps
+                  size="small"
+                  current={Math.max(0, activePackage.stepSummaries.findIndex((step) => step.code === activePackage.currentStep))}
+                  items={activePackage.stepSummaries.map((step) => ({
+                    title: step.title,
+                    description: step.message,
+                    status: getAntStepStatus(step.status)
+                  }))}
+                />
+              ) : null}
+            </Space>
+          </ProductPageSection>
+          {activePackage.status === 'failed' ? (
+            <RegionErrorState
+              title="自动化任务未成功"
+              description={`${activeStepMessage ? `${activeStepMessage} ` : ''}任务上下文和步骤进度已保留，可从“${getStepLabel(activePackage.currentStep)}”继续。`}
+              retryLabel="重新执行当前步骤"
+              onRetry={primaryAction?.enabled ? () => handlePrimaryAction(activePackage, primaryAction, startMutation.mutate, continueMutation.mutate) : undefined}
             />
           ) : null}
-          {pendingConfirmations[0] ? <ConfirmationAlert confirmation={pendingConfirmations[0]} onOpen={() => setDrawerOpen(true)} /> : null}
+          {pendingConfirmations[0] ? (
+            <ProductPageSection title="确认队列" description={`当前共有 ${pendingConfirmations.length} 项需要处理。`}>
+              <AutomationConfirmationState confirmation={pendingConfirmations[0]} onOpen={() => setDrawerOpen(true)} />
+            </ProductPageSection>
+          ) : null}
         </Space>
-      )}
+      ) : null}
       <Drawer title="需要你确认" open={drawerOpen} width={560} onClose={() => setDrawerOpen(false)}>
         <Space direction="vertical" size={12} className="page-stack">
           {pendingConfirmations.length === 0 ? (
@@ -258,14 +299,40 @@ function formatDisplayList(values: string[], fallback: string): string {
   return normalized.length > 0 ? normalized.join('、') : fallback;
 }
 
+export function AutomationConfirmationState({
+  confirmation,
+  onOpen = () => undefined,
+  onGoToManualEntry = goToManualTestEntry
+}: {
+  confirmation: AutomationConfirmation;
+  onOpen?: () => void;
+  onGoToManualEntry?: () => void;
+}) {
+  if (confirmation.type === 'manual_test_required') {
+    return (
+      <GuidedEmptyState
+        title="需要手动录入真实回答"
+        reason={confirmation.evidenceSummary || '当前监测平台需要人工完成测试并录入回答。'}
+        impact={confirmation.impact}
+        benefit={confirmation.recommendation}
+        actionLabel="去手动录入"
+        onAction={onGoToManualEntry}
+        supportingText={<Button type="link" onClick={onOpen}>查看确认要求</Button>}
+      />
+    );
+  }
+
+  return <ConfirmationAlert confirmation={confirmation} onOpen={onOpen} />;
+}
+
 function ConfirmationAlert({ confirmation, onOpen }: { confirmation: AutomationConfirmation; onOpen: () => void }) {
   return (
     <Alert
       type="warning"
       showIcon
-      message={confirmation.title}
+      message="高风险动作等待确认"
       description={confirmation.evidenceSummary}
-      action={<Button size="small" onClick={onOpen}>查看</Button>}
+      action={<Button size="small" onClick={onOpen}>查看并确认</Button>}
     />
   );
 }
@@ -283,7 +350,7 @@ function ConfirmationQuestionList({ confirmation }: { confirmation: AutomationCo
           <li key={`${item.question}-${index}`}>
             <Typography.Text>{item.question}</Typography.Text>
             {item.targetPlatforms.length > 0 ? (
-              <Typography.Text type="secondary"> · 平台：{item.targetPlatforms.join('、')}</Typography.Text>
+              <Typography.Text type="secondary"> · 平台：{item.targetPlatforms.map(getPlatformDisplayName).join('、')}</Typography.Text>
             ) : null}
           </li>
         ))}
@@ -651,6 +718,12 @@ function isWaitingForBrowserQueue(automationPackage: Pick<AutomationPackage, 'cu
 
 export function selectActivePackage(packages: AutomationPackageDetail[]): AutomationPackageDetail | undefined {
   return [...packages].sort((first, second) => second.updatedAt.localeCompare(first.updatedAt))[0];
+}
+
+export function getAutomationProgress(stepSummaries: AutomationPackage['stepSummaries']): number {
+  if (stepSummaries.length === 0) return 0;
+  const completedStepCount = stepSummaries.filter((step) => step.status === 'completed' || step.status === 'skipped').length;
+  return Math.round((completedStepCount / stepSummaries.length) * 100);
 }
 
 function getStepActionPath(stepCode: AutomationStepCode): string {

@@ -40,12 +40,12 @@
 - Documents Updated: 已同步文档列表
 - Open Risks: 未关闭风险
 - Follow-up Tasks: 进入后续阶段的任务
-- Next Spec Entry: .monkeycode/specs/[feature-name]/requirements.md
+- Next Spec Entry: 当前工作区/.monkeycode/specs/[feature-name]/requirements.md
 ```
 
 ## 客户反馈到需求池流程
 
-客户反馈先进入反馈记录，再按优先级转为候选需求或顾问跟进任务。试点演示反馈模板位于 `.monkeycode/docs/PILOT_DEMO_CHECKLIST.md`。
+客户反馈先进入反馈记录，再按优先级转为候选需求或顾问跟进任务。试点演示反馈模板位于 `当前工作区/.monkeycode/docs/PILOT_DEMO_CHECKLIST.md`。
 
 反馈分流规则：
 
@@ -74,7 +74,7 @@
 - Required Tests: 单元测试 / 仓储测试 / API 契约测试 / 页面状态测试 / 构建验证
 - Decision: accepted / deferred / merged / closed
 - Owner: 负责人
-- Target Spec: .monkeycode/specs/[feature-name]/requirements.md
+- Target Spec: 当前工作区/.monkeycode/specs/[feature-name]/requirements.md
 ```
 
 ## 行业规则和平台变化维护
@@ -103,7 +103,7 @@ GEO 平台需要持续跟踪 AI 平台回答规则、内容平台发布要求、
 - Risk Level: high / medium / low
 - Required Action: 代码改动 / 配置调整 / 文档更新 / 运营提示 / 客户沟通
 - Verification Plan: 需要执行的验证
-- Follow-up Spec: .monkeycode/specs/[feature-name]/requirements.md
+- Follow-up Spec: 当前工作区/.monkeycode/specs/[feature-name]/requirements.md
 ```
 
 ## 文档同步清单
@@ -112,13 +112,13 @@ GEO 平台需要持续跟踪 AI 平台回答规则、内容平台发布要求、
 
 | 文档 | 更新条件 |
 | --- | --- |
-| `.monkeycode/docs/ARCHITECTURE.md` | 模块边界、数据模型、前后端结构、任务机制变化 |
-| `.monkeycode/docs/INTERFACES.md` | API、共享类型、请求头、响应结构或错误码变化 |
-| `.monkeycode/docs/DEVELOPER_GUIDE.md` | 命令、验证结果、开发入口、后续任务变化 |
-| `.monkeycode/docs/DELIVERY_CHECKLIST.md` | 交付门禁、预览状态、健康检查、已知限制变化 |
-| `.monkeycode/docs/DEPLOYMENT_RUNBOOK.md` | 环境变量、部署、回滚、排障流程变化 |
-| `.monkeycode/docs/PILOT_DEMO_CHECKLIST.md` | 演示数据、演示路径、客户验收和反馈格式变化 |
-| `.monkeycode/docs/CONTINUOUS_ITERATION_PLAYBOOK.md` | 迭代流程和反馈治理规则变化 |
+| `当前工作区/.monkeycode/docs/ARCHITECTURE.md` | 模块边界、数据模型、前后端结构、任务机制变化 |
+| `当前工作区/.monkeycode/docs/INTERFACES.md` | API、共享类型、请求头、响应结构或错误码变化 |
+| `当前工作区/.monkeycode/docs/DEVELOPER_GUIDE.md` | 命令、验证结果、开发入口、后续任务变化 |
+| `当前工作区/.monkeycode/docs/DELIVERY_CHECKLIST.md` | 交付门禁、预览状态、健康检查、已知限制变化 |
+| `当前工作区/.monkeycode/docs/DEPLOYMENT_RUNBOOK.md` | 环境变量、部署、回滚、排障流程变化 |
+| `当前工作区/.monkeycode/docs/PILOT_DEMO_CHECKLIST.md` | 演示数据、演示路径、客户验收和反馈格式变化 |
+| `当前工作区/.monkeycode/docs/CONTINUOUS_ITERATION_PLAYBOOK.md` | 迭代流程和反馈治理规则变化 |
 
 ## 验证门禁
 
@@ -126,7 +126,6 @@ GEO 平台需要持续跟踪 AI 平台回答规则、内容平台发布要求、
 
 ```bash
 # 进入 GEO 平台工程
-cd geo-platform
 
 # 构建验证
 npm run build

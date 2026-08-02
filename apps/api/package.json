@@ -5,6 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "nest start --watch --preserveWatchOutput",
+    "start:prod": "node dist/apps/api/src/main.js",
     "build": "nest build",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
     "test": "vitest run",
@@ -18,7 +19,9 @@
     "@nestjs/core": "latest",
     "@nestjs/platform-express": "latest",
     "@prisma/client": "6.19.3",
+    "mammoth": "1.12.0",
     "multer": "2.2.0",
+    "pdf-parse": "2.4.5",
     "reflect-metadata": "latest",
     "rxjs": "latest"
   },
@@ -26,6 +29,7 @@
     "@nestjs/cli": "latest",
     "@types/express": "latest",
     "@types/node": "latest",
+    "jszip": "3.10.1",
     "prisma": "6.19.3",
     "typescript": "5.9.3",
     "vitest": "latest"

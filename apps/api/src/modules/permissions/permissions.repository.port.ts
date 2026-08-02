@@ -19,15 +19,22 @@ import type {
   AsyncJobUpdateInput,
   LLMTaskRun,
   LLMTaskRunInput,
+  AnalysisFinding,
+  AnalysisFindingInput,
   AnalysisResult,
   AnalysisResultInput,
+  AnalysisWorkbenchDashboard,
   BrandDetail,
   BrandId,
+  BrandMediaAsset,
+  BrandMediaAssetInput,
   BrandMetricDashboard,
   BrandMetricRankingItem,
   BrandMutationInput,
   BrandProfile,
   BrandProfileInput,
+  BrandProfileLibrary,
+  BrandProfileLibraryInput,
   BrandPrompt,
   BrandPromptInput,
   BrandStandardAnswer,
@@ -50,6 +57,7 @@ import type {
   ContentAsset,
   ContentAssetFilter,
   ContentAssetInput,
+  ContentAssetPageItem,
   ContentCenterDashboard,
   ContentExportRecord,
   ContentGenerationCompletionInput,
@@ -77,6 +85,8 @@ import type {
   ManualTestAnswerBatchInput,
   ManualTestAnswerBatchResult,
   ManualResponseInput,
+  MediaPlatformRule,
+  MediaPlatformRuleInput,
   MonitoringRunDetail,
   MonitoringRunExecutionUpdateInput,
   MonitoringRunInput,
@@ -85,6 +95,7 @@ import type {
   OptimizationTaskUpdateInput,
   OptimizationUnit,
   OptimizationUnitInput,
+  OwnedMediaAccount,
   PlatformConfig,
   PlatformConfigInput,
   PlatformValidationResult,
@@ -93,11 +104,13 @@ import type {
   PromptTemplateInput,
   PublishingAccount,
   PublishingAccountInput,
+  PublishingChannelStats,
   PublishingDashboard,
   PublishingEntryPayload,
+  PublishingExecutionStatusInput,
+  PublishingModeInput,
   PublishingRecord,
   PublishingRecordInput,
-  PublishingStatusInput,
   ReportDashboard,
   ReportInput,
   ReportRecord,
@@ -184,11 +197,16 @@ export interface PermissionsRepositoryPort {
   createBrand(userId: string, input: BrandMutationInput): BrandDetail;
   updateBrand(userId: string, brandId: BrandId, input: Partial<BrandMutationInput>): BrandDetail | null;
   updateBrandStatus(userId: string, brandId: BrandId, status: BrandStatus): BrandDetail | null;
+  getBrandProfileLibrary?(userId: string, brandId: BrandId): MaybePromise<BrandProfileLibrary | null>;
+  saveBrandProfileLibrary?(userId: string, brandId: BrandId, input: BrandProfileLibraryInput): MaybePromise<BrandProfileLibrary | null>;
   getBrandProfile(userId: string, brandId: BrandId): BrandProfile | null;
   saveBrandProfile(userId: string, brandId: BrandId, input: BrandProfileInput): BrandProfile | null;
   listKnowledgeSources(userId: string, brandId: BrandId): KnowledgeSource[] | null;
   createKnowledgeSource(userId: string, brandId: BrandId, input: KnowledgeSourceInput): KnowledgeSource | null;
   updateKnowledgeSourceStatus(userId: string, brandId: BrandId, sourceId: string, status: KnowledgeSource['status'], errorMessage?: string): KnowledgeSource | null;
+  listBrandMediaAssets?(userId: string, brandId: BrandId): MaybePromise<BrandMediaAsset[] | null>;
+  createBrandMediaAsset?(userId: string, brandId: BrandId, input: BrandMediaAssetInput): MaybePromise<BrandMediaAsset | null>;
+  updateBrandMediaAsset?(userId: string, brandId: BrandId, assetId: string, input: BrandMediaAssetInput): MaybePromise<BrandMediaAsset | null>;
   listOptimizationUnits(userId: string, brandId: BrandId): OptimizationUnit[] | null;
   getOptimizationUnit(userId: string, brandId: BrandId, unitId: string): OptimizationUnit | null;
   createOptimizationUnit(userId: string, brandId: BrandId, input: OptimizationUnitInput): OptimizationUnit | null;
@@ -274,6 +292,7 @@ export interface PermissionsRepositoryPort {
   listContentAssets(userId: string, brandId: BrandId, filter?: ContentAssetFilter): ContentAsset[] | null;
   createContentAsset(userId: string, brandId: BrandId, input: ContentAssetInput): ContentAsset | null;
   updateContentAsset(userId: string, brandId: BrandId, assetId: string, input: ContentAssetInput): ContentAsset | null;
+  listContentAssetPageItems?(userId: string, brandId: BrandId, filter?: ContentAssetFilter): MaybePromise<ContentAssetPageItem[] | null>;
   listContentStrategies(userId: string, brandId: BrandId, filter?: ContentStrategyFilter): ContentStrategy[] | null;
   generateContentStrategies(userId: string, brandId: BrandId): ContentStrategy[] | null;
   getContentGenerationWorkspace(userId: string, brandId: BrandId, taskId?: string): ContentGenerationWorkspace | null;
@@ -287,11 +306,21 @@ export interface PermissionsRepositoryPort {
   exportContentMarkdown(userId: string, brandId: BrandId, taskId: string, versionId?: string): ContentExportRecord | null;
   getPublishingEntryPayload(userId: string, brandId: BrandId, taskId: string, versionId?: string): PublishingEntryPayload | null;
   getPublishingDashboard(userId: string, brandId: BrandId): PublishingDashboard | null;
+  listOwnedMediaAccounts?(userId: string, brandId: BrandId): MaybePromise<OwnedMediaAccount[] | null>;
+  listMediaPlatformRules?(userId: string, brandId: BrandId): MaybePromise<MediaPlatformRule[] | null>;
+  createMediaPlatformRule?(userId: string, brandId: BrandId, input: MediaPlatformRuleInput): MaybePromise<MediaPlatformRule | null>;
+  updateMediaPlatformRule?(userId: string, brandId: BrandId, platform: string, input: Partial<MediaPlatformRuleInput>): MaybePromise<MediaPlatformRule | null>;
+  getPublishingChannelStats?(userId: string, brandId: BrandId): MaybePromise<PublishingChannelStats[] | null>;
   connectPublishingAccount(userId: string, brandId: BrandId, input: PublishingAccountInput): PublishingAccount | null;
   reauthorizePublishingAccount(userId: string, brandId: BrandId, accountId: string): PublishingAccount | null;
   updatePublishingAccountStatus(userId: string, brandId: BrandId, accountId: string, input: Pick<PublishingAccountInput, 'authStatus' | 'errorMessage'>): PublishingAccount | null;
+  updatePublishingAccountMode(userId: string, brandId: BrandId, accountId: string, input: PublishingModeInput): PublishingAccount | null;
   createPublishingRecord(userId: string, brandId: BrandId, input: PublishingRecordInput): PublishingRecord | null;
-  updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingStatusInput): PublishingRecord | null;
+  updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingExecutionStatusInput): PublishingRecord | null;
+  listAnalysisFindings?(userId: string, brandId: BrandId): MaybePromise<AnalysisFinding[] | null>;
+  createAnalysisFinding?(userId: string, brandId: BrandId, input: AnalysisFindingInput): MaybePromise<AnalysisFinding | null>;
+  updateAnalysisFinding?(userId: string, brandId: BrandId, findingId: string, input: Partial<AnalysisFindingInput>): MaybePromise<AnalysisFinding | null>;
+  getAnalysisWorkbenchDashboard?(userId: string, brandId: BrandId): MaybePromise<AnalysisWorkbenchDashboard | null>;
   createOptimizationTask(userId: string, brandId: BrandId, input: OptimizationTaskInput): OptimizationTask | null;
   getTaskBoard(userId: string, brandId: BrandId): TaskBoardDashboard | null;
   updateOptimizationTask(userId: string, brandId: BrandId, taskId: string, input: OptimizationTaskUpdateInput): OptimizationTask | null;

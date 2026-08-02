@@ -48,7 +48,10 @@ const runDefaults = {
 describe('SprintMetricsService', () => {
   it('calculates Sprint metrics only from related real monitoring runs', () => {
     const service = new SprintMetricsService({} as never);
-    const metrics = service.calculateMetricSummary(baseSprint, [
+    const metrics = service.calculateMetricSummary({
+      ...baseSprint,
+      relatedMonitoringRunIds: [...baseSprint.relatedMonitoringRunIds, 'run_mock', 'run_empty']
+    }, [
       {
         ...runDefaults,
         id: 'run_1',
@@ -66,6 +69,19 @@ describe('SprintMetricsService', () => {
         id: 'run_unrelated',
         response: { id: 'response_3', runId: 'run_unrelated', brandId: 'brand_demo', rawText: '无关运行', citations: ['https://source.example'], respondedAt: '2026-07-11T00:00:00.000Z', parseStatus: 'parsed', createdAt: '2026-07-11T00:00:00.000Z' },
         analysis: { id: 'analysis_3', responseId: 'response_3', runId: 'run_unrelated', brandId: 'brand_demo', brandMentioned: true, brandRank: 1, sentiment: 'positive', accuracyScore: 100, citationScore: 100, platformEvaluation: '', recommendationReason: '', rankingReason: '', expressionCompleteness: '', expressionDeviation: '', competitorMentions: [], reviewRequired: false, updatedAt: '2026-07-11T00:00:00.000Z' }
+      },
+      {
+        ...runDefaults,
+        id: 'run_mock',
+        platformCode: 'mock_ai',
+        response: { id: 'response_mock', runId: 'run_mock', brandId: 'brand_demo', rawText: '示例回答', citations: [], respondedAt: '2026-07-11T00:00:00.000Z', parseStatus: 'parsed', createdAt: '2026-07-11T00:00:00.000Z' },
+        analysis: { id: 'analysis_mock', responseId: 'response_mock', runId: 'run_mock', brandId: 'brand_demo', brandMentioned: true, brandRank: 1, sentiment: 'positive', accuracyScore: 100, citationScore: 100, platformEvaluation: '', recommendationReason: '', rankingReason: '', expressionCompleteness: '', expressionDeviation: '', competitorMentions: [], reviewRequired: false, updatedAt: '2026-07-11T00:00:00.000Z' }
+      },
+      {
+        ...runDefaults,
+        id: 'run_empty',
+        response: { id: 'response_empty', runId: 'run_empty', brandId: 'brand_demo', rawText: '   ', citations: [], respondedAt: '2026-07-11T00:00:00.000Z', parseStatus: 'parsed', createdAt: '2026-07-11T00:00:00.000Z' },
+        analysis: { id: 'analysis_empty', responseId: 'response_empty', runId: 'run_empty', brandId: 'brand_demo', brandMentioned: true, brandRank: 1, sentiment: 'positive', accuracyScore: 100, citationScore: 100, platformEvaluation: '', recommendationReason: '', rankingReason: '', expressionCompleteness: '', expressionDeviation: '', competitorMentions: [], reviewRequired: false, updatedAt: '2026-07-11T00:00:00.000Z' }
       }
     ]);
 

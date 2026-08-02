@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
-import { Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
+import { Button, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   BrandPrompt,
@@ -14,7 +15,12 @@ import type {
   UserIntentInput
 } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
+import { monitoringPath, readWorkflowRouteContext, workflowStagePath } from '../../../app/routePaths';
 import { getPlatformDisplayName } from '../../../utils/displayLabels';
+import { BusinessEmptyState, RegionErrorState } from '../../../components/PageState';
+import { ManagementListPage, ManagementRowActions } from '../../../components/ManagementListPage';
+import { AccessibleDropdown } from '../../../components/AccessibleDropdown';
+import { UnifiedFilterBar } from '../../../components/UnifiedFilterBar';
 
 type Props = {
   brandId: string;
@@ -27,13 +33,24 @@ type TemplateFormValues = Omit<PromptTemplateInput, 'targetKeywords' | 'platform
 };
 
 export function UserIntentPromptCard({ brandId }: Props) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [messageApi, contextHolder] = message.useMessage();
   const [intentForm] = Form.useForm<IntentFormValues>();
   const [templateForm] = Form.useForm<TemplateFormValues>();
   const [intentModalOpen, setIntentModalOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const intentDialogTriggerRef = useRef<HTMLElement | null>(null);
+  const templateMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>();
+  const [keyword, setKeyword] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<UserIntentCategory>();
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const openIntentDialog = () => {
+    intentDialogTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setIntentModalOpen(true);
+  };
   const unitsQuery = useQuery({
     queryKey: ['optimization-units', brandId],
     queryFn: () => apiGet<OptimizationUnit[]>(`/brands/${brandId}/optimization-units`)
@@ -59,6 +76,7 @@ export function UserIntentPromptCard({ brandId }: Props) {
   const templates = templatesQuery.data?.success ? templatesQuery.data.data : [];
   const prompts = promptsQuery.data?.success ? promptsQuery.data.data : [];
   const unitNameMap = useMemo(() => new Map(units.map((unit) => [unit.id, unit.name])), [units]);
+  const filteredIntents = useMemo(() => filterUserIntents(intents, unitNameMap, { keyword, category: categoryFilter, status: statusFilter }), [categoryFilter, intents, keyword, statusFilter, unitNameMap]);
   const promptsByIntent = useMemo(() => {
     const map = new Map<string, BrandPrompt[]>();
     prompts.forEach((prompt) => {
@@ -66,6 +84,13 @@ export function UserIntentPromptCard({ brandId }: Props) {
     });
     return map;
   }, [prompts]);
+  const routeContext = readWorkflowRouteContext(location.search);
+
+  useEffect(() => {
+    if (routeContext.action !== 'create' || !routeContext.optimizationUnitId) return;
+    intentForm.setFieldValue('optimizationUnitId', routeContext.optimizationUnitId);
+    setIntentModalOpen(true);
+  }, [intentForm, routeContext.action, routeContext.optimizationUnitId]);
 
   const autoGenerateMutation = useMutation({
     mutationFn: () => autoGenerateFirstRoundQuestions(brandId, workspaceQuery.data?.success ? workspaceQuery.data.data.brand : null, units, intents, prompts),
@@ -128,53 +153,124 @@ export function UserIntentPromptCard({ brandId }: Props) {
   });
 
   return (
-    <Card
-      title="监测场景与监测问题"
-      extra={(
-        <Space>
-          {contextHolder}
-          <Button loading={autoGenerateMutation.isPending} onClick={() => autoGenerateMutation.mutate()}>
-            自动生成首轮问题
-          </Button>
-          <Select
-            placeholder="选择模板"
-            value={selectedTemplateId}
-            style={{ width: 220 }}
-            options={templates.map((template) => ({ value: template.id, label: template.name }))}
-            onChange={setSelectedTemplateId}
-          />
-          <Button onClick={() => setTemplateModalOpen(true)}>创建问题模板</Button>
-          <Button onClick={() => setIntentModalOpen(true)}>创建用户场景</Button>
-          <Button type="primary" disabled={!selectedTemplateId || intents.length === 0} loading={batchGenerateMutation.isPending} onClick={() => batchGenerateMutation.mutate()}>
-            批量生成监测问题
-          </Button>
-        </Space>
-      )}
-    >
-      <Table
-        rowKey="id"
-        loading={intentsQuery.isLoading}
-        dataSource={intents}
-        pagination={false}
-        expandable={{ expandedRowRender: (record) => renderPromptRows(record, promptsByIntent.get(record.id) ?? [], promptStatusMutation.mutate) }}
-        columns={[
-          { title: '用户场景', dataIndex: 'text' },
-          { title: '关联监测主题', render: (_, record) => unitNameMap.get(record.optimizationUnitId) ?? '-' },
-          { title: '分类', dataIndex: 'category', render: (value: UserIntentCategory) => intentCategoryLabels[value] },
-          { title: '频率', dataIndex: 'monitoringFrequency', render: (value: MonitoringFrequency) => frequencyLabels[value] },
+    <>
+      {contextHolder}
+      <ManagementListPage<UserIntent>
+        embedded
+        title="用户意图"
+        description="管理客户可能向 AI 提出的真实问题，并展开查看关联监测问题、平台与关键词。"
+        primaryAction={intents.length > 0 ? <Button type="primary" onClick={openIntentDialog}>创建用户意图</Button> : undefined}
+        secondaryActions={(
+          <AccessibleDropdown label="用户意图准备动作菜单" menu={{ items: [
+            { key: 'auto', label: '自动生成首轮问题', onClick: () => autoGenerateMutation.mutate() },
+            { key: 'template', label: '创建问题模板', onClick: () => setTemplateModalOpen(true) }
+          ] }}>
+            <Button ref={templateMenuTriggerRef} loading={autoGenerateMutation.isPending}>更多准备动作</Button>
+          </AccessibleDropdown>
+        )}
+        filters={(
+          <Space direction="vertical" size={12} className="page-stack">
+            <UnifiedFilterBar
+              value={{ search: keyword, platform: 'all', status: statusFilter }}
+              onChange={(value) => {
+                setKeyword(value.search);
+                setStatusFilter(value.status as typeof statusFilter);
+              }}
+              onClear={() => {
+                setKeyword('');
+                setStatusFilter('all');
+                setCategoryFilter(undefined);
+              }}
+              statusOptions={[{ value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已停用' }]}
+              searchPlaceholder="搜索用户意图或优化单元"
+              resultCount={filteredIntents.length}
+              totalCount={intents.length}
+              showDateRange={false}
+              showPlatform={false}
+            />
+            <Select allowClear placeholder="意图分类" value={categoryFilter} options={Object.entries(intentCategoryLabels).map(([value, label]) => ({ value, label }))} style={{ width: 180 }} onChange={setCategoryFilter} />
+          </Space>
+        )}
+        tableTitle="用户意图列表"
+        tableDescription="展开一行可查看该意图下的监测问题及启用状态。"
+        tableActions={(
+          <Space wrap>
+            <Select placeholder="选择问题模板" value={selectedTemplateId} style={{ width: 220 }} options={templates.map((template) => ({ value: template.id, label: template.name }))} onChange={setSelectedTemplateId} />
+            <Button disabled={!selectedTemplateId || intents.length === 0} loading={batchGenerateMutation.isPending} onClick={() => batchGenerateMutation.mutate()}>批量生成监测问题</Button>
+          </Space>
+        )}
+        tableAriaLabel="用户意图管理列表"
+        state={intentsQuery.isLoading ? 'loading' : intentsQuery.data && !intentsQuery.data.success ? 'error' : intents.length === 0 ? 'empty' : 'ready'}
+        errorState={<RegionErrorState description="用户意图暂时无法加载，请重新加载后继续管理。" onRetry={() => void intentsQuery.refetch()} />}
+        tableProps={{
+          rowKey: 'id',
+          dataSource: filteredIntents,
+          pagination: false,
+          locale: { emptyText: <BusinessEmptyState title="先创建一个用户意图" missing="客户可能向 AI 提出的真实问题" reason="缺少用户意图时，系统无法生成可持续监测的问法。" nextStep="创建用户意图并关联优化单元。" actionLabel="创建用户意图" onAction={openIntentDialog} /> },
+          expandable: { expandedRowRender: (record) => renderPromptRows(record, promptsByIntent.get(record.id) ?? [], promptStatusMutation.mutate, () => autoGenerateMutation.mutate()) },
+          scroll: { x: 1180 },
+          columns: [
+          {
+            title: '真实问题',
+            render: (_, record) => (
+              <Space direction="vertical" size={2}>
+                <Typography.Text strong>{record.text}</Typography.Text>
+                <Typography.Text type="secondary">{intentCategoryLabels[record.category]} / {frequencyLabels[record.monitoringFrequency]}</Typography.Text>
+              </Space>
+            )
+          },
+          { title: '关联优化单元', render: (_, record) => unitNameMap.get(record.optimizationUnitId) ?? '-' },
           {
             title: '平台表现',
             render: (_, record) => {
-              const metrics = record.platformMetrics;
-              const averageScore = metrics.length ? Math.round(metrics.reduce((sum, metric) => sum + metric.recommendationScore, 0) / metrics.length) : 0;
-              return <Typography.Text type="secondary">推荐度 {averageScore} / 引用率 {metrics.length ? '0%' : '-'}</Typography.Text>;
+              const metrics = getIntentDisplayMetrics(record);
+              return <Typography.Text type="secondary">推荐度 {metrics.recommendationScore} / 平均排名 {metrics.averageRank}</Typography.Text>;
             }
           },
-          { title: '状态', dataIndex: 'enabled', render: (enabled: boolean) => <Tag color={enabled ? 'green' : 'default'}>{enabled ? '启用' : '停用'}</Tag> }
-        ]}
+          {
+            title: '内容引用率',
+            render: (_, record) => <Typography.Text type="secondary">{getIntentDisplayMetrics(record).citationRate}</Typography.Text>
+          },
+          {
+            title: '风险诊断',
+            render: () => <Typography.Text type="secondary">负面评价待诊断 / 事实异常待诊断</Typography.Text>
+          },
+          {
+            title: '最近监测',
+            render: (_, record) => <Typography.Text type="secondary">{getIntentDisplayMetrics(record).lastCheckedAt}</Typography.Text>
+          },
+          { title: '状态', dataIndex: 'enabled', render: (enabled: boolean) => <Tag color={enabled ? 'green' : 'default'}>{enabled ? '启用' : '停用'}</Tag> },
+          {
+            title: '操作',
+            fixed: 'right',
+            render: (_, record) => {
+              const promptId = promptsByIntent.get(record.id)?.[0]?.id;
+              const paths = getUserIntentWorkflowPaths(record, promptId);
+              return (
+                <ManagementRowActions
+                  primaryActions={[
+                    <Button type="link" key="manual" onClick={() => navigate(paths.manualMonitoring)}>手动检测</Button>,
+                    <Button type="link" key="automatic" onClick={() => navigate(paths.automaticMonitoring)}>自动监测</Button>
+                  ]}
+                  moreAction={(
+                    <AccessibleDropdown label={`用户意图“${record.text}”的更多操作`} menu={{ items: [
+                      { key: 'content', label: '生成内容', onClick: () => navigate(paths.generateContent) },
+                      { key: 'records', label: '检测记录', onClick: () => navigate(paths.monitoringRecords) },
+                      { key: 'citations', label: '引用来源', onClick: () => navigate(paths.citations) }
+                    ] }}>
+                      <Button type="link">更多</Button>
+                    </AccessibleDropdown>
+                  )}
+                />
+              );
+            }
+          }
+          ]
+        }}
       />
       <Modal
-        title="创建用户场景"
+        afterClose={() => intentDialogTriggerRef.current?.isConnected && intentDialogTriggerRef.current.focus({ preventScroll: true })}
+        title="创建用户意图"
         open={intentModalOpen}
         okText="保存"
         cancelText="取消"
@@ -183,13 +279,13 @@ export function UserIntentPromptCard({ brandId }: Props) {
         onOk={() => intentForm.submit()}
       >
         <Form form={intentForm} layout="vertical" initialValues={{ category: 'category_recommendation', monitoringFrequency: 'weekly', enabled: true }} onFinish={(values) => createIntentMutation.mutate(values)}>
-          <Form.Item name="optimizationUnitId" label="关联监测主题" rules={[{ required: true, message: '请选择监测主题' }]}>
+          <Form.Item name="optimizationUnitId" label="关联优化单元" rules={[{ required: true, message: '请选择优化单元' }]}>
             <Select options={units.map((unit) => ({ value: unit.id, label: unit.name }))} />
           </Form.Item>
-          <Form.Item name="category" label="场景分类" rules={[{ required: true, message: '请选择分类' }]}>
+          <Form.Item name="category" label="意图分类" rules={[{ required: true, message: '请选择分类' }]}>
             <Select options={Object.entries(intentCategoryLabels).map(([value, label]) => ({ value, label }))} />
           </Form.Item>
-          <Form.Item name="text" label="用户场景" rules={[{ required: true, message: '请输入用户场景' }]}>
+          <Form.Item name="text" label="用户意图" rules={[{ required: true, message: '请输入用户意图' }]}>
             <Input.TextArea rows={3} placeholder="例如：想找适合 6 岁孩子的体适能机构" />
           </Form.Item>
           <Form.Item name="monitoringFrequency" label="监测频率">
@@ -201,6 +297,7 @@ export function UserIntentPromptCard({ brandId }: Props) {
         </Form>
       </Modal>
       <Modal
+        afterClose={() => templateMenuTriggerRef.current?.focus({ preventScroll: true })}
         title="创建监测问题模板"
         open={templateModalOpen}
         okText="保存"
@@ -216,7 +313,7 @@ export function UserIntentPromptCard({ brandId }: Props) {
           <Form.Item name="industry" label="适用行业">
             <Input />
           </Form.Item>
-          <Form.Item name="category" label="场景分类">
+          <Form.Item name="category" label="意图分类">
             <Select options={Object.entries(intentCategoryLabels).map(([value, label]) => ({ value, label }))} />
           </Form.Item>
           <Form.Item name="text" label="问题模板" rules={[{ required: true, message: '请输入问题模板' }]}>
@@ -233,17 +330,23 @@ export function UserIntentPromptCard({ brandId }: Props) {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </>
   );
 }
 
-function renderPromptRows(
+export function renderPromptRows(
   intent: UserIntent,
   prompts: BrandPrompt[],
-  updateStatus: (values: { promptId: string; enabled: boolean }) => void
+  updateStatus: (values: { promptId: string; enabled: boolean }) => void,
+  onGenerateQuestions: () => void
 ) {
   if (prompts.length === 0) {
-    return <Typography.Text type="secondary">当前监测场景尚未生成监测问题</Typography.Text>;
+    return (
+      <Space direction="vertical" size={8} className="page-stack">
+        <Typography.Text type="secondary">当前用户意图尚未生成监测问题。生成问题后，才能进入自动监测、浏览器辅助监测或手动录入。</Typography.Text>
+        <Button onClick={onGenerateQuestions}>生成监测问题</Button>
+      </Space>
+    );
   }
 
   return (
@@ -273,6 +376,17 @@ function renderPromptRows(
   );
 }
 
+function getIntentDisplayMetrics(intent: UserIntent) {
+  const metrics = intent.platformMetrics;
+  const recommendationScore = metrics.length ? Math.round(metrics.reduce((sum, metric) => sum + metric.recommendationScore, 0) / metrics.length).toString() : '待监测';
+  const rankedMetrics = metrics.filter((metric) => metric.averageRank !== null);
+  const averageRank = rankedMetrics.length ? (rankedMetrics.reduce((sum, metric) => sum + (metric.averageRank ?? 0), 0) / rankedMetrics.length).toFixed(1) : '待监测';
+  const citationRate = metrics.length ? `${Math.round(metrics.reduce((sum, metric) => sum + metric.citationRate, 0) / metrics.length)}%` : '待监测';
+  const lastCheckedAt = metrics.map((metric) => metric.lastCheckedAt).filter((value): value is string => Boolean(value)).sort().at(-1) ?? '待监测';
+
+  return { recommendationScore, averageRank, citationRate, lastCheckedAt };
+}
+
 const intentCategoryLabels: Record<UserIntentCategory, string> = {
   brand_awareness: '品牌认知',
   category_recommendation: '品类推荐',
@@ -288,6 +402,29 @@ const frequencyLabels: Record<MonitoringFrequency, string> = {
   monthly: '每月',
   manual: '手动'
 };
+
+export function filterUserIntents(intents: UserIntent[], unitNameMap: ReadonlyMap<string, string>, filters: { keyword: string; category?: UserIntentCategory; status: 'all' | 'enabled' | 'disabled' }) {
+  const normalizedKeyword = filters.keyword.trim().toLowerCase();
+  return intents.filter((intent) => {
+    const matchesKeyword = normalizedKeyword.length === 0
+      || intent.text.toLowerCase().includes(normalizedKeyword)
+      || (unitNameMap.get(intent.optimizationUnitId) ?? '').toLowerCase().includes(normalizedKeyword);
+    const matchesCategory = !filters.category || intent.category === filters.category;
+    const matchesStatus = filters.status === 'all' || intent.enabled === (filters.status === 'enabled');
+    return matchesKeyword && matchesCategory && matchesStatus;
+  });
+}
+
+export function getUserIntentWorkflowPaths(intent: Pick<UserIntent, 'id' | 'optimizationUnitId'>, promptId?: string) {
+  const context = { optimizationUnitId: intent.optimizationUnitId, intentId: intent.id, promptId };
+  return {
+    manualMonitoring: monitoringPath({ ...context, mode: 'manual' }, 'manual-test-entry'),
+    automaticMonitoring: monitoringPath({ ...context, mode: 'automatic' }, 'monitoring-runs-card'),
+    monitoringRecords: monitoringPath({ ...context, mode: 'records' }, 'monitoring-runs-card'),
+    generateContent: workflowStagePath('/content-generation', context),
+    citations: workflowStagePath('/citations', context)
+  };
+}
 
 function toTemplatePayload(values: TemplateFormValues): PromptTemplateInput {
   return {

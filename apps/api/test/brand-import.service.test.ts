@@ -55,7 +55,7 @@ A: 适合 2-14 岁儿童。`
     expect(draft.fields.find((field) => field.key === 'industry')?.confidence).toBe('needs_confirmation');
   });
 
-  it('parses uploaded markdown sources from knowledge source files', () => {
+  it('parses uploaded markdown sources from knowledge source files', async () => {
     const service = new BrandImportService();
     const fileRef = writeFixtureFile(
       'brand-import-success.md',
@@ -68,7 +68,7 @@ A: 适合 2-14 岁儿童。`
 ## 核心卖点
 - ACE 成长体系`
     );
-    const draft = service.parseKnowledgeSource('brand_demo', {
+    const draft = await service.parseKnowledgeSource('brand_demo', {
       id: 'source_markdown_success',
       brandId: 'brand_demo',
       name: '追光小牛.md',
@@ -84,24 +84,24 @@ A: 适合 2-14 岁儿童。`
     expect(fieldValue(draft, 'valueProps')).toContain('ACE 成长体系');
   });
 
-  it('returns user-readable failed drafts for uploaded word and pdf files before text extraction is available', () => {
+  it('returns user-readable failed drafts for damaged word and pdf files', async () => {
     const service = new BrandImportService();
     const wordRef = writeFixtureFile('brand-import.docx', 'word placeholder');
     const pdfRef = writeFixtureFile('brand-import.pdf', 'pdf placeholder');
 
-    const wordDraft = service.parseKnowledgeSource('brand_demo', createFileSource('source_word', 'brand.docx', wordRef));
-    const pdfDraft = service.parseKnowledgeSource('brand_demo', createFileSource('source_pdf', 'brand.pdf', pdfRef));
+    const wordDraft = await service.parseKnowledgeSource('brand_demo', createFileSource('source_word', 'brand.docx', wordRef));
+    const pdfDraft = await service.parseKnowledgeSource('brand_demo', createFileSource('source_pdf', 'brand.pdf', pdfRef));
 
     expect(wordDraft.status).toBe('failed');
-    expect(wordDraft.errorMessage).toContain('Word 和 PDF 资料已保存');
+    expect(wordDraft.errorMessage).toContain('DOCX');
     expect(pdfDraft.status).toBe('failed');
     expect(pdfDraft.missingFields).toContain('intro');
   });
 
-  it('rejects unsupported import file formats', () => {
+  it('rejects unsupported import file formats', async () => {
     const service = new BrandImportService();
 
-    expect(() => service.parseKnowledgeSource('brand_demo', createFileSource('source_txt', 'brand.txt', 'uploads/brand.txt'))).toThrow(
+    await expect(service.parseKnowledgeSource('brand_demo', createFileSource('source_txt', 'brand.txt', 'uploads/brand.txt'))).rejects.toThrow(
       '第一版仅支持 Markdown、Word 和 PDF 品牌资料'
     );
   });
@@ -136,11 +136,11 @@ function fieldValue(draft: ReturnType<BrandImportService['parseText']>, key: str
 }
 
 function writeFixtureFile(fileName: string, content: string) {
-  const dir = join(process.cwd(), 'uploads', 'brand-imports-test');
+  const dir = join(process.cwd(), 'uploads', 'brand-imports');
   mkdirSync(dir, { recursive: true });
   const filePath = join(dir, `${Date.now()}-${fileName}`);
   writeFileSync(filePath, content, 'utf8');
-  return filePath;
+  return `uploads/brand-imports/${filePath.slice(filePath.lastIndexOf('/') + 1)}`;
 }
 
 function createFileSource(id: string, name: string, fileRef: string) {

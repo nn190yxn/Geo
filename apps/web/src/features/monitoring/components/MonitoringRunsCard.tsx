@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -13,20 +14,28 @@ import type {
   PlatformConfig
 } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
-import { EmptyState, PageErrorAlert } from '../../../components/PageState';
+import { workflowStagePath, type WorkflowRouteContext } from '../../../app/routePaths';
+import { EmptyState, PartialDataNotice, RegionErrorState } from '../../../components/PageState';
 import { getConfirmationReviewItems, getMonitoringResultSummary, type MonitoringResultLine } from './monitoringResultDisplay';
 import { getPlatformDisplayName } from '../../../utils/displayLabels';
 
 type Props = {
   brandId: string;
+  initialPromptId?: string;
+  initialMode?: 'automatic' | 'manual' | 'records' | 'retest';
+  platformCode?: string;
+  createActionType?: 'primary' | 'default';
+  routeContext?: WorkflowRouteContext;
 };
 
 type RunFormValues = MonitoringRunInput;
 type ManualResponseFormValues = Omit<ManualResponseInput, 'citations'> & { citationsText?: string };
 type AnalysisFormValues = Omit<AnalysisResultInput, 'competitorMentions'> & { competitorMentionsText?: string };
 
-export function MonitoringRunsCard({ brandId }: Props) {
+export function MonitoringRunsCard({ brandId, initialPromptId, initialMode, platformCode = 'all', createActionType = 'primary', routeContext = {} }: Props) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const initialRouteHandled = useRef(false);
   const [messageApi, contextHolder] = message.useMessage();
   const [runForm] = Form.useForm<RunFormValues>();
   const [manualForm] = Form.useForm<ManualResponseFormValues>();
@@ -49,10 +58,24 @@ export function MonitoringRunsCard({ brandId }: Props) {
   const prompts = promptsQuery.data?.success ? promptsQuery.data.data.filter((prompt) => prompt.enabled) : [];
   const platforms = platformsQuery.data?.success ? platformsQuery.data.data.filter((platform) => platform.enabled) : [];
   const runs = runsQuery.data?.success ? runsQuery.data.data : [];
+  const visibleRuns = useMemo(
+    () => platformCode === 'all' ? runs : runs.filter((run) => run.platformCode === platformCode),
+    [platformCode, runs]
+  );
   const promptMap = useMemo(() => new Map(prompts.map((prompt) => [prompt.id, prompt])), [prompts]);
   const selectedAnalysisRun = runs.find((run) => run.id === analysisRunId);
   const confirmationItems = getConfirmationReviewItems(selectedAnalysisRun?.analysis);
   const platformOptions = platforms.map((platform) => ({ value: platform.platformCode, label: `${platform.name} (${modeLabels[platform.mode]})` }));
+  const runsFailed = Boolean(runsQuery.data && !runsQuery.data.success);
+  const setupDataFailed = [promptsQuery.data, platformsQuery.data].some((response) => response && !response.success);
+
+  useEffect(() => {
+    if (initialRouteHandled.current || (initialMode !== 'automatic' && initialMode !== 'retest')) return;
+    initialRouteHandled.current = true;
+    const prompt = initialPromptId ? promptMap.get(initialPromptId) : undefined;
+    runForm.setFieldsValue({ promptId: initialPromptId, platformCode: prompt?.platformCodes[0] });
+    setRunModalOpen(true);
+  }, [initialMode, initialPromptId, promptMap, runForm]);
   const createRunMutation = useMutation({
     mutationFn: (values: RunFormValues) => apiPost<MonitoringRunDetail>(`/brands/${brandId}/monitoring-runs`, values),
     onSuccess: (response) => {
@@ -144,23 +167,37 @@ export function MonitoringRunsCard({ brandId }: Props) {
   };
 
   return (
-    <Card id="monitoring-runs-card" title="AI 回复监测记录" extra={<Button type="primary" onClick={openRunModal}>新建监测</Button>}>
+    <Card id="monitoring-runs-card" title="AI 回复监测记录" extra={<Button type={createActionType} onClick={openRunModal}>新建监测</Button>}>
       {contextHolder}
-      <PageErrorAlert response={promptsQuery.data} />
-      <PageErrorAlert response={platformsQuery.data} />
-      <PageErrorAlert response={runsQuery.data} />
-      <Alert
+      {setupDataFailed && !runsFailed ? (
+        <PartialDataNotice
+          message="部分监测配置暂时缺失"
+          description="已有监测记录仍可查看；重新加载可补齐监测问题和平台选项。"
+          action={<Button onClick={() => void Promise.all([promptsQuery.refetch(), platformsQuery.refetch()])}>重新加载缺失数据</Button>}
+        />
+      ) : null}
+      {runsFailed ? (
+        <RegionErrorState
+          title="监测记录暂时无法加载"
+          description="当前记录请求未成功，已保留新建监测和表单输入。"
+          retryLabel="重新加载记录"
+          onRetry={() => void runsQuery.refetch()}
+        />
+      ) : (
+        <>
+          <Alert
         type="info"
         showIcon
         message="看完真实回复后，继续生成优化计划"
         description="重点看三件事：AI 有没有提到你的品牌、排在第几、说得准不准。确认后到优化计划页安排内容和再次监测。"
-      />
-      <Table
+        action={<Button onClick={() => navigate(getMonitoringAnalysisPath(routeContext))}>查看分析诊断</Button>}
+          />
+          <Table
         rowKey="id"
         loading={runsQuery.isLoading}
-        dataSource={runs}
+        dataSource={visibleRuns}
         pagination={false}
-        locale={{ emptyText: <EmptyState description="还没有 AI 回复监测记录，先新建一次监测。" actionLabel="新建监测" onAction={openRunModal} /> }}
+        locale={{ emptyText: <EmptyState title="还没有 AI 回复监测记录" description="来自豆包、Kimi、DeepSeek、通义千问或阶跃星辰的真实 AI 原始回答" reason="真实回复是推荐度、排名、评价、事实准确率和引用来源分析的基础。" nextStep="选择监测问题和 AI 平台，开始一次监测。" actionLabel="新建监测" onAction={openRunModal} /> }}
         scroll={{ x: 1080 }}
         columns={[
           { title: '监测问题', dataIndex: 'promptText', render: (value: string) => <Typography.Text ellipsis>{value || '-'}</Typography.Text> },
@@ -183,11 +220,16 @@ export function MonitoringRunsCard({ brandId }: Props) {
                 <Button type="link" disabled={!record.analysis} onClick={() => openAnalysisModal(record)}>
                   {record.analysis?.reviewRequired ? '需要确认' : '查看解读'}
                 </Button>
+                <Button type="link" disabled={!record.analysis} onClick={() => navigate(getMonitoringAnalysisPath(routeContext, record))}>
+                  生成优化计划
+                </Button>
               </Space>
             )
           }
         ]}
-      />
+          />
+        </>
+      )}
       <Modal
         title="新建 AI 回复监测"
         open={runModalOpen}
@@ -301,12 +343,24 @@ export function MonitoringRunsCard({ brandId }: Props) {
             <Input.TextArea rows={2} />
           </Form.Item>
           <Form.Item name="competitorMentionsText" label="提到的竞品">
-            <Input.TextArea rows={3} placeholder="每行一个竞品，例如：竞品A|2|neutral" />
+            <Input.TextArea rows={3} placeholder="每行填写：竞品名称｜排名｜评价，例如：竞品 A｜2｜中性" />
           </Form.Item>
         </Form>
       </Modal>
     </Card>
   );
+}
+
+export function getMonitoringAnalysisPath(
+  context: WorkflowRouteContext,
+  run?: Pick<MonitoringRunDetail, 'id' | 'promptId'>
+): string {
+  const path = workflowStagePath('/growth-optimization', {
+    ...context,
+    runId: run?.id ?? context.runId,
+    promptId: run?.promptId ?? context.promptId
+  });
+  return `${path}#standard-answer-diagnosis`;
 }
 
 function MonitoringResultExplanation({ run }: { run: MonitoringRunDetail }) {
@@ -344,7 +398,7 @@ export function getMonitoringRunExecutionState(run: Pick<MonitoringRunDetail, 's
   }
 
   if (run.retryStatus === 'retry_pending') {
-    return { label: '稍后再试', color: 'gold', hint: run.errorMessage };
+    return { label: '稍后再试', color: 'gold', hint: '平台暂时未返回结果，系统会自动重试' };
   }
 
   if (run.retryStatus === 'retried' && run.status === 'failed') {
@@ -359,7 +413,7 @@ export function getMonitoringRunExecutionState(run: Pick<MonitoringRunDetail, 's
     return { label: '监测完成', color: 'green' };
   }
 
-  return { label: '等待开始', color: 'default' };
+  return { label: '等待开始', color: 'default', hint: '确认平台和监测方式后开始获取真实回复' };
 }
 
 export function canEnterManualResponse(run: Pick<MonitoringRunDetail, 'status' | 'retryStatus'>): boolean {
@@ -370,7 +424,7 @@ const modeLabels: Record<PlatformConfig['mode'], string> = {
   api: '自动',
   manual: '手动',
   semi_auto: '浏览器辅助',
-  mock: '示例回答'
+  mock: '示例回答（不计入指标）'
 };
 
 const statusLabels: Record<MonitoringRunStatus, string> = {
@@ -424,13 +478,28 @@ function toAnalysisPayload(values: AnalysisFormValues): AnalysisResultInput {
     expressionCompleteness: values.expressionCompleteness,
     expressionDeviation: values.expressionDeviation,
     competitorMentions: values.competitorMentionsText?.split('\n').map((line) => {
-      const [name, rank, sentiment] = line.split('|').map((item) => item.trim());
+      const [name, rank, sentiment] = line.split(/[|｜]/).map((item) => item.trim());
       return {
         name,
         rank: rank ? Number(rank) : null,
-        sentiment: (sentiment || 'unknown') as AnalysisSentiment
+        sentiment: normalizeAnalysisSentiment(sentiment)
       };
     }).filter((item) => item.name) ?? [],
     reviewRequired: values.reviewRequired
   };
+}
+
+export function normalizeAnalysisSentiment(value?: string): AnalysisSentiment {
+  const sentimentLabels: Record<string, AnalysisSentiment> = {
+    positive: 'positive',
+    正向: 'positive',
+    neutral: 'neutral',
+    中性: 'neutral',
+    negative: 'negative',
+    负向: 'negative',
+    unknown: 'unknown',
+    未知: 'unknown'
+  };
+
+  return sentimentLabels[value?.trim().toLowerCase() ?? ''] ?? 'unknown';
 }

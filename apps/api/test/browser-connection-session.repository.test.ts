@@ -60,24 +60,22 @@ describe('browser connection session repository', () => {
     expect(session).toMatchObject({
       brandId: 'brand_demo',
       platformCode: 'doubao',
-      status: 'opening',
+      status: 'login_required',
       loginDetected: false,
       authorizedScope: { brandId: 'brand_demo', testPlanIds: ['plan_demo'], platformCodes: ['doubao'] },
-      lastOperation: 'open_login_page'
+      lastOperation: 'await_user_login'
     });
     expect(session).not.toHaveProperty('credentialRef');
     expect(session).not.toHaveProperty('cookies');
     expect(session).not.toHaveProperty('storageState');
 
     const updated = repository.updateBrowserConnectionSession('user_demo', 'brand_demo', session?.id ?? '', {
-      status: 'ready',
-      loginDetected: true,
-      lastOperation: 'detect_login',
-      lastMessage: '已检测到登录状态。',
-      lastAvailableAt: '2026-07-04T00:05:00.000Z'
+      event: 'login_confirmed',
+      lastMessage: '用户已确认登录状态。'
     });
 
-    expect(updated).toMatchObject({ status: 'ready', loginDetected: true, lastAvailableAt: '2026-07-04T00:05:00.000Z' });
+    expect(updated).toMatchObject({ status: 'ready', loginDetected: true, lastOperation: 'login_confirmed' });
+    expect(updated?.lastAvailableAt).toBeTruthy();
     expect(repository.listBrowserConnectionSessions('user_demo', 'brand_demo')).toContainEqual(expect.objectContaining({ id: session?.id }));
     expect(repository.listBrowserConnectionSessions('other_user', 'brand_demo')).toBeNull();
   });
@@ -90,7 +88,7 @@ describe('browser connection session repository', () => {
     expect(session).toMatchObject({
       brandId: 'brand_prisma_browser',
       platformCode: 'kimi',
-      status: 'opening',
+      status: 'login_required',
       loginDetected: false,
       authorizedScope: { brandId: 'brand_prisma_browser', testPlanIds: ['plan_prisma'], platformCodes: ['kimi'] }
     });
@@ -99,8 +97,7 @@ describe('browser connection session repository', () => {
     expect(session).not.toHaveProperty('storageState');
 
     await expect(repository.updateBrowserConnectionSession('user_demo', 'brand_prisma_browser', session?.id ?? '', {
-      status: 'needs_confirmation',
-      loginDetected: false,
+      event: 'issue_reported',
       lastIssueType: 'captcha',
       lastMessage: '页面出现验证码，需要用户确认。'
     })).resolves.toMatchObject({ status: 'needs_confirmation', lastIssueType: 'captcha' });

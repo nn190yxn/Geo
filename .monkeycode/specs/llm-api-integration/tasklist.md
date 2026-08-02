@@ -5,7 +5,7 @@
     - 在 `packages/shared-types/src/index.ts` 新增 `LLMTaskType`、`LLMTaskStatus`、`LLMTaskRequest<TInput>`、`LLMTaskResponse<TOutput>`。
     - 扩展 `AIPlatformCallType`，加入 `question_generation`、`answer_analysis`、`optimization_planning`。
     - 扩展 `AsyncJobType`，加入 `question_generation`、`answer_analysis`、`optimization_planning`。
-    - 参考 `.monkeycode/docs/LLM_API_TECHNICAL_PLAN.md` 的“数据模型规划”。
+    - 参考 `当前工作区/.monkeycode/docs/LLM_API_TECHNICAL_PLAN.md` 的“数据模型规划”。
   - [x] 1.2 定义四类 LLM 任务输入输出类型
     - 新增 `QuestionGenerationInput`、`QuestionGenerationOutput`。
     - 新增 `AnswerAnalysisInput`、`LLMContentGenerationInput`、`LLMContentGenerationOutput`。

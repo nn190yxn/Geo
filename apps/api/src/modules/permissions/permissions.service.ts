@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type {
   AccessibleBrand,
   AdvisorDashboard,
@@ -20,10 +20,14 @@ import type {
   AsyncJobUpdateInput,
   LLMTaskRun,
   LLMTaskRunInput,
+  AnalysisFinding,
+  AnalysisWorkbenchDashboard,
   AnalysisResult,
   AnalysisResultInput,
   BrandMetricDashboard,
   BrandMetricRankingItem,
+  BrandMediaAsset,
+  BrandProfileLibrary,
   Competitor,
   CompetitorCandidate,
   CompetitorCandidateConfirmationResult,
@@ -37,6 +41,7 @@ import type {
   ContentAsset,
   ContentAssetFilter,
   ContentAssetInput,
+  ContentAssetPageItem,
   ContentCenterDashboard,
   ContentExportRecord,
   ContentGenerationCompletionInput,
@@ -69,10 +74,13 @@ import type {
   BrowserConnectionSession,
   BrowserConnectionStartInput,
   BrowserConnectionStatusInput,
+  BrowserResponseCaptureInput,
+  BrowserResponseCaptureResult,
   DeniedAccessLog,
   KnowledgeSource,
   KnowledgeSourceInput,
   ManualResponseInput,
+  MediaPlatformRule,
   ManualTestAnswerBatchInput,
   ManualTestAnswerBatchResult,
   MonitoringRunDetail,
@@ -83,11 +91,12 @@ import type {
   PlatformValidationResult,
   PublishingAccount,
   PublishingAccountInput,
+  PublishingModeInput,
   PublishingDashboard,
   PublishingEntryPayload,
+  PublishingExecutionStatusInput,
   PublishingRecord,
   PublishingRecordInput,
-  PublishingStatusInput,
   PromptBatchGenerateInput,
   PromptTemplate,
   PromptTemplateInput,
@@ -120,8 +129,11 @@ import type {
   BrandStandardAnswerInput,
   OptimizationUnit,
   OptimizationUnitInput,
+  OwnedMediaAccount,
+  PublishingChannelStats,
   UserSummary
 } from '@geo-platform/shared-types';
+import { BrowserSessionTransitionError } from '../platforms/browser-session-state';
 import {
   PERMISSIONS_REPOSITORY,
   type PermissionsRepositoryPort,
@@ -167,6 +179,18 @@ export class PermissionsService {
 
   getBrandProfile(userId: string, brandId: BrandId): BrandProfile | null {
     return this.permissionsRepository.getBrandProfile(userId, brandId);
+  }
+
+  async getBrandProfileLibrary(userId: string, brandId: BrandId): Promise<BrandProfileLibrary | null> {
+    return this.permissionsRepository.getBrandProfileLibrary
+      ? await this.permissionsRepository.getBrandProfileLibrary(userId, brandId)
+      : null;
+  }
+
+  async listBrandMediaAssets(userId: string, brandId: BrandId): Promise<BrandMediaAsset[] | null> {
+    return this.permissionsRepository.listBrandMediaAssets
+      ? await this.permissionsRepository.listBrandMediaAssets(userId, brandId)
+      : null;
   }
 
   saveBrandProfile(userId: string, brandId: BrandId, input: BrandProfileInput): BrandProfile | null {
@@ -324,16 +348,76 @@ export class PermissionsService {
     return this.permissionsRepository.validatePlatformConfig(userId, brandId, platformId);
   }
 
-  listBrowserConnectionSessions(userId: string, brandId: BrandId): BrowserConnectionSession[] | null {
+  async listBrowserConnectionSessions(userId: string, brandId: BrandId): Promise<BrowserConnectionSession[] | null> {
     return this.permissionsRepository.listBrowserConnectionSessions(userId, brandId);
   }
 
-  startBrowserConnectionSession(userId: string, brandId: BrandId, input: BrowserConnectionStartInput): BrowserConnectionSession | null {
+  async startBrowserConnectionSession(userId: string, brandId: BrandId, input: BrowserConnectionStartInput): Promise<BrowserConnectionSession | null> {
     return this.permissionsRepository.startBrowserConnectionSession(userId, brandId, input);
   }
 
-  updateBrowserConnectionSession(userId: string, brandId: BrandId, sessionId: string, input: BrowserConnectionStatusInput): BrowserConnectionSession | null {
-    return this.permissionsRepository.updateBrowserConnectionSession(userId, brandId, sessionId, input);
+  async updateBrowserConnectionSession(userId: string, brandId: BrandId, sessionId: string, input: BrowserConnectionStatusInput): Promise<BrowserConnectionSession | null> {
+    try {
+      return await this.permissionsRepository.updateBrowserConnectionSession(userId, brandId, sessionId, input);
+    } catch (error) {
+      if (error instanceof BrowserSessionTransitionError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  async captureBrowserResponse(
+    userId: string,
+    brandId: BrandId,
+    sessionId: string,
+    input: BrowserResponseCaptureInput
+  ): Promise<BrowserResponseCaptureResult | null> {
+    const sessions = await this.permissionsRepository.listBrowserConnectionSessions(userId, brandId);
+    const session = sessions?.find((item) => item.id === sessionId);
+    if (!session) {
+      return null;
+    }
+    if (session.status !== 'ready') {
+      throw new BadRequestException('请先确认官方平台登录状态');
+    }
+
+    const run = await this.permissionsRepository.getMonitoringRun(userId, brandId, input.runId);
+    if (!run || run.platformCode !== session.platformCode) {
+      throw new BadRequestException('该监测运行与当前浏览器会话不匹配');
+    }
+    if (run.status !== 'review_required') {
+      throw new BadRequestException('该监测运行已完成回填或当前状态不可回填');
+    }
+
+    const plans = await this.permissionsRepository.listTestPlans(userId, brandId);
+    const authorizedPlan = plans?.find((plan) => (
+      session.authorizedScope.testPlanIds.includes(plan.id)
+      && plan.monitoringRunIds.includes(run.id)
+    ));
+    if (!authorizedPlan) {
+      throw new BadRequestException('当前浏览器会话未获授权回填该监测运行');
+    }
+
+    const updatedRun = await this.permissionsRepository.addManualResponse(userId, brandId, run.id, {
+      rawText: input.rawText,
+      modelName: input.modelName || `${session.platformCode}-browser`,
+      citations: input.citations
+    });
+    if (!updatedRun) {
+      throw new BadRequestException('真实回答保存失败，请稍后重试');
+    }
+
+    await this.permissionsRepository.parseAnalysisResult(userId, brandId, run.id);
+    const updatedSession = await this.updateBrowserConnectionSession(userId, brandId, session.id, {
+      event: 'answer_captured'
+    });
+    const analyzedRun = await this.permissionsRepository.getMonitoringRun(userId, brandId, run.id);
+    if (!updatedSession || !analyzedRun) {
+      throw new BadRequestException('回答已保存，浏览器会话更新失败');
+    }
+
+    return { session: updatedSession, run: analyzedRun };
   }
 
   listAIPlatformCallAudits(userId: string, brandId: BrandId): AIPlatformCallAudit[] | null {
@@ -588,6 +672,42 @@ export class PermissionsService {
     return this.permissionsRepository.getPublishingDashboard(userId, brandId);
   }
 
+  async listContentAssetPageItems(userId: string, brandId: BrandId): Promise<ContentAssetPageItem[] | null> {
+    return this.permissionsRepository.listContentAssetPageItems
+      ? await this.permissionsRepository.listContentAssetPageItems(userId, brandId)
+      : null;
+  }
+
+  async listOwnedMediaAccounts(userId: string, brandId: BrandId): Promise<OwnedMediaAccount[] | null> {
+    return this.permissionsRepository.listOwnedMediaAccounts
+      ? await this.permissionsRepository.listOwnedMediaAccounts(userId, brandId)
+      : null;
+  }
+
+  async listMediaPlatformRules(userId: string, brandId: BrandId): Promise<MediaPlatformRule[] | null> {
+    return this.permissionsRepository.listMediaPlatformRules
+      ? await this.permissionsRepository.listMediaPlatformRules(userId, brandId)
+      : null;
+  }
+
+  async getPublishingChannelStats(userId: string, brandId: BrandId): Promise<PublishingChannelStats[] | null> {
+    return this.permissionsRepository.getPublishingChannelStats
+      ? await this.permissionsRepository.getPublishingChannelStats(userId, brandId)
+      : null;
+  }
+
+  async listAnalysisFindings(userId: string, brandId: BrandId): Promise<AnalysisFinding[] | null> {
+    return this.permissionsRepository.listAnalysisFindings
+      ? await this.permissionsRepository.listAnalysisFindings(userId, brandId)
+      : null;
+  }
+
+  async getAnalysisWorkbenchDashboard(userId: string, brandId: BrandId): Promise<AnalysisWorkbenchDashboard | null> {
+    return this.permissionsRepository.getAnalysisWorkbenchDashboard
+      ? await this.permissionsRepository.getAnalysisWorkbenchDashboard(userId, brandId)
+      : null;
+  }
+
   connectPublishingAccount(userId: string, brandId: BrandId, input: PublishingAccountInput): PublishingAccount | null {
     return this.permissionsRepository.connectPublishingAccount(userId, brandId, input);
   }
@@ -600,11 +720,15 @@ export class PermissionsService {
     return this.permissionsRepository.updatePublishingAccountStatus(userId, brandId, accountId, input);
   }
 
+  updatePublishingAccountMode(userId: string, brandId: BrandId, accountId: string, input: PublishingModeInput): PublishingAccount | null {
+    return this.permissionsRepository.updatePublishingAccountMode(userId, brandId, accountId, input);
+  }
+
   createPublishingRecord(userId: string, brandId: BrandId, input: PublishingRecordInput): PublishingRecord | null {
     return this.permissionsRepository.createPublishingRecord(userId, brandId, input);
   }
 
-  updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingStatusInput): PublishingRecord | null {
+  updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingExecutionStatusInput): PublishingRecord | null {
     return this.permissionsRepository.updatePublishingRecordStatus(userId, brandId, recordId, input);
   }
 

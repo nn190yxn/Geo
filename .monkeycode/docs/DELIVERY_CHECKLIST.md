@@ -2,11 +2,11 @@
 
 ## 当前范围
 
-多品牌 GEO 管理平台位于 ``。小白友好 GEO AI 回复监测与增长优化流程规格已完成，当前交付前最终验证通过。
+多品牌 GEO 管理平台位于 `当前工作区/`。小白友好 GEO AI 回复监测与增长优化流程规格已完成，当前交付前最终验证通过。
 
 ## 验证命令
 
-以下命令在 `` 下执行。
+以下命令在 `当前工作区/` 下执行。
 
 ```bash
 # 构建所有 workspace
@@ -39,8 +39,8 @@ npm run db:prepare
 - `npm run build` 通过。
 - `npm run verify` 通过，包含 `npm audit`、workspace 类型检查、workspace 测试、workspace 构建、Prisma schema 校验和 Prisma Client 生成；`npm audit` 当前 0 个漏洞。
 - `npm run typecheck --workspaces` 通过。
-- `npm run test --workspace @geo-platform/api` 通过，API 当前 64 个测试文件、289 个测试用例通过。
-- `npm run test --workspace @geo-platform/web` 通过，Web 当前 20 个测试文件、99 个测试用例通过。
+- `npm run test --workspace @geo-platform/api` 通过，API 当前 68 个测试文件、308 个测试用例通过。
+- `npm run test --workspace @geo-platform/web` 通过，Web 当前 28 个测试文件、152 个测试用例通过。
 - `npm run build --workspace @geo-platform/api` 通过。
 - `npm run build --workspace @geo-platform/web` 通过。
 - `DATABASE_URL="postgresql://geo:geo@localhost:5432/geo_platform?schema=public" npx prisma validate --schema apps/api/prisma/schema.prisma` 通过。
@@ -105,9 +105,9 @@ npm run db:prepare
 - 第五阶段任务 1 已完成：品牌工作区、监测、内容生成、发布、任务、报告和顾问页面已统一错误提示、空状态主操作和关键操作反馈。
 - 第五阶段任务 3 已完成：报告中心 Markdown 模板已增强，内存仓储和 Prisma 仓储共用报告渲染器，单品牌、客户交付和多品牌报告包含 metadata、指标解释、问题归因、行动建议、品牌对比、风险提示、交付进度和下一步动作。
 - 第五阶段任务 4 已完成：顾问服务工作台已支持服务计划、服务复盘、客户交付记录、结构化服务详情、待跟进事项和同品牌报告引用。
-- 第五阶段任务 5 已完成：默认 memory demo 和 Prisma demo seed 已覆盖品牌、监测、内容、发布、任务、报告和顾问记录；试点客户演示与验收清单位于 `.monkeycode/docs/PILOT_DEMO_CHECKLIST.md`。
+- 第五阶段任务 5 已完成：默认 memory demo 和 Prisma demo seed 已覆盖品牌、监测、内容、发布、任务、报告和顾问记录；试点客户演示与验收清单位于 `当前工作区/.monkeycode/docs/PILOT_DEMO_CHECKLIST.md`。
 - 第五阶段检查点已完成：seed 语法检查、Prisma schema 校验、`git diff --check`、`npm run verify`、API 健康检查、前端入口检查和 5173 预览检查均已通过。
-- 持续迭代机制已建立：阶段复盘、反馈转需求、行业规则变化、文档同步和验证门禁统一记录在 `.monkeycode/docs/CONTINUOUS_ITERATION_PLAYBOOK.md`。
+- 持续迭代机制已建立：阶段复盘、反馈转需求、行业规则变化、文档同步和验证门禁统一记录在 `当前工作区/.monkeycode/docs/CONTINUOUS_ITERATION_PLAYBOOK.md`。
 - 持续迭代检查点已完成：`git diff --check`、`npm run verify`、API 健康检查、前端入口检查和 5173 预览检查均已通过。
 - AI 可见性运营 Sprint 重构已完成核心实现和前端入口：新增 Sprint 聚合、标准答案、对照分析、内容缺口、发布准备、复测趋势和工作台入口；交付口径统一为“AI 回复监测 / 自动监测 / 浏览器辅助监测 / 手动录入 / 再次监测”。
 - 平台密钥接口只返回 `hasCredential` 和脱敏状态，不返回真实平台密钥。

@@ -24,7 +24,7 @@ describe('test question display helpers', () => {
   });
 
   it('previews target platforms with beginner-facing labels', () => {
-    expect(getPlatformPreview(['doubao', 'kimi', 'stepfun', 'custom_ai'])).toBe('豆包、Kimi、阶跃星辰、custom_ai');
+    expect(getPlatformPreview(['doubao', 'kimi', 'stepfun', 'custom_ai'])).toBe('豆包、Kimi、阶跃星辰、自定义平台');
   });
 
   it('formats first-round plan timing and connection summaries', () => {

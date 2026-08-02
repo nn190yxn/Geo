@@ -30,7 +30,7 @@ The API layer keeps the current controller routes. Create actions persist queued
 
 ### Adapter Registry
 
-- Builds on `apps/api/src/modules/platforms/adapters/ai-platform.adapter.ts`.
+- Builds on `当前工作区/apps/api/src/modules/platforms/adapters/ai-platform.adapter.ts`.
 - Registers adapters by `platformCode` and supported mode.
 - Selects `MockAdapter` or `ManualInputAdapter` for deterministic tests and fallback paths.
 - Selects real adapters only when platform config mode and environment configuration are present.
@@ -99,7 +99,7 @@ New or extended Prisma models should be additive:
 
 ## References
 
-- `apps/api/src/modules/platforms/adapters/ai-platform.adapter.ts`
-- `apps/api/src/modules/monitoring/monitoring.controller.ts`
-- `apps/api/src/modules/content/content.controller.ts`
-- `apps/api/prisma/schema.prisma`
+- `当前工作区/apps/api/src/modules/platforms/adapters/ai-platform.adapter.ts`
+- `当前工作区/apps/api/src/modules/monitoring/monitoring.controller.ts`
+- `当前工作区/apps/api/src/modules/content/content.controller.ts`
+- `当前工作区/apps/api/prisma/schema.prisma`

@@ -2,15 +2,13 @@
 
 ## 开发入口
 
-GEO 平台工程位于 ``。
+GEO 平台工程位于 `当前工作区/`。
 
-```bash
-cd geo-platform
-```
+开发环境需要 Node.js 22.22 或更高版本，项目使用 npm workspaces 管理依赖与脚本。
 
 ## 环境变量
 
-环境变量样例位于 `.env.example`。
+环境变量样例位于 `当前工作区/.env.example`。
 
 当前变量：
 
@@ -83,7 +81,7 @@ npm run prisma:seed
 已完成最终交付前验证：
 
 - `package.json` 与 `tsconfig.json` 配置可解析
-- `.monkeycode/specs/beginner-friendly-geo-workflow/tasklist.md` 中全部任务已标记完成
+- `当前工作区/.monkeycode/specs/beginner-friendly-geo-workflow/tasklist.md` 中全部任务已标记完成
 - 前端 Vite 配置包含 `/api` 代理和 `.monkeycode-ai.online` allowedHosts
 - 后端 API 前缀为 `/api/v1`，并通过 `x-brand-id` 和 `x-user-id` 维护请求上下文
 - API 中间件通配路由使用 Nest 11 / Express 5 兼容写法 `forRoutes('{*splat}')`
@@ -93,42 +91,44 @@ npm run prisma:seed
 - Web `tsconfig.json` 启用 `noEmit`，避免 `tsc -b` 在 `src/` 旁生成 `.js` 产物并污染 Vite 解析
 - `npm run build` 已通过
 - `npm run typecheck --workspaces` 已通过
-- `npm run test --workspace @geo-platform/api` 已通过，API 当前 64 个测试文件、289 个测试用例通过
-- `npm run test --workspace @geo-platform/web` 已通过，Web 当前 20 个测试文件、99 个测试用例通过
+- `npm run test --workspace @geo-platform/api` 已通过，API 当前 68 个测试文件、308 个测试用例通过
+- `npm run test --workspace @geo-platform/web` 已通过，Web 当前 28 个测试文件、152 个测试用例通过
 - `DATABASE_URL="postgresql://geo:geo@localhost:5432/geo_platform?schema=public" npx prisma validate --schema apps/api/prisma/schema.prisma` 已通过
 - `npm run prisma:generate` 已通过，Prisma Client 生成版本为 `6.19.3`
 - API 健康检查、前端入口检查和 5173 公开预览检查已通过
+- 五类页面 BFF 聚合接口已通过 service、品牌隔离、空数据 fallback、示例平台过滤和本地 HTTP 烟测
 - API 健康检查会根据 `STEPFUN_API_KEY` 或 `GEO_AI_PLATFORM_CONFIGURED=true` 判断 AI 平台配置状态
 - 平台配置、品牌隔离、平台校验业务化提示、安全脱敏、端到端写链路和冷启动恢复已通过
+- 公开响应净化覆盖平台配置、浏览器会话、LLM、自动化、Sprint 和页面 BFF；真实指标边界测试覆盖 `mock_ai` 与空原始回复排除，并确认手动录入真实回复继续参与聚合
 - 第二阶段任务 3 已新增 `PrismaPermissionsRepository`，覆盖用户、品牌、品牌权限、工作区计数和拒绝访问日志的 Prisma 访问路径。
 - 第二阶段任务 5 已扩展 `PrismaPermissionsRepository`，覆盖品牌档案、知识来源、优化单元、用户意图、Prompt 模板和品牌 Prompt 的 Prisma 访问路径。
 - 第二阶段任务 6 已扩展 `PrismaPermissionsRepository`，覆盖平台配置脱敏响应、监测运行、人工回答、分析结果和 GEO 指标快照读取。
 - 第二阶段任务 8 已扩展 `PrismaPermissionsRepository`，覆盖内容资产、内容策略、内容生成任务、内容版本、导出记录、发布账号、发布记录、优化任务、报告和顾问记录的 Prisma 访问路径。
 - 第二阶段任务 9 已支持通过 `GEO_REPOSITORY_DRIVER=prisma` 切换 Prisma repository，并新增 `npm run db:prepare`、`npm run prisma:seed` 和 demo seed 数据入口。
-- 第三阶段已建立 `.monkeycode/specs/ai-platform-async-tasks/` 规格，并完成 Adapter registry、`OpenAICompatibleAdapter`、AI 平台调用审计基础模型、异步任务基础模型、监测创建入队流程、Monitoring worker、失败重试状态机、监测任务状态机测试、内容生成创建入队流程、内容生成步骤状态记录、生成成功后的内容版本写入、内容生成失败重试契约、`ContentGenerationWorker` 契约测试、监测异步状态前端展示、内容生成步骤状态展示和失败重试入口。
-- 第四阶段已建立 `.monkeycode/specs/access-audit-production/` 规格，并完成真实用户、组织和角色模型基础、审计日志服务基础、集中权限策略、生产健康检查和部署运行手册：共享类型和 Prisma schema 已新增 Organization、OrganizationMember、Role、AuditLog 基础模型，品牌访问前置校验已纳入用户状态、有效组织成员和路由最低角色检查，审计日志支持写入、筛选查询和敏感 metadata 脱敏，健康检查返回 repository driver、runtime environment、dependency readiness 和 missingConfiguration。
-- 第五阶段已建立 `.monkeycode/specs/product-experience-performance/` 规格，并完成任务 2：主要前端页面已改为 lazy route component，路由加载 fallback 已补齐，Vite 构建通过 `codeSplitting.groups` 拆分 React、Ant Design、TanStack Query 和通用 vendor chunks。
+- 第三阶段已建立 `当前工作区/.monkeycode/specs/ai-platform-async-tasks/` 规格，并完成 Adapter registry、`OpenAICompatibleAdapter`、AI 平台调用审计基础模型、异步任务基础模型、监测创建入队流程、Monitoring worker、失败重试状态机、监测任务状态机测试、内容生成创建入队流程、内容生成步骤状态记录、生成成功后的内容版本写入、内容生成失败重试契约、`ContentGenerationWorker` 契约测试、监测异步状态前端展示、内容生成步骤状态展示和失败重试入口。
+- 第四阶段已建立 `当前工作区/.monkeycode/specs/access-audit-production/` 规格，并完成真实用户、组织和角色模型基础、审计日志服务基础、集中权限策略、生产健康检查和部署运行手册：共享类型和 Prisma schema 已新增 Organization、OrganizationMember、Role、AuditLog 基础模型，品牌访问前置校验已纳入用户状态、有效组织成员和路由最低角色检查，审计日志支持写入、筛选查询和敏感 metadata 脱敏，健康检查返回 repository driver、runtime environment、dependency readiness 和 missingConfiguration。
+- 第五阶段已建立 `当前工作区/.monkeycode/specs/product-experience-performance/` 规格，并完成任务 2：主要前端页面已改为 lazy route component，路由加载 fallback 已补齐，Vite 构建通过 `codeSplitting.groups` 拆分 React、Ant Design、TanStack Query 和通用 vendor chunks。
 - 第五阶段任务 1 已完成关键页面体验状态整改：新增 `PageState` 共享组件，品牌工作区、监测、内容生成、发布、任务、报告和顾问页面已统一错误提示、空状态主操作和关键操作反馈。
 - 第五阶段任务 3 已完成报告模板和导出格式增强：内存仓储和 Prisma 仓储共用报告渲染器，Markdown 内容包含 YAML metadata、指标解释、问题归因、行动建议、品牌对比、风险提示、交付进度和下一步动作；目标验证 `npm run typecheck --workspace @geo-platform/api` 和 `npm run test --workspace @geo-platform/api -- report-center.repository.test.ts prisma-permissions.repository.test.ts` 已通过。
 - 第五阶段任务 4 已完成服务化交付工作台增强：顾问记录类型新增服务计划、服务复盘和客户交付，前端顾问工作台支持结构化记录问题、建议、服务目标、里程碑、负责人、预期结果、完成动作、数据变化、下一步、关联报告和待跟进事项；目标验证 `npm run test --workspace @geo-platform/api -- advisor-records.repository.test.ts prisma-permissions.repository.test.ts` 和 `npm run test --workspace @geo-platform/web -- AdvisorWorkspacePage.test.ts` 已通过。
-- 第五阶段任务 5 已完成试点客户演示数据和验收清单：默认 memory demo 和 Prisma demo seed 覆盖品牌、监测、内容、发布、任务、报告和顾问记录；`.monkeycode/docs/PILOT_DEMO_CHECKLIST.md` 收口演示路径、验收标准、已知限制和反馈转需求记录格式。
+- 第五阶段任务 5 已完成试点客户演示数据和验收清单：默认 memory demo 和 Prisma demo seed 覆盖品牌、监测、内容、发布、任务、报告和顾问记录；`当前工作区/.monkeycode/docs/PILOT_DEMO_CHECKLIST.md` 收口演示路径、验收标准、已知限制和反馈转需求记录格式。
 - 第五阶段检查点已完成：seed 语法检查、Prisma schema 校验、`git diff --check`、`npm run verify`、API 健康检查、前端入口检查和 5173 预览检查均已通过。
-- 持续迭代机制已建立：`.monkeycode/docs/CONTINUOUS_ITERATION_PLAYBOOK.md` 收口阶段复盘、反馈转需求、行业规则变化、文档同步和验证门禁。
+- 持续迭代机制已建立：`当前工作区/.monkeycode/docs/CONTINUOUS_ITERATION_PLAYBOOK.md` 收口阶段复盘、反馈转需求、行业规则变化、文档同步和验证门禁。
 - 持续迭代检查点已完成：`git diff --check`、`npm run verify`、API 健康检查、前端入口检查和 5173 预览检查均已通过。
 
 当前已安装 npm workspace 依赖，`package-lock.json` 由 `npm install` 生成。
 
 ## 后续开发顺序
 
-当前 `.monkeycode/specs/beginner-friendly-geo-workflow/tasklist.md` 中全部任务已完成。
+当前 `当前工作区/.monkeycode/specs/beginner-friendly-geo-workflow/tasklist.md` 中全部任务已完成。
 
-大模型 API 接入实施计划位于 `.monkeycode/specs/llm-api-integration/tasklist.md`。当前已完成任务 1 到任务 12：共享类型新增 LLM 任务契约、四类任务输入输出类型、监测资产生成结果类型和 `LLMTaskRun` 摘要类型，平台 Adapter 新增 `runMessages` 契约，`OpenAICompatibleAdapter` 支持结构化 messages、JSON 输出参数和 token usage 归一化，后端新增 `llm` 模块、`LLMOrchestrationService`、四类任务 API 和任务状态查询，Prompt 模板与输出校验已按四类任务落地，监测主题和监测问题生成入口已优先调用 `question_generation` 并保留规则 fallback，回答解析入口已优先调用 `answer_analysis` 并通过规则层二次校验保护品牌出现、引用分数和风险表达，内容生成 worker 已默认调用 `content_generation` 并保留测试注入和基础草稿 fallback，增长优化计划生成入口已优先调用 `optimization_planning` 并创建下一轮问题和内容任务，memory 和 Prisma 仓储已支持 `LLMTaskRun` 创建与读取，LLM 编排服务会记录 queued、succeeded 和 failed 任务摘要，前端已保留监测主题/问题生成的资料缺失、生成说明和 fallback 提示，内容生成页已展示合规说明、复测建议和发布前确认提示。检查点已通过 `npm run typecheck --workspaces`、`npm run test --workspace @geo-platform/api`、`npm run test --workspace @geo-platform/web`、`npm run build`、`npm run prisma:validate` 和 `npm run prisma:generate` 验证。
+大模型 API 接入实施计划位于 `当前工作区/.monkeycode/specs/llm-api-integration/tasklist.md`。当前已完成任务 1 到任务 12：共享类型新增 LLM 任务契约、四类任务输入输出类型、监测资产生成结果类型和 `LLMTaskRun` 摘要类型，平台 Adapter 新增 `runMessages` 契约，`OpenAICompatibleAdapter` 支持结构化 messages、JSON 输出参数和 token usage 归一化，后端新增 `llm` 模块、`LLMOrchestrationService`、四类任务 API 和任务状态查询，Prompt 模板与输出校验已按四类任务落地，监测主题和监测问题生成入口已优先调用 `question_generation` 并保留规则 fallback，回答解析入口已优先调用 `answer_analysis` 并通过规则层二次校验保护品牌出现、引用分数和风险表达，内容生成 worker 已默认调用 `content_generation` 并保留测试注入和基础草稿 fallback，增长优化计划生成入口已优先调用 `optimization_planning` 并创建下一轮问题和内容任务，memory 和 Prisma 仓储已支持 `LLMTaskRun` 创建与读取，LLM 编排服务会记录 queued、succeeded 和 failed 任务摘要，前端已保留监测主题/问题生成的资料缺失、生成说明和 fallback 提示，内容生成页已展示合规说明、复测建议和发布前确认提示。检查点已通过 `npm run typecheck --workspaces`、`npm run test --workspace @geo-platform/api`、`npm run test --workspace @geo-platform/web`、`npm run build`、`npm run prisma:validate` 和 `npm run prisma:generate` 验证。
 
-AI 自动化运营员实施计划位于 `.monkeycode/specs/ai-automation-operator/tasklist.md`。当前已完成任务 1 到任务 11：后端自动化模块、确认队列、问题池精选、监测执行、回答分析、内容生成、平台改写、发布建议、复测建议、前端自动化卡片和数据持久化结构均已落地；Prisma schema 已新增自动化任务包、确认事项、平台改写版本、监测问题池和问题来源记录模型。任务 11 验证已通过 `npm run prisma:validate`、`npm run prisma:generate`、`npm run typecheck --workspace @geo-platform/api`、`npm run typecheck --workspace @geo-platform/shared-types`、自动化仓储/编排相关测试以及平台配置和浏览器会话脱敏测试。
+AI 自动化运营员实施计划位于 `当前工作区/.monkeycode/specs/ai-automation-operator/tasklist.md`。当前已完成任务 1 到任务 11：后端自动化模块、确认队列、问题池精选、监测执行、回答分析、内容生成、平台改写、发布建议、复测建议、前端自动化卡片和数据持久化结构均已落地；Prisma schema 已新增自动化任务包、确认事项、平台改写版本、监测问题池和问题来源记录模型。任务 11 验证已通过 `npm run prisma:validate`、`npm run prisma:generate`、`npm run typecheck --workspace @geo-platform/api`、`npm run typecheck --workspace @geo-platform/shared-types`、自动化仓储/编排相关测试以及平台配置和浏览器会话脱敏测试。
 
 AI 自动化运营员检查点已完成，追光小牛内测路径可启动自动化任务包，维护监测问题池并精选本轮 6 个监测问题等待确认；确认后可进入监测计划执行，后续可串联回答分析、内容草稿、平台改写、发布建议和复测建议。深度审计已覆盖 Prisma 自动化镜像写入失败保护、首次生成问题后的精选读取顺序、发布建议确认失败重试状态、发布建议确认抽屉明细展示和服务层品牌访问校验。最终验证已通过 `npm run verify`，当前覆盖 API 64 个测试文件、289 个用例，Web 20 个测试文件、99 个用例，以及 workspace 类型检查、workspace 构建、Prisma schema 校验和 Prisma Client 生成。
 
-AI 可见性运营 Sprint 重构规格位于 `.monkeycode/specs/ai-visibility-sprint-refactor/tasklist.md`。当前已完成任务 1.1 到 4.2：共享类型新增 `VisibilitySprint`、`VisibilitySprintStep`、`VisibilitySprintStatus`、`VisibilitySprintMetricSummary`、`QuestionRadarItem`、`QuestionRadarDashboard`、`BrandStandardAnswer`、`BrandStandardAnswerEvidence`、`BrandStandardAnswerInput`、`StandardAnswerAlignmentDashboard`、`StandardAnswerAlignmentItem`、`StandardAnswerAlignmentResponse`、`StandardAnswerAlignmentEvidence`、`SprintContentGapTask` 和 `SprintContentGapTaskResult`，用于表达 Sprint 阶段、状态、指标摘要、现有业务对象关联 ID、问题雷达只读视图、品牌标准答案、真实回复对照分析和内容缺口任务生成结果；后端 `PermissionsRepositoryPort` 已新增 Sprint 列表、详情、当前 Sprint、创建、阶段更新、指标更新、关联对象更新和标准答案读写方法签名；内存仓储已预置追光小牛首轮 AI 可见性运营 Sprint 和 `standard_answer_demo_local_recommendation` 标准答案，并实现 Sprint CRUD、阶段更新、指标更新、关联对象更新和标准答案 CRUD；Prisma schema 已新增 `VisibilitySprint` 与 `BrandStandardAnswer` 模型，对应迁移为 `20260711102000_add_visibility_sprints` 和 `20260711113000_add_brand_standard_answers`，`PrismaPermissionsRepository` 已实现 Sprint 与标准答案持久化读写；`SprintsController` 已提供列表、当前、详情、创建、启动、停止、问题雷达、标准答案列表、标准答案生成、标准答案确认、标准答案对照分析、内容缺口任务生成、指标刷新和阶段推进 HTTP API；`QuestionRadarService` 已从监测问题候选和监测主题输出问题意图、平台覆盖、业务价值、状态和 Sprint 关联状态，并在同一 Sprint 内按归一化问题文本去重；`StandardAnswerService` 已从 Sprint 选题、品牌工作区和品牌档案生成 `ready_for_review` 标准答案草稿，用户确认后更新为 `approved` 并关联回 Sprint；`StandardAnswerAlignmentService` 已从 Sprint 关联真实监测运行、解析结果、监测问题候选和已审核标准答案输出覆盖、准确性、风险表达、引用缺口、竞品压制、证据和建议动作，缺少真实回答或标准答案时返回等待状态；`SprintContentGapService` 已将对照分析中 `needs_attention` 的问题转化为内容策略和内容生成任务，使用 `referenceSources` 关联 Sprint、问题、标准答案、真实回答运行和证据摘要，并把任务 ID 写回 Sprint；`SprintMetricsService` 已从 Sprint 关联真实监测运行和解析结果聚合指标摘要，不读取品牌标准答案或内容草稿作为监测样本；`SprintStageService` 已按问题、真实回答、标准答案、指标状态、内容任务、发布记录和复测任务推进阶段，缺少真实回答时保持等待状态。验证已通过 `npm run typecheck --workspace @geo-platform/shared-types`、`npm run typecheck --workspace @geo-platform/api`、`npm run test --workspace @geo-platform/api -- sprint-content-gap.service.test.ts standard-answer-alignment.service.test.ts sprints.controller.test.ts sprint-metrics.service.test.ts sprint-stage.service.test.ts standard-answer.service.test.ts question-radar.service.test.ts` 和 `git diff --check`。
+AI 可见性运营 Sprint 重构规格位于 `当前工作区/.monkeycode/specs/ai-visibility-sprint-refactor/tasklist.md`。当前已完成任务 1.1 到 4.2：共享类型新增 `VisibilitySprint`、`VisibilitySprintStep`、`VisibilitySprintStatus`、`VisibilitySprintMetricSummary`、`QuestionRadarItem`、`QuestionRadarDashboard`、`BrandStandardAnswer`、`BrandStandardAnswerEvidence`、`BrandStandardAnswerInput`、`StandardAnswerAlignmentDashboard`、`StandardAnswerAlignmentItem`、`StandardAnswerAlignmentResponse`、`StandardAnswerAlignmentEvidence`、`SprintContentGapTask` 和 `SprintContentGapTaskResult`，用于表达 Sprint 阶段、状态、指标摘要、现有业务对象关联 ID、问题雷达只读视图、品牌标准答案、真实回复对照分析和内容缺口任务生成结果；后端 `PermissionsRepositoryPort` 已新增 Sprint 列表、详情、当前 Sprint、创建、阶段更新、指标更新、关联对象更新和标准答案读写方法签名；内存仓储已预置追光小牛首轮 AI 可见性运营 Sprint 和 `standard_answer_demo_local_recommendation` 标准答案，并实现 Sprint CRUD、阶段更新、指标更新、关联对象更新和标准答案 CRUD；Prisma schema 已新增 `VisibilitySprint` 与 `BrandStandardAnswer` 模型，对应迁移为 `20260711102000_add_visibility_sprints` 和 `20260711113000_add_brand_standard_answers`，`PrismaPermissionsRepository` 已实现 Sprint 与标准答案持久化读写；`SprintsController` 已提供列表、当前、详情、创建、启动、停止、问题雷达、标准答案列表、标准答案生成、标准答案确认、标准答案对照分析、内容缺口任务生成、指标刷新和阶段推进 HTTP API；`QuestionRadarService` 已从监测问题候选和监测主题输出问题意图、平台覆盖、业务价值、状态和 Sprint 关联状态，并在同一 Sprint 内按归一化问题文本去重；`StandardAnswerService` 已从 Sprint 选题、品牌工作区和品牌档案生成 `ready_for_review` 标准答案草稿，用户确认后更新为 `approved` 并关联回 Sprint；`StandardAnswerAlignmentService` 已从 Sprint 关联真实监测运行、解析结果、监测问题候选和已审核标准答案输出覆盖、准确性、风险表达、引用缺口、竞品压制、证据和建议动作，缺少真实回答或标准答案时返回等待状态；`SprintContentGapService` 已将对照分析中 `needs_attention` 的问题转化为内容策略和内容生成任务，使用 `referenceSources` 关联 Sprint、问题、标准答案、真实回答运行和证据摘要，并把任务 ID 写回 Sprint；`SprintMetricsService` 已从 Sprint 关联真实监测运行和解析结果聚合指标摘要，不读取品牌标准答案或内容草稿作为监测样本；`SprintStageService` 已按问题、真实回答、标准答案、指标状态、内容任务、发布记录和复测任务推进阶段，缺少真实回答时保持等待状态。验证已通过 `npm run typecheck --workspace @geo-platform/shared-types`、`npm run typecheck --workspace @geo-platform/api`、`npm run test --workspace @geo-platform/api -- sprint-content-gap.service.test.ts standard-answer-alignment.service.test.ts sprints.controller.test.ts sprint-metrics.service.test.ts sprint-stage.service.test.ts standard-answer.service.test.ts question-radar.service.test.ts` 和 `git diff --check`。
 
 AI 可见性运营 Sprint 任务 5.1 已完成：共享类型新增 `SprintContentTaskDashboard`、`SprintContentTaskItem`、`SprintContentTaskGapContext` 和 `SprintContentTaskDraftReadiness`；`SprintContentGapService` 新增内容缺口任务看板，读取 Sprint 关联内容任务、当前草稿版本和标准答案对照结果，输出来源问题、缺口类型、证据摘要、建议动作、复测目标和草稿可审稿状态；`SprintsController` 新增 `GET /api/v1/brands/:brandId/sprints/:sprintId/content-gaps/tasks`。验证已通过 `npm run typecheck --workspace @geo-platform/shared-types`、`npm run typecheck --workspace @geo-platform/api` 和 `npm run test --workspace @geo-platform/api -- sprint-content-gap.service.test.ts sprints.controller.test.ts`。
 
@@ -146,4 +146,162 @@ AI 可见性运营 Sprint 任务 6.4 已完成：任务跟进页新增“Sprint 
 
 AI 可见性运营 Sprint 任务 7.1 和 7.2 已完成：项目文档已同步到 `ARCHITECTURE.md`、`INTERFACES.md`、`DEVELOPER_GUIDE.md` 和文档索引；完整验证门禁的审计、类型检查、API 测试、Web 测试、构建、Prisma schema 校验和 Prisma Client 生成均已通过，最新 `npm run verify` 已完整通过。
 
-第一阶段上线门禁已完成追光小牛内测路径验证：自动生成监测主题后可生成 8 个监测问题，问题包含目的、目标平台、优先级和预计价值；监测问题可保存为计划并进入浏览器确认监测流程；公开平台配置响应仅包含 `hasCredential` 和脱敏状态，不暴露 `credentialRef`；LLM 异步任务响应只返回任务状态和 `jobId`；品牌总览、AI 回复监测、优化计划、写内�
+产品体验重构任务 11.1 已完成：前端新增集中式工作流路由构造器和解析器，串联品牌资料、优化单元、用户意图、AI 回复监测、分析诊断、内容生成、发布准备和再次监测；关键跳转携带优化单元、用户意图、监测问题、真实回复运行、内容任务、版本和发布记录标识，监测页使用 hash 定位问题候选、手动录入或监测记录区块；内容审核通过后可创建发布记录，发布中心可录入真实发布链接并进入再次监测任务。验证已通过 `npm run verify` 和 `git diff --check`，当前覆盖 API 68 个测试文件、308 个用例和 Web 26 个测试文件、147 个用例。
+
+产品体验重构任务 11.2 已完成：第一版页面继续使用 lazy route component，品牌工作区 `/brands/:brandId/*` 别名重定向会保留工作流 query 和 hash；Vite 开发预览继续配置 `/api` 到 `http://localhost:3001` 的代理，并允许 `.monkeycode-ai.online` 域名访问。新增品牌化重定向和 Vite 配置测试，完整验证覆盖 API 68 个测试文件、308 个用例和 Web 28 个测试文件、152 个用例。
+
+产品体验重构任务 11.3 已完成最终交付验证：`npm audit` 返回 0 个漏洞，API、Web 和共享类型 workspace 类型检查通过，API 68 个测试文件共 308 个用例与 Web 28 个测试文件共 152 个用例通过，全部 workspace 生产构建通过，Prisma schema 校验和 Prisma Client `6.19.3` 生成通过，`git diff --check` 通过。任务组 11 的核心页面串联、路由预览和回归验证已全部完成。
+
+GEO 成熟产品体验重构任务 1.1 已完成：`global.css` 已建立统一的 `--geo-*` 页面宽度、响应式边距、间距、圆角、边界、阴影、文字层级和语义色令牌，现有 `geo-*`、`page-*` 及 Ant Design 基础覆盖已接入新的页面、内容面板、紧凑列表和数据区域视觉层级。验证已通过 Web workspace typecheck、生产构建、`git diff --check` 和 5173 预览连接检查。
+
+GEO 成熟产品体验重构任务 1.2 已完成：前端新增 `ProductPage`、`ProductPageHeader` 和 `ProductPageSection`，统一页面标题、用途说明、品牌上下文、主操作、辅助操作、最大阅读宽度及加载、部分数据和错误提示插槽；移动端标题和操作区转换为纵向布局，主操作保持全宽可见。验证已通过 Web workspace typecheck、生产构建、`git diff --check` 和 5173 预览连接检查。
+
+GEO 成熟产品体验重构任务 1.3 已完成：`PageState.tsx` 新增行动型 `GuidedEmptyState`、区域错误 `RegionErrorState`、页面骨架 `PageSkeleton`、部分数据提示 `PartialDataNotice` 和常见恢复动作映射，同时保留现有状态组件供页面渐进迁移。验证已通过 `PageState.test.ts` 3 个定向用例、Web workspace typecheck、生产构建、`git diff --check` 和 5173 预览连接检查。
+
+GEO 成熟产品体验重构任务 1.4 已完成：前端新增 `UnifiedFilterBar`、`PlatformSwitch`、`MetricSummaryGrid`、`InsightOverview` 和 `InsightDetailSection`，统一搜索、日期、平台、状态、结果计数、清空筛选、指标概览、关键结论和明细区域结构；`filterQuery.ts` 提供可保留工作流上下文的筛选 query 读取、合并和清空 helper，`displayLabels.ts` 集中维护五个平台选项。验证已通过新增 helper 定向测试 8 个用例、Web 29 个测试文件共 158 个用例、Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 1.5 已完成：前端新增共享五态 `WorkspaceViewState`、`CreationWorkspace` 双栏创建模板、`AssetLibrary` 分类资产模板、`ManagementListPage` 管理列表模板和最多两个高频行操作的 `ManagementRowActions`。三类模板提供场景化默认状态、可替换状态插槽、ARIA 区域语义和桌面、平板、移动端响应式布局。验证已通过 `WorkspaceState.test.ts` 3 个用例、Web 30 个测试文件共 161 个用例、Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 1.6 已完成：`SharedPageTemplates.test.tsx` 使用 React 服务端静态渲染验证共享组件的真实输出，无需浏览器 DOM 测试依赖；覆盖页面标题与主操作、行动型空态、筛选控件与结果计数、平台选项、双栏创建五态、资产库完整度、管理列表行操作、移动端顺序类名和可选区域缺省结构。新增组件测试 11 个用例，连同状态与 query helper 的定向验证共 20 个用例；完整 Web 回归为 31 个测试文件共 173 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 1.7 已完成：`ProductPagePrimaryAction.property.test.tsx` 为正确性属性 P6 生成 `ProductPage`、`CreationWorkspace`、`AssetLibrary` 和 `ManagementListPage` 的 120 组确定性场景，覆盖五类状态、主操作有无以及零到两个辅助操作；每组服务端渲染结果均验证实心主色按钮最多一个，并兼容 Ant Design 当前和旧版主按钮类名。完整 Web 回归为 32 个测试文件共 174 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 2.1 已完成：`navigation.ts` 将一级导航收敛为开始、监测、优化、发布和分析五个任务域，补齐增长优化、内容策略、报告中心、内测反馈和顾问服务入口，使 24 个第一版路由均具有唯一导航入口；原有 `operationWorkflow`、`workspaceRouteAliases`、route path 和 lazy route 注册保持稳定。`navigation.test.ts` 验证五域顺序、入口唯一性和管理/支持页面入口，`routes.test.ts` 双向校验导航目标与第一版路由集合。完整 Web 回归为 32 个测试文件共 175 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 2.2 已完成：`AppLayout.tsx` 实现 248px 展开态与 72px 折叠态的桌面侧栏，五个任务域改为一次展开一个的受控子菜单，路由切换时同步展开当前域；统一全局头部只显示侧栏控制、当前任务域和带可访问标签的品牌选择器，页面标题继续由内容区承载。`navigation.ts` 新增当前任务域匹配与单域展开 helper，定向测试覆盖五域匹配、未知路由和展开切换边界。完整 Web 回归为 32 个测试文件共 177 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 2.3 已完成：`AppLayout.tsx` 在 767px 及以下使用 Ant Design 左侧抽屉导航，768px 起保留桌面侧栏；移动抽屉复用五域菜单和品牌上下文，支持遮罩、Escape、路由后关闭及关闭后焦点返回导航按钮。`AppShellState.ts` 集中维护响应式模式和页面边距层级，定向测试覆盖 767px/768px 边界及 390px、768px、1024px、1440px 视觉审查宽度。完整 Web 回归为 33 个测试文件共 179 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 2.4 已完成：应用壳将全局八步流程条替换为场景化相邻阶段导航，八个主链路页面最多展示上一阶段、当前阶段和下一阶段，首尾阶段仅展示存在的相邻入口；其余高级分析、管理和支持工具页面隐藏流程区域。`getContextualWorkflowSteps` 生成相邻阶段模型，`workflowStagePath` 通过 `WorkflowRouteContext` 保留优化单元、用户意图、监测问题、运行记录、计划、内容任务、生成版本、发布记录、平台和动作上下文。完整 Web 回归为 33 个测试文件共 182 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 2.5 已完成：`AppShellState.ts` 新增应用壳交互 reducer，`AppLayout.tsx` 使用同一状态模型处理桌面侧栏折叠、移动抽屉开关和路由后关闭；回归测试覆盖五个任务域、24 个页面入口、品牌切换、全部品牌化别名的 query/hash 保留、未知别名回退和主链路相邻阶段。定向回归为 5 个测试文件共 22 个用例，完整 Web 回归为 34 个测试文件共 186 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 2.6 已完成：`WorkflowContextPreservation.property.test.ts` 为正确性属性 P4 生成 63 个 route builder 场景、全部品牌化别名重定向组合和 768 个完整上下文与主链路目标组合，覆盖普通字符、空格、中文、URL 特殊字符、四种监测模式、三个锚点、动作和发布 Tab；构造、解析、重定向和相邻阶段链接均保持 query/hash 及业务对象上下文。定向验证为 4 个测试文件共 20 个用例，完整 Web 回归为 35 个测试文件共 189 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构检查点 3 已完成：项目级 `npm run verify` 门禁通过依赖审计、API/Web/共享类型 workspace 类型检查、API 68 个测试文件共 308 个用例、Web 35 个测试文件共 189 个用例和全部 workspace 生产构建；Prisma schema 校验与 Prisma Client `6.19.3` 生成随后单独复核通过。依赖审计结果为 0 个漏洞。
+
+GEO 成熟产品体验重构任务 4.1 已完成：新手首页改用 `BeginnerHomeDashboard` 聚合数据生成一个推荐主任务、资料准备/创建监测对象/获取真实回复三个阶段和一个主按钮，真实回复完成状态只使用聚合接口中的真实采集数量；高级运营、Sprint、首轮流程、资料导入、品牌管理和自动化运营员收进默认关闭的二级折叠区，三个品牌工作区聚焦路由只渲染对应模块。`BeginnerHomeState.test.ts` 覆盖阶段推进、真实回复边界和动作路由；完整 Web 回归为 36 个测试文件共 192 个用例，并通过 Web workspace typecheck、生产构建、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 4.2 已完成：已有真实监测结果的首页展示推荐度、平均排名、引用率和待处理问题四项摘要，后端 `buildBeginnerHomeResultSummary` 统一按真实回复及其分析结果计算口径和样本数；品牌评价、回答修正和下一篇内容三个问题入口通过品牌化路由携带 `question` query 与目标区块 hash，监测和增长优化页面展示问题上下文并定位对应区域。API 全量回归为 68 个测试文件共 309 个用例，Web 全量回归为 36 个测试文件共 195 个用例，并通过 API/Web workspace typecheck、Web 生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 4.3 已完成：多品牌列表迁移为独立 `BrandPortfolioPanel`，每张品牌资产卡只保留名称、状态、资料完整度、首轮监测状态和一个高频动作，编辑与启停进入“更多”菜单；品牌创建入口在有数据时位于管理区标题，在空数据时由空状态接管，页面同时只展示一个创建入口。跨品牌卡片复用 `GET /api/v1/brands/:brandId/dashboards/home` 读取真实完整度与监测状态，现有品牌切换 store 和创建、编辑、状态 API 保持不变。完整 Web 回归为 37 个测试文件共 197 个用例，并通过 Web workspace typecheck、生产构建、跨品牌接口实测和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 4.4 已完成：`/competitor-profile` 使用独立管理视图维护竞品档案并承接地图发现，`/competitors` 聚焦分析指标、高风险意图和对比证据；AI 平台接入页改为平台卡片，公开区域只展示脱敏连接状态、可用监测方式、最近验证摘要、下一步和唯一连接或管理动作，连接检查与技术配置收纳到管理弹窗。平台卡片 helper 测试覆盖默认平台合并、连接状态、监测方式、验证文案和原始验证信息隔离。定向测试为 2 个文件共 10 个用例，完整 Web 回归为 37 个测试文件共 199 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 4.5 已完成：新增 `BeginnerExperienceComponents.test.tsx`，以真实组件 SSR 覆盖未建档、待建监测对象、待采集真实回复、已有结果和存在风险五类首页状态，并验证三个问题式入口、品牌空状态与资产卡动作、竞品资料空状态、平台连接状态和唯一连接或管理动作。`BeginnerHomeContent`、`CompetitorProfileManagement` 和 `PlatformConnectionCards` 提取为无请求展示组件，页面查询与 mutation 容器保持原边界。定向回归为 5 个测试文件共 25 个用例，完整 Web 回归为 38 个测试文件共 208 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 4.6 已完成：`PlatformConfigurationPublicBoundary.property.test.tsx` 为正确性属性 P2 生成 120 个平台公开区域场景，覆盖 `api`、`manual`、`semi_auto`、`mock` 四种模式，五种连接状态、三种验证结果和启停状态；每个场景向配置对象注入独立的 API Key、cookies、storage state、browser profile 路径、provider 原始载荷和验证消息标记，并同时检查平台卡片 view model 与 SSR 页面树，确认公开输出只包含脱敏连接状态、监测方式、验证摘要和业务化下一步。完整 Web 回归为 39 个测试文件共 209 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 5.1 已完成：品牌资料页接入共享 `AssetLibrary`，将原有资料字段收敛为基础信息、产品服务、目标用户、事实知识和媒体素材五类固定导航；右侧按分类展示现有表单、资料来源状态或媒体资产列表，持续保留总完整度、分类完整度、缺失项、来源数量和结果影响说明，并将保存品牌资料设为唯一主操作。品牌工作区 helper 测试补充五分类映射、事实字段合并、完整度、来源计数和媒体素材状态断言；完整 Web 回归为 39 个测试文件共 210 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 5.2 已完成：基础信息按品牌定位、差异化与可信证明分组，字段增加示例、字数提示和长度边界；产品服务改为支持新增、内联编辑和删除的重复条目卡，并根据内容展示资料状态和 FAQ 摘要；目标用户改为画像卡，支持维护决策阶段、关注问题、常见表达及关联已启用用户意图。`brandProfileEditor.ts` 在展示层完成结构化表单与现有 `offerings`、`targetCustomers` 字符串数组契约之间的双向转换，兼容旧版纯文本画像。新增 helper 测试覆盖产品条目过滤与状态、旧画像加载、结构化画像往返、FAQ 摘要和答案分隔符；完整 Web 回归为 40 个测试文件共 214 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 5.3 已完成：事实知识新增推荐表达、禁用表达、内容规则、竞品信息和资料来源五个内部组，右侧统一提供关键词搜索、审核状态筛选、资产来源和更新时间，并保留当前组批量手动维护能力；媒体素材复用同一资产列表，展示素材类型、适用平台、关联内容、来源及审核状态。空分组提供上传资料、手动录入或示例结构入口。`brandProfileEditor.ts` 新增事实、资料来源和媒体素材到统一资产行的映射，以及中文平台别名和审核状态筛选；helper 测试覆盖来源状态归一化、媒体字段映射、中文平台搜索、审核筛选和空查询边界。完整 Web 回归为 40 个测试文件共 216 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 5.4 已完成：资料上传、解析、识别完整度、置信度、待确认字段、缺失影响和确认保存集中到品牌资产库右侧 `BrandImportWorkspace`；品牌工作台首页只保留携带现有 query/hash 上下文的分类编辑与文件导入入口。手动保存和导入确认统一展示保存前后完整度、下游结果影响、创建监测对象与开始监测动作；分类导航、浏览器历史和 `brandImport` query 保持工作区模式同步。新增测试覆盖字符串、列表和 FAQ 字段转换及保存反馈文案；完整 Web 回归为 41 个测试文件共 219 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 5.5 已完成：新增 `BrandAssetLibraryComponents.test.tsx`，使用 React 服务端静态渲染遍历基础信息、产品服务、目标用户、事实知识和媒体素材五类选中状态，并覆盖桌面左侧分类语义、移动端导航/编辑区顺序、资料完整度、分类状态、行动型空分类、资料导入支持格式与唯一初始主操作，以及保存后的完整度变化和监测下一步；现有 `brandProfileEditor.test.ts` 与 `BrandImportWorkspace.test.ts` 继续覆盖可重复条目、结构化画像、FAQ、搜索筛选和导入字段转换。定向回归为 5 个测试文件共 53 个用例，完整 Web 回归为 42 个测试文件共 228 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 6.1 已完成：`OptimizationUnitsCard.tsx` 和 `UserIntentPromptCard.tsx` 统一迁移到 `ManagementListPage`；两个页面均提供标题说明、搜索与业务筛选、唯一新增入口、行动型空状态和带横向滚动边界的表格。监测对象行只展示创建用户意图与开始监测，用户意图行只展示手动检测与自动监测；生成内容、查看分析、编辑、检测记录和引用来源等低频动作进入更多菜单，原有 API、表单、Prompt 展开区和工作流上下文保持不变。新增 `MonitoringObjectManagement.test.tsx` 覆盖组合筛选、统一模板、唯一新增入口和行操作边界；定向回归为 3 个测试文件共 22 个用例，完整 Web 回归为 43 个测试文件共 232 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 6.2 已完成：`MonitoringPage.tsx` 重构为从结论到证据的 AI 回复监测看板，首屏依次展示关键结论、真实回复数、品牌提及率、Top 3 推荐率、引用命中率、平台切换和平台回复分布；指标 helper 只统计非 `mock_ai` 且包含原始回复的运行。平台选择通过统一筛选 query 保留现有工作流参数，并同步更新结论、指标、分布和回复明细；监测主题与问题、计划执行、回复明细和高级工具使用四个 Tab 渐进展开。开始监测成为页面唯一主操作，手动录入和平台配置作为辅助路径，风险或内容缺口可携带现有上下文进入优化诊断。`MonitoringRunsCard` 支持受控平台范围和次级新增操作，监测问题、指标、平台配置和自动化组件在嵌入看板时使用次级操作语义。新增 helper 回归覆盖真实样本边界、平台切换、关键结论和四项指标；定向回归为 4 个测试文件共 13 个用例，完整 Web 回归为 43 个测试文件共 235 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 6.3 已完成：新增 `MonitoringRecoverySummary.tsx`，将监测计划连接摘要、公开平台状态和监测运行统一映射为缺少真实样本、浏览器待确认、手动待录入、平台待配置和运行失败五类状态；每类状态展示当前原因、指标或平台覆盖影响、恢复动作及目标 Tab。缺少真实样本时明确当前平台范围、有效样本数以及品牌提及率、Top 3 推荐率、引用命中率和平台分布的影响；失败状态区分等待自动重试和可切换的人工路径。自动监测、浏览器辅助监测和手动录入三条真实回复路径持续展示，并按公开平台能力标记可用状态；平台筛选会同步收窄状态范围。页面同时展示计划、回复和平台请求错误并保留可用区域。新增 `MonitoringRecoverySummary.test.ts` 覆盖五类状态、恢复目标、自动重试和三类采集路径；定向回归为 5 个测试文件共 25 个用例，完整 Web 回归为 44 个测试文件共 239 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 6.4 已完成：`GeoCanvasPage.tsx` 使用 `ProductPage` 将关系视图定位为“关系分析画布”高级工具，首屏主任务收敛为探索优化对象、用户意图、平台表现和内容策略的完整链路。页面保留左侧分析对象、中央关系图和右侧节点详情结构，新增可关闭的首次使用引导、四类节点图例、当前节点说明以及缩小、放大和全图定位工具；创建用户意图、内容策略和优化任务收纳到单一“新建关联对象”菜单。四类节点详情统一提供查看真实回复、生成内容和再次监测三步动作，低频补充与创建操作使用文本入口。`buildNodeWorkflowPaths` 会将节点关联的 `optimizationUnitId`、`intentId`、问题文本和已有 query 上下文传入监测、内容生成与再次监测路由。新增 3 个工作流映射测试；完整 Web 回归为 45 个测试文件共 242 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构可选任务 6.5 已完成：组件测试矩阵继续复用 `MonitoringObjectManagement.test.tsx` 和 `MonitoringPage.test.ts` 已有的列表筛选、行操作收纳、平台切换及真实样本边界覆盖，并在 `MonitoringRecoverySummary.test.ts` 补充部分真实数据与失败记录并存、失败恢复动作和三类采集路径持续展示，在 `GeoCanvasPage.test.ts` 补充高级工具定位、首次使用引导、四类图例、缩放定位、默认节点详情和查看真实回复、生成内容、再次监测入口。定向回归为 2 个测试文件共 10 个用例，完整 Web 回归为 45 个测试文件共 245 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构可选任务 6.6 已完成：新增 `src/api/brandContext.property.test.ts` 实现正确性属性 P1，以 24 个由合法前缀和后缀组合生成的品牌标识覆盖开始、监测、内容、发布、分析和支持工具六个任务域，共验证 144 次代表性主数据请求。每个场景先写入 Zustand 当前品牌上下文，再调用统一 `apiGet`，同时断言 `/api/v1/brands/:brandId/*` 请求路径保持当前品牌且 `x-brand-id` 请求头与其一致；测试使用 `validatesCriteria(['8.1'])` 标注需求引用，并在完成后恢复 `brand_demo`。完整 Web 回归为 46 个测试文件共 246 个用例，并通过 Web workspace typecheck、生产构建和 `git diff --check`。
+
+GEO 成熟产品体验重构可选任务 6.7 已完成：共享类型包新增 `hasRealMonitoringResponseSample`，后端 `hasRealMonitoringResponse` 与前端 `isRealAIResponseRun` 共同复用该判定，统一要求平台区别于 `mock_ai` 且原始回复去除空白后仍有内容，修复前端将空白回复对象计入监测指标的边界差异。Web 与 API 分别新增 Property P3 测试，对 API、浏览器辅助、手动录入、示例回答、空白回复、标准答案和内容草稿穷举 128 种组合；Web 验证样本数、品牌提及率、Top 3 推荐率和引用命中率，API 验证首页样本数、有效排名数、推荐率和引用命中率。API 全量回归为 69 个测试文件共 310 个用例，Web 全量回归为 47 个测试文件共 247 个用例，shared-types、API 和 Web 三工作区均构建成功，并通过 `git diff --check`。
+
+GEO 成熟产品体验重构检查点 7 已完成：项目级 `npm run verify` 门禁一次通过，依赖审计结果为 0 个漏洞，API 69 个测试文件共 310 个用例、Web 47 个测试文件共 247 个用例全部通过，API、Web 和 shared-types workspace 类型检查及生产构建成功，Prisma schema 校验通过并生成 Prisma Client `6.19.3`。
+
+GEO 成熟产品体验重构任务 8.1 已完成：内容生成页顶部任务区迁移到统一 `ManagementListPage`，使用 `UnifiedFilterBar` 提供标题、模板、关联对象、关键词、生成状态和目标平台筛选、结果计数及统一清空；任务表收敛为标题、模板、业务关联对象、目标平台、生成状态、真实发布时间和继续编辑、发布准备两个高频动作。发布时间复用发布中心记录并按任务关联最新已发布记录，空列表提供选择模板并创建第一条内容的行动型入口，有数据与空数据状态分别只保留一个实心主色创建入口。新增 helper 测试覆盖组合搜索、关联对象业务文案和最新发布时间映射；完整 Web 回归为 47 个测试文件共 250 个用例，并通过 Web workspace typecheck、生产构建、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 8.2 已完成：内容生成创作台将 12 个内容模板按品牌宣传、问答、案例、教程、对比、科普和渠道内容七类组织，模板卡明确展示使用场景、适用平台、预计结构、素材要求和选择状态。默认模板、分类切换和卡片选择都会将模板预设的内容类型与目标平台同步到现有任务输入，后端契约保持不变。新增测试覆盖七类完整性、12 个模板唯一归类、模板字段完整性和小红书渠道模板预设映射；完整 Web 回归为 47 个测试文件共 252 个用例，并通过 Web workspace typecheck、生产构建、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 8.3 已完成：内容创作台迁移到共享 `CreationWorkspace`，桌面展示左配置右结果双栏，窄屏按步骤 1 配置、步骤 2 结果纵向排列，移动端生成动作保持在底部粘性动作区。左侧表单固定为目标与对象、模板与渠道、素材与依据、生成配置和发布检查五组；右侧统一展示模板产出预期、任务加载、生成步骤、失败重试、草稿编辑、事实与合规风险、渠道发布检查、保存、导出和发布准备动作。新增 `getContentCreationWorkspaceState` 测试覆盖加载、错误、空任务和可用任务状态；完整 Web 回归为 47 个测试文件共 253 个用例，并通过 Web workspace typecheck、生产构建、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 8.4 已完成：`/content-optimization` 在共享 `CreationWorkspace` 中增加选择现有内容资产或粘贴原文、配置结构优化、事实补强、FAQ 补充、引用补强和渠道适配目标，并在结果区展示五类可解释建议；优化上下文复用现有 `referenceSources` 契约。内容资产区迁移到 `ManagementListPage` 与 `UnifiedFilterBar`，读取 `ContentOperationDashboard.assets`，支持搜索及资产状态、类型、平台、审核、发布和复测组合筛选，展示真实审核、发布、复测和发布统计，保留继续编辑、发布准备和再次监测动作。新增优化任务输入、建议映射及资产组合筛选测试；定向回归为 2 个测试文件共 33 个用例，完整 Web 回归为 48 个测试文件共 257 个用例，并通过 Web workspace typecheck、生产构建、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构可选任务 8.5 已完成：新增 `ContentOperationsComponents.test.tsx`，通过服务端静态渲染覆盖渠道模板选中状态、内容优化双栏空态、生成失败恢复、五类优化建议和草稿交接动作，并补充优化配置必填边界及内容任务到发布准备的 query 上下文测试。发布记录创建成功后的跳转改用 `getContentPublishPreparationPath`，保留优化单元、用户意图、监测运行、优化计划和内容任务上下文。内容运营定向回归为 3 个测试文件共 40 个用例，完整 Web 回归为 49 个测试文件共 264 个用例，并通过 Web workspace typecheck、生产构建、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 9.1 已完成：`/owned-media` 与 `/media-platforms` 从发布中心多 Tab 页面拆分为独立管理页，并统一读取品牌级 `PublishingOperationDashboard`。自有媒体页提供账号搜索、发布渠道和授权状态组合筛选，展示最近验证、账号级发布统计和异常说明，每行根据授权状态只保留进入发布准备或重新授权一个管理动作；媒体平台页直接展示持久化规则中的内容格式、适用意图、发布频率、素材要求和注意事项，并支持跨字段搜索。新增 helper 测试覆盖组合筛选、唯一动作、状态反馈、规则搜索、接入平台选项及页面状态；定向回归为 1 个测试文件共 14 个用例，完整 Web 回归为 49 个测试文件共 269 个用例，并通过 Web workspace typecheck、生产构建、两条路由响应、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 9.2 已完成：`/publishing` 迁移到统一 `ManagementListPage`，组合 `PublishingOperationDashboard.records`、`performance` 和 `pendingRetestItems`，支持标题、正文、账号、真实链接、发布状态和发布渠道筛选。记录行展示内容摘要、平台账号、未排期状态、创建时间、发布状态、真实链接和再次监测状态；记录或更新发布结果与安排再次监测作为两个高频动作，复制正文、设为待人工发布和标记失败进入更多菜单。再次监测入口使用 `workflowStagePath` 保留优化单元、用户意图、Prompt、监测运行、优化计划、内容任务、版本和发布记录上下文。新增测试覆盖发布记录行聚合、组合筛选、query 保留和再次监测交接；完整 Web 回归为 49 个测试文件共 275 个用例，并通过 Web workspace typecheck、生产构建、`/publishing` 路由响应、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 9.3 已完成：`/tasks` 迁移到统一 `ManagementListPage`，将任务、最新复测记录和 Sprint 趋势映射为待处理、待复测、已改善和继续优化四类行动状态，并提供搜索、状态筛选和四项摘要。任务行展示原问题、来源发布记录、负责人、计划时间、优化前后提及率、品牌排名、表达准确率及明确下一步；处理和安排或执行再次监测作为两个高频动作，其余操作进入更多菜单。返回 AI 回复监测执行同题复测时使用 `workflowStagePath` 保留完整工作流 query 和监测记录区块 hash。新增 7 个 helper 测试覆盖状态映射、聚合、筛选、指标和上下文；完整 Web 回归为 50 个测试文件共 282 个用例，并通过 Web workspace typecheck、生产构建、`/tasks` 路由响应、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构可选任务 9.4 已完成：新增 `PublishingOperationsComponents.test.tsx`，通过服务端静态渲染覆盖自有媒体已授权和授权过期状态、重新授权动作、持久化媒体平台规则、发布记录筛选结果、真实发布链接、发布状态、再次监测入口及聚合加载失败恢复。发布结果字段提取为可独立测试的 `PublishingResultFields`，明确完整 URL 输入、保存为已发布状态和再次监测下一步；发布记录到复测任务继续验证发布记录、内容任务、版本和监测运行上下文。定向回归为 2 个测试文件共 26 个用例，完整 Web 回归为 51 个测试文件共 288 个用例，并通过 Web workspace typecheck、生产构建、三条发布运营路由响应和预览连接检查。
+
+GEO 成熟产品体验重构任务 10.1 已完成：新增 `analysisScopeQuery.ts`、`AnalysisScopeBar.tsx` 和 `AnalysisWorkbench.tsx`，统一分析页的 URL 范围、筛选位置和分析范围、关键结论、趋势与分布、证据明细、建议动作五段层级。竞品、评价、事实、信源和增长优化页已迁移到共享骨架；各域按真实明细字段执行搜索、日期、平台、状态、优化单元和用户意图组合筛选，聚合指标继续明确采用品牌整体真实样本口径。竞品、评价和信源明细每行保留两个高频动作，其他动作收纳到更多菜单。新增共享骨架 SSR、scope query 及四个业务域组合筛选测试；定向回归为 6 个测试文件共 26 个用例，完整 Web 回归为 53 个测试文件共 296 个用例，并通过 Web workspace typecheck、生产构建、五条分析路由响应、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 10.2 已完成：竞品对比契约新增 `capturedAt` 真实监测时间，内存仓储从监测运行完成、开始或创建时间依次取值。竞品分析首屏收口为竞品提及率、品牌平均推荐排名和压制风险，并按监测运行去重生成 AI 平台矩阵、日期趋势和当前范围高风险用户意图；日期、平台、压制状态、优化单元、用户意图和搜索筛选同步作用于排名、风险、矩阵、趋势和证据。评价分析明确展示四项摘要、评价趋势、表达问题分布与问题证据，日期筛选收窄趋势，平台与处理状态收窄问题分布。两页行级内容、任务和再次监测动作保留来源工作流上下文，竞品资料页的地图发现以及评价修正策略和品牌资料更新能力保持可用。定向回归为 Web 3 个测试文件共 18 个用例、API 1 个测试文件共 7 个用例；完整 API 回归为 69 个测试文件共 310 个用例，完整 Web 回归为 53 个测试文件共 301 个用例，并通过 shared-types、API、Web 类型检查、全工作区生产构建、三个分析路由响应、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 10.3 已完成：`CitationDashboard` 新增真实样本数、有引用样本数和引用率，趋势同步按日期返回真实样本、引用命中和引用次数；原 `contentCitationRate` 明确为内容资产绑定率。信源分析首屏收口为引用率、官网引用率和权威来源占比，再展示来源分布、引用趋势和真实证据。事实分析从评价接口中选择错误信息、准确性偏低和禁用表达三类事实风险，首屏展示事实风险、高风险事实、受影响用户意图和事实准确表达率，再展示事实趋势、风险分布、失真信息、证据和可执行修正建议；`EvaluationIssue.userIntent` 由监测运行关联的用户意图补充。共享分析骨架支持内容状态和部分数据提示，零样本进入开始监测路径，一至两条样本保留分析并进入补资料路径。信源行级内容与再次监测动作继续保留工作流上下文。定向回归为 API 2 个测试文件共 5 个用例、Web 3 个测试文件共 25 个用例；完整 API 回归为 69 个测试文件共 311 个用例，完整 Web 回归为 53 个测试文件共 305 个用例，并通过 shared-types、API、Web 类型检查、全工作区生产构建、两条分析路由响应、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 10.4 已完成：增长优化页同时读取 `GrowthOptimizationWorkspace` 与 `AnalysisDiagnosisDashboard`，新增统一 finding 结论卡，将竞品、评价、信源和事实四类诊断按类型、严重程度、用户意图、平台、证据摘要、推荐动作和关联任务入口展示。优化计划按优先问题、原因证据、推荐动作、关联内容和复测状态重排；关联内容展示推荐原因及真实发布状态，复测区展示计划时间和最新改善结果。确认计划、生成内容任务、更新标准答案依据、安排发布和再次监测入口继续通过现有路由协议保留业务上下文。新增 finding 组件静态渲染及筛选、动作路由、发布状态和复测状态测试；定向回归为 2 个测试文件共 13 个用例，完整 Web 回归为 54 个测试文件共 311 个用例，并通过全工作区类型检查、生产构建、四类诊断聚合数据验证、`/growth-optimization` 路由响应和预览连接检查。
+
+GEO 成熟产品体验重构可选任务 10.5 已完成：新增分析范围栏与五入口组合组件测试，直接验证固定平台集合、选中状态、平台切换回调、深链接筛选对象和工作流 query 保留；通过 React Query 预置数据静态渲染竞品、评价、事实、信源和增长优化页面，覆盖关键结论、趋势与分布、平台过滤后的证据明细、行动型空态、任务化入口和增长计划五段结构。共享分析工作台测试补充持续观察状态、缺省明细区域、任务组件替换默认建议和恢复状态替换正文。新增测试为 3 个文件共 12 个用例，分析诊断域定向回归为 8 个文件共 49 个用例，完整 Web 回归为 56 个测试文件共 322 个用例，并通过全工作区类型检查、生产构建和五个分析入口预览响应检查。
+
+GEO 成熟产品体验重构任务 11.1 已完成：报告中心迁移到 `ManagementListPage` 和 `UnifiedFilterBar`，统一展示报告类型、品牌、统计周期、生成状态、数据缺口和创建时间，并支持名称、类型、状态和创建日期组合筛选。最新报告或用户选择的报告通过现有单份详情接口进入列表下方独立阅读区，集中展示元信息、数据缺口、Markdown 正文和浏览器端 Markdown 导出动作；空列表提供生成首份品牌报告的行动型主操作。新增 `ReportCenterPage.test.tsx` 共 4 个用例，完整 Web 回归为 57 个测试文件共 326 个用例，并通过全工作区类型检查、生产构建、`/reports` 路由响应和预览连接检查。
+
+GEO 成熟产品体验重构任务 11.2 已完成：顾问工作台迁移到 `ManagementListPage` 和 `UnifiedFilterBar`，将诊断、服务计划、复盘、客户交付、服务、培训、规则更新、顾问备注及其跟进事项统一组织为服务任务行。列表支持标题、负责人、下一步、类型、状态和服务时间组合筛选，状态根据跟进事项推导；详情区域集中展示状态、负责人、服务或截止时间、下一步、关联报告、结构化服务正文和全部跟进事项。页面只保留新增服务记录一个主操作，空列表提供新增首条记录的行动型入口。新增 `AdvisorWorkspacePageView.test.tsx` 共 4 个组件用例，顾问域定向回归为 2 个测试文件共 7 个用例，完整 Web 回归为 58 个测试文件共 330 个用例，并通过全工作区类型检查、生产构建、`/advisor` 路由响应和预览连接检查。
+
+GEO 成熟产品体验重构任务 11.3 已完成：内测反馈页迁移到 `ManagementListPage` 和 `UnifiedFilterBar`，统一展示反馈问题、页面、类型、严重程度、状态、处理记录和更新时间，并支持搜索、类型、严重程度、页面、状态和日期组合筛选。反馈共享契约、内存仓储、Prisma 仓储和控制器新增持久化严重程度，旧创建请求默认使用 `medium`，数据库迁移为 `20260717023000_add_feedback_severity`。自动化运营员按任务包状态、步骤进度和确认队列迁移到共享页面分区及状态组件，覆盖加载、请求失败、部分上下文、空任务包、高风险确认、手动录入和失败恢复；步骤进度同时计入已完成和已跳过步骤。定向回归为 Web 4 个测试文件共 21 个用例和 API 1 个测试文件共 2 个用例，完整回归为 API 70 个测试文件共 313 个用例、Web 60 个测试文件共 337 个用例，并通过 Prisma schema 校验与 Client 生成、全工作区类型检查、生产构建、`/inner-test-feedback` 路由响应和预览连接检查。
+
+GEO 成熟产品体验重构可选任务 11.4 已完成：报告、顾问服务、内测反馈和自动化运营员四组组件测试补齐统一状态模型。报告测试覆盖列表与详情、首份报告空态、筛选、加载骨架、列表失败恢复及详情刷新部分失败时保留旧正文；顾问测试覆盖任务与记录、空态、映射筛选、关联报告缺失、加载和失败恢复；反馈测试覆盖严重程度、组合筛选、空态、加载和失败恢复；自动化测试覆盖任务包、步骤进度、确认队列、手动录入、失败恢复、上下文部分缺失、加载和请求失败。三个管理页同时补齐网络异常状态识别与 `PageSkeleton`。支持工具定向回归为 4 个测试文件共 19 个用例，完整回归为 API 70 个测试文件共 313 个用例、Web 60 个测试文件共 341 个用例，并通过全工作区类型检查、生产构建、四个支持工具入口响应和预览连接检查。
+
+GEO 成熟产品体验重构任务 12.1 已完成：`ProductPage` 在 991px 及以下将页头和操作区纵向排列，`CreationWorkspace` 在 1199px 及以下收口为单列，品牌资产库在 991px 及以下将五类导航转换为带当前分类提示的可展开选择；移动管理列表通过粘性首列和末列保留关键字段及操作，内容区表格统一限制父容器宽度，增长优化的诊断、内容建议和复测宽表显式启用横向滚动。开始页七项高级统计使用 390px 两列、768px 三列、1024px 四列和宽屏最多六列的响应式网格。定向测试为 2 个文件共 13 个用例，完整回归为 API 70 个测试文件共 313 个用例、Web 60 个测试文件共 341 个用例，并通过全工作区类型检查、生产构建、8 个代表路由响应、预览连接检查和 `git diff --check`。
+
+GEO 成熟产品体验重构任务 12.2 已完成：应用壳新增跳到主内容入口，并在路由跳转后聚焦主内容；移动抽屉按取消关闭和菜单跳转区分回焦目标。全站更多菜单迁移到 `AccessibleDropdown`，统一提供上下文可访问名称、菜单语义和动态展开状态；内容模板卡提供 `aria-pressed`，关系画布对象支持键盘选择，React Flow 节点与边提供业务文字名称并输出同源完整关系清单。模型设置与关系画布的帮助提示改为可聚焦按钮，关系画布、用户意图模板和优化单元抽屉在关闭后恢复触发元素焦点。可访问性定向回归为 3 个测试文件共 15 个用例，完整回归为 API 70 个测试文件共 313 个用例、Web 61 个测试文件共 345 个用例；零漏洞审计、全工作区类型检查与生产构建、Prisma schema 校验与 Client 生成、`git diff --check` 均通过。
+
+GEO 成熟产品体验重构任务 12.3 已完成：API 传输与响应解析异常统一转换为失败响应，页面通过 `getQueryGroupWorkspaceState` 汇总多查询加载、完整、空、部分和失败状态。品牌工作区、AI 回复监测、分析诊断、增长优化、内容生成、内容资产、发布准备和再次监测均在部分失败时保留成功区域与当前输入，在全部失败时隐藏零指标、空结论和误导性业务空态，并提供集中重试动作；发布中心和监测记录移除同请求重复错误提示。共享模板回归新增部分失败保留成功数据及全部失败隐藏误导数据场景。完整 `npm run verify` 通过零漏洞审计、API 70 个测试文件共 313 个用例、Web 62 个测试文件共 351 个用例、全工作区类型检查与生产构建、Prisma schema 校验和 Client 生成；`git diff --check`、5173 开发服务日志和云端预览连接检查均通过。
+
+GEO 成熟产品体验重构任务 12.4 已完成：24 个第一版页面继续通过 `React.lazy` 注册，导航目标、品牌化别名和路由集合保持双向一致。内容生成、竞品、信源、评价和事实分析页面的内部跨页动作统一使用 React Router，保留 Zustand 品牌上下文及现有 query/hash；监测记录进入分析诊断时合并完整工作流上下文并使用记录级 `runId`、`promptId`。`routes.test.ts` 新增业务页面 SPA 导航架构约束，`viteConfig.test.ts` 校验唯一 TypeScript 配置中的 `.monkeycode-ai.online` allowedHosts 与 `/api` 代理。完整 `npm run verify` 通过零漏洞审计、API 70 个测试文件共 313 个用例、Web 62 个测试文件共 354 个用例、全工作区类型检查与生产构建、Prisma schema 校验和 Client 生成；8 个代表深链、云端预览连接和 `git diff --check` 均通过。
+
+GEO 成熟产品体验重构可选任务 12.5 已完成：新增正确性属性 P5 响应式主任务一致性测试，覆盖 `ProductPage`、`CreationWorkspace`、`AssetLibrary` 和 `ManagementListPage` 四类共享模板，以及 ready、loading、empty、partial、error 五类状态。20 组场景分别按 1440px 桌面与 390px 移动布局渲染，共验证 40 次响应式输出的主操作可见标签、目标路由和可访问名称一致，并检查创建工作台与资产库在两种布局下的顺序类。完整 `npm run verify` 通过零漏洞审计、API 70 个测试文件共 313 个用例、Web 63 个测试文件共 355 个用例、全工作区类型检查与生产构建、Prisma schema 校验和 Client 生成，`git diff --check` 通过。
+
+GEO 成熟产品体验重构可选任务 12.6 已完成：新增全页面路由与视觉状态回归测试，固定覆盖 24 条导航路由、30 条品牌化别名、代表性工作流 query/hash 和 15 个 lazy 页面模块，并检查全部页面模块使用共享页面模板。四类共享模板覆盖 loading、empty、partial、ready、error 五类状态；1440px 桌面、1024px 平板和 390px 移动视口共执行 60 次结构渲染，验证应用壳模式、页面边距、响应式顺序类和主任务持续可用。完整 `npm run verify` 通过零漏洞审计、API 70 个测试文件共 313 个用例、Web 64 个测试文件共 359 个用例、全工作区类型检查与生产构建、Prisma schema 校验和 Client 生成，`git diff --check` 通过。
+
+GEO 成熟产品体验重构任务 13 测试检查点已完成：独立运行全部 workspace 测试，API 70 个测试文件共 313 个用例、Web 64 个测试文件共 359 个用例全部通过。该检查点确认任务组 12 的响应式、可访问性、页面状态、路由连续性、属性测试和全页面回归覆盖可以共同运行。
+
+GEO 成熟产品体验重构任务 14.1 最终代码质量门禁已完成：`npm audit` 返回 0 个漏洞，API、Web 和共享类型 workspace 类型检查通过，API 70 个测试文件共 313 个用例与 Web 64 个测试文件共 359 个用例通过，全部 workspace 生产构建通过，Prisma schema 校验和 Prisma Client `6.19.3` 生成通过，`git diff --check` 通过。`2026-07-14-geo-mature-product-ux-refresh` 规格中的必做任务与可选回归任务均已完成。
+
+GEO 产品体验精修可选任务 1.5 已完成：导航测试覆盖五个业务任务域、24 条唯一页面入口、关键二级入口、八阶段工作流、相邻阶段上下文和品牌化路由别名；显示标签测试覆盖豆包、Kimi、DeepSeek、通义千问、阶跃星辰等平台名称、GEO 专业词解释、内部与未知平台 fallback、公开状态业务标签和未知状态 fallback。未知状态枚举统一显示为“未知状态”，避免公开页面暴露内部 code。定向回归为 2 个测试文件共 13 个用例，完整 Web 回归为 64 个测试文件共 360 个用例，并通过 Web workspace typecheck 和 `git diff --check`。
+
+GEO 产品体验精修任务 8.6 已完成：公开页面标题和说明收敛为单一业务主题，操作按钮统一使用“动作 + 对象”；共享显示层补齐品牌角色、负责人、内容类型和未知值的业务标签，API 客户端统一过滤 provider、HTTP 状态、数据库和异常堆栈等技术错误详情。监测竞品评价输入支持“竞品名称｜排名｜正向/中性/负向”，运营人员可直接使用中文评价。完整仓库验证通过零漏洞依赖审计、全工作区类型检查与生产构建、API 79 个测试文件共 345 个用例、Web 66 个测试文件共 380 个用例、Prisma schema 校验和 Client 生成；`git diff --check` 通过。
+
+GEO 产品体验精修可选任务 2.5 已完成：品牌资料库 Web helper 测试覆盖完整度、缺失项、分组进度、API 完整度提示字段和四类资料来源状态；新增 controller 集成测试通过真实 memory repository 与 permissions service 验证 `profile-library` 聚合读取、更新、缺失字段、分区完整度、品牌隔离和无权限访问。Web helper 通过 `completenessPrompts.field` 兼容 API 返回的业务化 `missingFields` 标签。完整回归为 API 71 个测试文件共 314 个用例、Web 64 个测试文件共 361 个用例，并通过 API/Web workspace typecheck。
+
+GEO 产品体验精修可选任务 2.6 已完成：新增 `BrandProfileCompleteness.property.test.ts`，以 10 个资料字段的 1,024 种确定性填充组合覆盖五个资料分组。正确性属性 P1 验证所有分组完整度均为 0–100 的整数；P2 验证每个缺失标签都映射到可编辑分组或媒体素材补充入口，并验证 API 完整度提示提供稳定字段 key、影响说明和补充提示。完整 Web 回归为 65 个测试文件共 364 个用例，并通过 Web workspace typecheck 和 `git diff --check`。任务组 2 已全部完成。
+
+GEO 产品体验精修可选任务 3.4 已完成：`MonitoringObjectManagement.test.tsx` 扩展为 7 个用例，覆盖监测对象行动型空态、新手解释、类型与优先级筛选、行操作边界、用户意图组合筛选、无监测问题时的生成引导、平台推荐度、平均排名、引用率、最近监测时间，以及监测问题中的业务平台名称。现有监测问题行渲染 helper 作为纯展示边界导出，便于静态渲染验证。完整 Web 回归为 65 个测试文件共 367 个用例，并通过 Web workspace typecheck 和 `git diff --check`。任务组 3 已全部完成。
+
+GEO 产品体验精修可选任务 4.4 已完成：Web 与 API 的真实指标边界测试分别显式标记正确性属性 P3/P4，继续穷举 API、浏览器辅助、手动录入、`mock_ai`、空白回复、标准答案和内容草稿组合，并以真实回复基线验证边界外对象不会改变监测摘要、首页摘要或平台拆分；待补充队列 helper 同时断言自动监测重试、浏览器辅助监测和手动录入路径。完整回归为 API 71 个测试文件共 315 个用例、Web 65 个测试文件共 368 个用例，并通过 API/Web workspace typecheck。任务组 4 已全部完成。
+
+GEO 产品体验精修可选任务 5.6 已完成：内容运营组件测试遍历全部 12 类模板，验证适用平台、推荐字数、素材、引用、复测规则和表单预设，并继续覆盖左右分栏空态、生成失败恢复、草稿导出、复制、保存、发布准备及事实补强、FAQ 补充和渠道适配提示。新增内容资产上下文正确性属性 P5，以 64 种组合验证来源资料、优化单元或用户意图至少存在一类有效上下文，修复目标关键词绕过保存准入的问题。完整回归为 API 72 个测试文件共 316 个用例、Web 65 个测试文件共 369 个用例，并通过 API/Web workspace typecheck。任务组 5 已全部完成。
+
+GEO 产品体验精修可选任务 6.6 已完成：发布运营测试覆盖自有媒体、媒体平台和发布准备三种页面模式，平台规则展示，草稿、待发布、已发布、失败和空渠道统计，无账号行动型空态，发布准备的可用账号、标题、正文和目标平台提示，真实发布链接及再次监测入口。发布准备字段组件只提供已授权账号选项，并在无可用账号时引导前往自有媒体接入或恢复授权。定向回归为 2 个测试文件共 28 个用例，完整 Web 回归为 65 个测试文件共 371 个用例，并通过 Web workspace typecheck 和 `git diff --check`。任务组 6 已全部完成。
+
+GEO 产品体验精修可选任务 7.4 已完成：分析域测试覆盖竞品、评价、事实和信源页面的顶部诊断卡、平台筛选、趋势与分布、证据明细和建议动作，并补充未识别来源、事实依据缺失、负向评价及竞品压制四类边界场景。信源页面为空标题和地址提供业务 fallback，事实页面为空问题文本和修正表达提供补充依据与人工确认引导。定向回归为 3 个测试文件共 13 个用例，完整 Web 回归为 65 个测试文件共 372 个用例，并通过 Web workspace typecheck。任务组 7 已全部完成。
+
+GEO 产品体验精修可选任务 8.5 已完成：共享模板、报告中心、自动化运营卡片和显示标签测试共同覆盖平台业务名称、行动型空态、业务状态及内部字段隐藏。业务空态补齐可选完成收益，报告列表与详情使用“当前品牌”替代内部品牌标识，自动化上下文缺失时显示业务提示；可见文本回归确保品牌、报告和任务包内部标识不面向运营用户展示。定向回归为 4 个测试文件共 30 个用例，完整 Web 回归为 65 个测试文件共 373 个用例，并通过 Web workspace typecheck。任务组 8 已全部完成。
+
+GEO 产品体验精修可选任务 10.7 已完成：新增后端 P6/P7 属性测试。P6 使用 6 组确定性输入覆盖品牌素材、内容资产、媒体账号、平台规则和分析 finding 的 `brandId` 归属、无权限读取及跨品牌更新拒绝；P7 通过平台控制器覆盖 15 类敏感字段命名变体及多层嵌套，验证公开响应保留脱敏状态并移除运行时凭据。Prisma 仓储测试新增与 memory 的品牌素材、分析 finding 映射一致性对照，内存 finding 证据同步改为去空和去重。定向回归为 5 个测试文件共 35 个用例，完整 API 回归为 73 个测试文件共 320 个用例，并通过 API workspace typecheck。任务组 10 已全部完成。
+
+GEO 产品体验精修可选任务 11.4 已完成：新增 `FirstRoundWorkflowRoutes.test.ts`，通过真实页面 helper 串联新手首页、品牌资料、优化单元、用户意图、AI 回复监测、分析诊断、内容生成、发布准备、复测任务和同题监测，并覆盖分析异常进入内容任务、事实修正和复测入口。优化单元与用户意图列表新增集中 CTA 路由 helper，用户意图进入内容生成时保留 Prompt；监测进入分析时通过通用工作流路径保留任务和平台上下文。P4 属性测试补充问题文本及中文、空格、URL 特殊字符往返覆盖。定向回归为 4 个测试文件共 17 个用例，完整 Web 回归为 66 个测试文件共 376 个用例，并通过 Web workspace typecheck。
+
+内测可用性优化 P2 文档解析任务已完成：API 新增 `DocumentTextExtractorService`，接入 Mammoth 1.12.0 和 pdf-parse 2.4.5，支持 Markdown、DOCX 和文本型 PDF 正文进入品牌字段确认草稿。上传边界新增扩展名、MIME、文件签名、UTF-8、PDF 页数和正文长度校验，文件使用随机 UUID 落入受控目录，解析失败原因持久化到知识来源；旧 DOC、扫描件、加密和损坏文档均返回业务化提示。真实 DOCX/PDF Buffer、格式伪装和导入集成定向测试为 API 2 个文件共 10 个用例，完整 API 回归为 74 个测试文件共 324 个用例，完整 Web 回归为 66 个测试文件共 376 个用例，并通过 API 与 Web workspace typecheck。运行时 Node 范围同步收紧为 `>=20.16 <21 || >=22.3`。
+
+内测可用性优化 P2 浏览器辅助监测任务已完成：监测计划执行会为浏览器步骤预创建 `review_required` 运行并返回 `runId`；前端提供复制问题、打开官方平台、确认用户登录、粘贴真实回答和完成分析的会话绑定流程。共享契约改为事件输入，`browser-session-state.ts` 在服务端推导登录、异常、回答采集和停止状态；回答回填接口联合校验品牌、会话、授权计划、平台和运行归属，memory 与 Prisma 仓储保持一致。新增状态迁移和回答授权测试，完整 API 回归为 76 个测试文件共 332 个用例，完整 Web 回归为 66 个测试文件共 376 个用例，并通过全工作区类型检查、生产构建和 `git diff --check`。
+
+内测可用性优化 P2 发布直连任务已完成：共享契约新增人工、半自动、自动三种发布模式和排队、发布中执行状态；Memory 与 Prisma 仓储保存发布模式快照、外部平台内容 ID、最近尝试和真实发布时间，迁移为 `20260718090000_add_direct_publishing_execution`。后端新增模式切换和显式执行 API，`PublishingExecutionService` 统一完成授权、品牌、账号、平台、内容和幂等校验，默认 Webhook Adapter 通过服务端 `GEO_PUBLISHING_WEBHOOKS` 配置接入真实平台。发布中心支持账号模式切换、半自动立即发布、自动创建后执行和执行状态展示。两轮上线准备审查收紧真实性和写入边界：缺少真实 URL 的 `published` 记录仍需调用 Adapter，授权或其他前置条件失败会写回可见的失败记录；公共创建仅接受草稿或待发布状态，公共状态更新无法写入排队、发布中或内部审计字段，人工发布成功要求有效 HTTP(S) 链接并由仓储补写真实发布时间。完整回归为 API 79 个测试文件共 345 个用例、Web 66 个测试文件共 376 个用例，并通过全工作区类型检查、生产构建、Prisma schema 校验和 `git diff --check`。
+
+第一阶段上线门禁已完成追光小牛内测路径验证：自动生成监测主题后可生成 8 个监测问题，问题包含目的、目标平台、优先级和预计价值；监测问题可保存为计划并进入浏览器确认监测流程；公开平台配置响应仅包含 `hasCredential` 和脱敏状态，不暴露 `credentialRef`；LLM 异步任务响应只返回任务状态和 `jobId`；品牌总览、AI 回复监测、优化计划、写内容、任务跟进和报告导出页面入口可用；未接真实大模型 API 时，问题生成、优化计划和内容生成仍可走 fallback 或浏览器确认流程。
+
+GEO 产品体验精修任务 8.7 已完成：依据参考产品将一级导航统一为工作台、品牌信息、内容中心、发布中心和数据分析，并同步数据总览、营销画布、竞品信息、AI 平台管理、优化建议及发布记录的导航入口与页面标题。优化单元在列表、筛选、空态、起步流程和后端推荐动作中使用统一公开名称；24 个第一版路由、品牌化别名和八阶段工作流上下文保持稳定。完整 `npm run verify` 通过零漏洞审计、API 79 个测试文件共 345 个用例、Web 66 个测试文件共 381 个用例、全工作区类型检查与生产构建、Prisma schema 校验和 Client 生成。
+
+后续建议基于真实试点反馈、行业规则变化或生产试运行问题建立下一轮规格文档。

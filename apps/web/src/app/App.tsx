@@ -1,7 +1,7 @@
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { AppLayout } from '../layouts/AppLayout';
 import { firstVersionRoutes } from './routes';
 import { WorkspaceRouteRedirect } from './WorkspaceRouteRedirect';

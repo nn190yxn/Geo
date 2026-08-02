@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
-import type { ApiResponse, BrowserConnectionSession, BrowserConnectionStartInput, BrowserConnectionStatusInput, PlatformConfig, PlatformConfigInput, PlatformValidationResult } from '@geo-platform/shared-types';
+import type { ApiResponse, BrowserConnectionSession, BrowserConnectionStartInput, BrowserConnectionStatusInput, BrowserResponseCaptureInput, BrowserResponseCaptureResult, PlatformConfig, PlatformConfigInput, PlatformValidationResult } from '@geo-platform/shared-types';
+import { sanitizePublicResponse } from '../../common/public-response';
 import { PermissionsService } from '../permissions/permissions.service';
 import { platformModes } from '../permissions/permissions.repository';
 import { AIPlatformAdapterRegistry, AIPlatformAdapterSelectionError } from './adapters/ai-platform-adapter.registry';
@@ -24,7 +25,7 @@ export class PlatformsController {
 
     return {
       success: true,
-      data: configs
+      data: sanitizePublicResponse(configs)
     };
   }
 
@@ -39,7 +40,7 @@ export class PlatformsController {
 
     return {
       success: true,
-      data: sessions
+      data: sanitizePublicResponse(sessions)
     };
   }
 
@@ -57,7 +58,7 @@ export class PlatformsController {
 
     return {
       success: true,
-      data: session
+      data: sanitizePublicResponse(session)
     };
   }
 
@@ -76,7 +77,31 @@ export class PlatformsController {
 
     return {
       success: true,
-      data: session
+      data: sanitizePublicResponse(session)
+    };
+  }
+
+  @Post('browser-sessions/:sessionId/responses')
+  async captureBrowserResponse(
+    @Req() request: Request,
+    @Param('sessionId') sessionId: string,
+    @Body() body: BrowserResponseCaptureInput
+  ): Promise<ApiResponse<BrowserResponseCaptureResult>> {
+    const brandId = requireBrandId(request);
+    const result = await this.permissionsService.captureBrowserResponse(
+      request.context.userId,
+      brandId,
+      sessionId,
+      normalizeBrowserResponseCaptureInput(body)
+    );
+
+    if (!result) {
+      throw new NotFoundException('浏览器连接会话不存在或当前用户无权访问');
+    }
+
+    return {
+      success: true,
+      data: sanitizePublicResponse(result)
     };
   }
 
@@ -91,7 +116,7 @@ export class PlatformsController {
 
     return {
       success: true,
-      data: config
+      data: sanitizePublicResponse(config)
     };
   }
 
@@ -115,7 +140,7 @@ export class PlatformsController {
 
     return {
       success: true,
-      data: config
+      data: sanitizePublicResponse(config)
     };
   }
 
@@ -137,7 +162,7 @@ export class PlatformsController {
 
     return {
       success: true,
-      data: result
+      data: sanitizePublicResponse(result)
     };
   }
 
@@ -241,16 +266,34 @@ function normalizeBrowserConnectionStartInput(input: BrowserConnectionStartInput
 }
 
 function normalizeBrowserConnectionStatusInput(input: BrowserConnectionStatusInput): BrowserConnectionStatusInput {
-  if (!input.status) {
-    throw new BadRequestException('浏览器连接状态不能为空');
+  if (!input || !['login_confirmed', 'issue_reported', 'answer_captured', 'session_stopped'].includes(input.event)) {
+    throw new BadRequestException('浏览器连接事件不受支持');
   }
 
   return {
-    status: input.status,
-    loginDetected: input.loginDetected,
-    lastOperation: input.lastOperation?.trim(),
+    event: input.event,
     lastIssueType: input.lastIssueType,
-    lastMessage: input.lastMessage?.trim(),
-    lastAvailableAt: input.lastAvailableAt?.trim()
+    lastMessage: input.lastMessage?.trim()
+  };
+}
+
+function normalizeBrowserResponseCaptureInput(input: BrowserResponseCaptureInput): BrowserResponseCaptureInput {
+  if (!input) {
+    throw new BadRequestException('真实回答请求不能为空');
+  }
+  const runId = input.runId?.trim();
+  const rawText = input.rawText?.trim();
+  if (!runId) {
+    throw new BadRequestException('监测运行不能为空');
+  }
+  if (!rawText) {
+    throw new BadRequestException('真实回答不能为空');
+  }
+
+  return {
+    runId,
+    rawText,
+    modelName: input.modelName?.trim(),
+    citations: input.citations?.map((citation) => citation.trim()).filter(Boolean)
   };
 }

@@ -49,17 +49,17 @@ Updated: 2026-07-14
 
 ## Likely Code Entry Points
 
-- 导航：`apps/web/src/layouts/navigation.ts`
-- 品牌工作台：`apps/web/src/features/brand-workspace/pages/BrandWorkspacePage.tsx`
-- 品牌知识：`apps/web/src/features/brand-workspace/components/BrandKnowledgeCard.tsx`
-- 优化单元：`apps/web/src/features/brand-workspace/components/OptimizationUnitsCard.tsx`
-- GEO 画布：`apps/web/src/features/canvas/pages/GeoCanvasPage.tsx`
-- AI 回复监测：`apps/web/src/features/monitoring/pages/MonitoringPage.tsx`
-- 内容生成：`apps/web/src/features/content-generation/pages/ContentGenerationPage.tsx`
-- 优化计划：`apps/web/src/features/growth-optimization/pages/GrowthOptimizationPage.tsx`
-- 任务复测：`apps/web/src/features/tasks/pages/TaskRetestPage.tsx`
-- 模型设置：`apps/web/src/features/model-settings/pages/ModelSettingsPage.tsx`
-- 平台显示名：`apps/web/src/utils/displayLabels.ts`
+- 导航：`/workspace/geo-platform/apps/web/src/layouts/navigation.ts`
+- 品牌工作台：`/workspace/geo-platform/apps/web/src/features/brand-workspace/pages/BrandWorkspacePage.tsx`
+- 品牌知识：`/workspace/geo-platform/apps/web/src/features/brand-workspace/components/BrandKnowledgeCard.tsx`
+- 优化单元：`/workspace/geo-platform/apps/web/src/features/brand-workspace/components/OptimizationUnitsCard.tsx`
+- GEO 画布：`/workspace/geo-platform/apps/web/src/features/canvas/pages/GeoCanvasPage.tsx`
+- AI 回复监测：`/workspace/geo-platform/apps/web/src/features/monitoring/pages/MonitoringPage.tsx`
+- 内容生成：`/workspace/geo-platform/apps/web/src/features/content-generation/pages/ContentGenerationPage.tsx`
+- 优化计划：`/workspace/geo-platform/apps/web/src/features/growth-optimization/pages/GrowthOptimizationPage.tsx`
+- 任务复测：`/workspace/geo-platform/apps/web/src/features/tasks/pages/TaskRetestPage.tsx`
+- 模型设置：`/workspace/geo-platform/apps/web/src/features/model-settings/pages/ModelSettingsPage.tsx`
+- 平台显示名：`/workspace/geo-platform/apps/web/src/utils/displayLabels.ts`
 
 ## Product Boundaries To Preserve
 

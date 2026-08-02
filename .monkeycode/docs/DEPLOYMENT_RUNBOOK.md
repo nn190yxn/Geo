@@ -2,7 +2,7 @@
 
 ## 适用范围
 
-本文档用于多品牌 GEO 管理平台生产试运行部署。当前工程位于 ``，采用 npm workspaces 组织 API、Web 和共享类型。
+本文档用于多品牌 GEO 管理平台生产试运行部署。当前工程位于 `当前工作区/`，采用 npm workspaces 组织 API、Web 和共享类型。
 
 ## 环境变量
 
@@ -49,7 +49,7 @@ npm run db:prepare
 npm run prisma:seed
 ```
 
-生产试运行使用 `apps/api/prisma/migrations/` 下的受控迁移文件，执行前先确认 `DATABASE_URL` 指向目标数据库。
+生产试运行使用 `当前工作区/apps/api/prisma/migrations/` 下的受控迁移文件，执行前先确认 `DATABASE_URL` 指向目标数据库。
 
 ## 启动
 
@@ -58,7 +58,7 @@ npm run prisma:seed
 npm run dev
 ```
 
-生产启动方式由部署平台负责进程管理。API 服务入口位于 `apps/api/dist/main.js`，Web 构建产物位于 `apps/web/dist/`。
+生产启动方式由部署平台负责进程管理。API 服务入口位于 `当前工作区/apps/api/dist/main.js`，Web 构建产物位于 `当前工作区/apps/web/dist/`。
 
 ## 健康检查
 
@@ -93,6 +93,6 @@ node -e 'fetch("http://localhost:3001/api/v1/health").then(async r => { console.
 - `dependencies.aiPlatforms` 为 `not_configured`: 优先配置 `STEPFUN_API_KEY`；使用其它平台作为默认模型时，将平台配置补齐后设置 `GEO_AI_PLATFORM_CONFIGURED=true`。
 - `dependencies.mapProvider` 为 `fallback`: 检查 `GEO_AMAP_API_KEY` 是否已配置，并重新触发竞品地图发现验证。
 - `repositoryDriver` 为 `memory`: 检查 `GEO_REPOSITORY_DRIVER` 是否设置为 `prisma`。
-- Prisma schema 校验失败: 先修正 `apps/api/prisma/schema.prisma`，再运行 `npm run prisma:validate`。
+- Prisma schema 校验失败: 先修正 `当前工作区/apps/api/prisma/schema.prisma`，再运行 `npm run prisma:validate`。
 - API 返回权限错误: 检查用户状态、组织成员状态、品牌授权角色和 `GET /api/v1/permissions/audit-logs` 审计记录。
 - 前端无法访问 API: 检查 Vite `/api` 代理和 API `/api/v1/health` 响应。

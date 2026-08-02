@@ -9,13 +9,23 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest();
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-    const message = exception instanceof Error ? exception.message : 'Internal server error';
+    const exceptionResponse = exception instanceof HttpException ? exception.getResponse() : null;
+    const responseBody = typeof exceptionResponse === 'object' && exceptionResponse !== null ? exceptionResponse : null;
+    const responseMessage = responseBody && 'message' in responseBody ? responseBody.message : exceptionResponse;
+    const message = Array.isArray(responseMessage)
+      ? responseMessage.join('; ')
+      : typeof responseMessage === 'string'
+        ? responseMessage
+        : exception instanceof Error
+          ? exception.message
+          : 'Internal server error';
+    const responseCode = responseBody && 'code' in responseBody && typeof responseBody.code === 'string' ? responseBody.code : null;
 
     const body: ApiResponse<null> = {
       success: false,
       data: null,
       error: {
-        code: status === HttpStatus.INTERNAL_SERVER_ERROR ? 'INTERNAL_ERROR' : 'REQUEST_ERROR',
+        code: responseCode ?? (status === HttpStatus.INTERNAL_SERVER_ERROR ? 'INTERNAL_ERROR' : 'REQUEST_ERROR'),
         message,
         requestId: request.context?.requestId ?? null
       }

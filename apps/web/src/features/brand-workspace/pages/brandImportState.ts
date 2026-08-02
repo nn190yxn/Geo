@@ -1,6 +1,6 @@
 import type { BrandImportDraft, BrandImportFieldConfidence, BrandImportFieldKey } from '@geo-platform/shared-types';
 
-export const supportedBrandImportFormats = ['Markdown', 'Word', 'PDF'];
+export const supportedBrandImportFormats = ['Markdown', 'DOCX', '文本型 PDF'];
 
 export type BrandImportDraftState = {
   label: string;
@@ -77,7 +77,7 @@ export function getMissingFieldImpact(field: BrandImportFieldKey): string {
 
 const missingFieldImpacts: Partial<Record<BrandImportFieldKey, string>> = {
   name: '缺少品牌名称会影响系统判断 AI 回答是否提到品牌。',
-  industry: '缺少行业会影响监测主题和行业模板推荐。',
+  industry: '缺少行业会影响优化单元和行业模板推荐。',
   targetCities: '缺少目标城市会影响本地推荐类监测问题。',
   businessScope: '缺少业务范围会影响系统生成课程或产品相关问法。',
   targetAudience: '缺少目标用户会影响年龄段、人群和购买决策问题。',

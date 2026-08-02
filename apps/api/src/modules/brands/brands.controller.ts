@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, NotFoundException, Param, P
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { extname, join } from 'node:path';
 import type {
   AccessibleBrand,
@@ -9,15 +10,21 @@ import type {
   BrandDetail,
   BrandMutationInput,
   BrandProfile,
+  BrandProfileLibrary,
+  BrandProfileLibraryInput,
+  BrandProfileLibrarySection,
   BrandProfileInput,
   BrandPrompt,
   BrandPromptInput,
   BrandImportDraft,
+  BrandMediaAsset,
   BrandImportConfirmInput,
   BrandImportConfirmationResult,
   BrandStatus,
   BrandWorkspaceSnapshot,
   BrandWorkspaceSummary,
+  Competitor,
+  ContentAsset,
   GrowthOptimizationPlan,
   GrowthOptimizationPlanConfirmInput,
   GrowthOptimizationPlanConfirmationResult,
@@ -55,6 +62,7 @@ import type {
   TestThemeType,
   PromptTemplate,
   PromptTemplateInput,
+  PublishingAccount,
   UserIntent,
   UserIntentCategory,
   UserIntentInput
@@ -75,11 +83,10 @@ type UploadedBrandFile = {
 
 const brandImportUploadDir = join(process.cwd(), 'uploads', 'brand-imports');
 const brandImportMaxFileSize = 8 * 1024 * 1024;
-const supportedBrandImportExtensions = ['.md', '.markdown', '.doc', '.docx', '.pdf'];
+const supportedBrandImportExtensions = ['.md', '.markdown', '.docx', '.pdf'];
 const supportedBrandImportMimeTypes = [
   'text/markdown',
   'text/plain',
-  'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/pdf',
   'application/octet-stream'
@@ -227,6 +234,46 @@ export class BrandsController {
     };
   }
 
+  @Get(':brandId/profile-library')
+  async getBrandProfileLibrary(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<BrandProfileLibrary>> {
+    const library = await this.buildBrandProfileLibrary(request.context.userId, brandId);
+
+    if (!library) {
+      throw new NotFoundException('品牌资料库不存在或当前用户无权访问');
+    }
+
+    return {
+      success: true,
+      data: library
+    };
+  }
+
+  @Patch(':brandId/profile-library')
+  async saveBrandProfileLibrary(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Body() body: BrandProfileLibraryInput
+  ): Promise<ApiResponse<BrandProfileLibrary>> {
+    if (body.profile) {
+      const profile = await this.permissionsService.saveBrandProfile(request.context.userId, brandId, normalizeProfileInput(body.profile));
+
+      if (!profile) {
+        throw new NotFoundException('品牌资料库不存在或当前用户无权访问');
+      }
+    }
+
+    const library = await this.buildBrandProfileLibrary(request.context.userId, brandId);
+
+    if (!library) {
+      throw new NotFoundException('品牌资料库不存在或当前用户无权访问');
+    }
+
+    return {
+      success: true,
+      data: library
+    };
+  }
+
   @Get(':brandId/knowledge-sources')
   async listKnowledgeSources(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<KnowledgeSource[]>> {
     const sources = await this.permissionsService.listKnowledgeSources(request.context.userId, brandId);
@@ -265,7 +312,7 @@ export class BrandsController {
       limits: { fileSize: brandImportMaxFileSize },
       fileFilter: (_request: unknown, file: UploadedBrandFile, callback: (error: Error | null, acceptFile: boolean) => void) => {
         if (!isSupportedBrandImportFile(file.originalname, file.mimetype)) {
-          callback(new BadRequestException('第一版仅支持 Markdown、Word 和 PDF 品牌资料'), false);
+          callback(new BadRequestException('仅支持 Markdown、DOCX 和文本型 PDF 品牌资料'), false);
           return;
         }
 
@@ -279,9 +326,14 @@ export class BrandsController {
     @UploadedFile() file?: UploadedBrandFile
   ): Promise<ApiResponse<KnowledgeSource>> {
     if (!file) {
-      throw new BadRequestException('请上传 Markdown、Word 或 PDF 品牌资料');
+      throw new BadRequestException('请上传 Markdown、DOCX 或文本型 PDF 品牌资料');
     }
 
+    const sources = await this.permissionsService.listKnowledgeSources(request.context.userId, brandId);
+    if (!sources) {
+      throw new NotFoundException('品牌知识库不存在或当前用户无权访问');
+    }
+    this.brandImportService.validateUpload(file.originalname, file.mimetype, file.buffer);
     const fileRef = persistBrandImportFile(brandId, file);
     const source = await this.permissionsService.createKnowledgeSource(request.context.userId, brandId, {
       name: file.originalname.trim(),
@@ -317,9 +369,16 @@ export class BrandsController {
       throw new NotFoundException('品牌资料不存在或当前用户无权访问');
     }
 
+    const draft = await this.brandImportService.parseKnowledgeSource(brandId, source);
+    if (draft.status === 'failed') {
+      await this.permissionsService.updateKnowledgeSourceStatus(request.context.userId, brandId, sourceId, 'failed', draft.errorMessage);
+    } else if (source.status === 'failed') {
+      await this.permissionsService.updateKnowledgeSourceStatus(request.context.userId, brandId, sourceId, 'processing');
+    }
+
     return {
       success: true,
-      data: this.brandImportService.parseKnowledgeSource(brandId, source)
+      data: draft
     };
   }
 
@@ -663,6 +722,35 @@ export class BrandsController {
     return {
       success: true,
       data: plan
+    };
+  }
+
+  private async buildBrandProfileLibrary(userId: string, brandId: string): Promise<BrandProfileLibrary | null> {
+    const [profile, knowledgeSources, contentAssets, publishingDashboard, competitors] = await Promise.all([
+      Promise.resolve(this.permissionsService.getBrandProfile(userId, brandId)),
+      Promise.resolve(this.permissionsService.listKnowledgeSources(userId, brandId)),
+      Promise.resolve(this.permissionsService.listContentAssets(userId, brandId)),
+      Promise.resolve(this.permissionsService.getPublishingDashboard(userId, brandId)),
+      Promise.resolve(this.permissionsService.listCompetitors(userId, brandId))
+    ]);
+
+    if (!profile || !knowledgeSources || !contentAssets || !publishingDashboard || !competitors) {
+      return null;
+    }
+
+    const accounts = publishingDashboard.accounts;
+    const mediaAssets = buildBrandMediaAssets(brandId, knowledgeSources, contentAssets);
+
+    return {
+      brandId,
+      profile,
+      sections: buildProfileLibrarySections(profile, mediaAssets, accounts, competitors),
+      knowledgeSources,
+      mediaAssets,
+      contentAssets,
+      publishingAccounts: accounts,
+      competitors,
+      updatedAt: profile.updatedAt
     };
   }
 
@@ -1014,6 +1102,141 @@ function normalizePartialBrandInput(input: Partial<BrandMutationInput>): Partial
   };
 }
 
+function buildProfileLibrarySections(
+  profile: BrandProfile,
+  mediaAssets: BrandMediaAsset[],
+  publishingAccounts: PublishingAccount[],
+  competitors: Competitor[]
+): BrandProfileLibrarySection[] {
+  return [
+    createProfileFieldSection('basic-info', '基础信息', '说明品牌是谁、解决什么问题、凭什么被推荐。', profile, [
+      ['intro', '品牌介绍'],
+      ['valueProps', '核心卖点'],
+      ['proofPoints', '权威背书']
+    ]),
+    createProfileFieldSection('products', '产品服务', '沉淀课程、产品、服务范围、常见问题和适用场景。', profile, [
+      ['offerings', '产品服务'],
+      ['faqs', 'FAQ']
+    ]),
+    createProfileFieldSection('audiences', '目标用户', '记录目标人群、决策关注点、反对理由和常见搜索表达。', profile, [
+      ['targetCustomers', '目标用户']
+    ]),
+    createProfileFieldSection('brand-knowledge', '品牌知识', '维护标准表达、禁用表达和内容规则，用于标准答案与内容生成。', profile, [
+      ['recommendedExpressions', '推荐表达'],
+      ['blockedExpressions', '禁用表达'],
+      ['contentRules', '内容规则']
+    ]),
+    createExternalLibrarySection('media-assets', '图片素材', '沉淀门店、产品、案例、证书和可用于内容生成的图片线索。', mediaAssets.length, '图片素材'),
+    createExternalLibrarySection('owned-media', '自有媒体账号', '维护官网、公众号、小红书、知乎等品牌可控发布账号。', publishingAccounts.length, '自有媒体账号'),
+    createExternalLibrarySection('competitors', '竞品信息', '记录竞品名称、替代选择、对比口径和需要关注的差距。', competitors.length || profile.competitors.length, '竞品信息')
+  ];
+}
+
+function buildBrandMediaAssets(brandId: string, knowledgeSources: KnowledgeSource[], contentAssets: ContentAsset[]): BrandMediaAsset[] {
+  const sourceAssets = knowledgeSources.map((source): BrandMediaAsset => ({
+    id: `source:${source.id}`,
+    brandId,
+    title: source.name,
+    assetType: getMediaAssetTypeFromSource(source),
+    applicablePlatforms: ['内容生成', '发布准备'],
+    contentUsage: '品牌资料、图片素材或可信来源',
+    source: getKnowledgeSourceAssetSource(source),
+    reviewStatus: getMediaAssetReviewStatusFromSource(source),
+    sourceUrl: source.sourceUrl,
+    fileRef: source.fileRef,
+    createdAt: source.createdAt,
+    updatedAt: source.updatedAt
+  }));
+  const contentMediaAssets = contentAssets.map((asset): BrandMediaAsset => ({
+    id: `content:${asset.id}`,
+    brandId,
+    title: asset.title,
+    assetType: 'content_asset',
+    applicablePlatforms: [asset.platform].filter(Boolean),
+    contentUsage: asset.type || '内容资产',
+    source: asset.url || '内容资产库',
+    reviewStatus: asset.status === 'published' ? 'approved' : 'needs_review',
+    sourceUrl: asset.url,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt
+  }));
+
+  return [...sourceAssets, ...contentMediaAssets];
+}
+
+function getMediaAssetTypeFromSource(source: KnowledgeSource): BrandMediaAsset['assetType'] {
+  if (source.sourceType === 'webpage' || source.sourceType === 'wechat_article') {
+    return 'webpage';
+  }
+
+  if (source.sourceType === 'external_document') {
+    return 'document';
+  }
+
+  return 'image';
+}
+
+function getKnowledgeSourceAssetSource(source: KnowledgeSource): string {
+  return source.sourceUrl ?? source.fileRef ?? '资料来源';
+}
+
+function getMediaAssetReviewStatusFromSource(source: KnowledgeSource): BrandMediaAsset['reviewStatus'] {
+  if (source.status === 'completed') {
+    return 'approved';
+  }
+
+  if (source.status === 'failed') {
+    return 'rejected';
+  }
+
+  return 'pending';
+}
+
+function createProfileFieldSection(
+  key: BrandProfileLibrarySection['key'],
+  title: string,
+  description: string,
+  profile: BrandProfile,
+  fields: Array<[keyof Pick<BrandProfile, 'intro' | 'valueProps' | 'offerings' | 'proofPoints' | 'targetCustomers' | 'recommendedExpressions' | 'blockedExpressions' | 'contentRules' | 'competitors' | 'faqs'>, string]>
+): BrandProfileLibrarySection {
+  const missingItems = fields.filter(([field]) => !isBrandProfileValueFilled(profile[field])).map(([, label]) => label);
+  const itemCount = fields.length - missingItems.length;
+
+  return {
+    key,
+    title,
+    description,
+    completeness: Math.round((itemCount / fields.length) * 100),
+    missingItems,
+    itemCount
+  };
+}
+
+function createExternalLibrarySection(
+  key: BrandProfileLibrarySection['key'],
+  title: string,
+  description: string,
+  itemCount: number,
+  fallbackMissingLabel: string
+): BrandProfileLibrarySection {
+  return {
+    key,
+    title,
+    description,
+    completeness: itemCount > 0 ? 100 : 0,
+    missingItems: itemCount > 0 ? [] : [fallbackMissingLabel],
+    itemCount
+  };
+}
+
+function isBrandProfileValueFilled(value: BrandProfile[keyof Pick<BrandProfile, 'intro' | 'valueProps' | 'offerings' | 'proofPoints' | 'targetCustomers' | 'recommendedExpressions' | 'blockedExpressions' | 'contentRules' | 'competitors' | 'faqs'>]): boolean {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return value.trim().length > 0;
+}
+
 function normalizeProfileInput(input: BrandProfileInput): BrandProfileInput {
   return {
     intro: input.intro?.trim() ?? '',
@@ -1047,10 +1270,8 @@ function persistBrandImportFile(brandId: string, file: UploadedBrandFile): strin
   }
 
   const extension = extname(file.originalname).toLowerCase();
-  const baseName = file.originalname.slice(0, -extension.length) || 'brand-import';
-  const safeBaseName = baseName.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'brand-import';
   const safeBrandId = brandId.replace(/[^a-zA-Z0-9._-]+/g, '-');
-  const fileName = `${safeBrandId}-${Date.now()}-${safeBaseName}${extension}`;
+  const fileName = `${safeBrandId}-${randomUUID()}${extension}`;
   const filePath = join(brandImportUploadDir, fileName);
 
   writeFileSync(filePath, file.buffer);

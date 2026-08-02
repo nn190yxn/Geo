@@ -3,6 +3,8 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 const demoUserId = 'user_demo';
+const demoOrganizationId = 'org_demo';
+const demoOrganizationOwnerRoleId = 'role_org_owner';
 const demoBrandId = 'brand_demo';
 const demoUnitId = 'unit_demo_core';
 const demoIntentId = 'intent_demo_buying';
@@ -38,6 +40,54 @@ async function main() {
       id: demoUserId,
       name: 'Demo Operator',
       email: 'demo@geo-platform.local',
+      status: 'active'
+    }
+  });
+
+  await prisma.organization.upsert({
+    where: { id: demoOrganizationId },
+    update: {
+      name: '演示组织',
+      status: 'active'
+    },
+    create: {
+      id: demoOrganizationId,
+      name: '演示组织',
+      status: 'active'
+    }
+  });
+
+  await prisma.role.upsert({
+    where: { code_scope: { code: 'owner', scope: 'organization' } },
+    update: {
+      name: '组织所有者',
+      permissions: ['*']
+    },
+    create: {
+      id: demoOrganizationOwnerRoleId,
+      code: 'owner',
+      name: '组织所有者',
+      scope: 'organization',
+      permissions: ['*']
+    }
+  });
+
+  await prisma.organizationMember.upsert({
+    where: {
+      unique_organization_user: {
+        organizationId: demoOrganizationId,
+        userId: demoUserId
+      }
+    },
+    update: {
+      roleId: demoOrganizationOwnerRoleId,
+      status: 'active'
+    },
+    create: {
+      id: 'org_member_demo_owner',
+      organizationId: demoOrganizationId,
+      userId: demoUserId,
+      roleId: demoOrganizationOwnerRoleId,
       status: 'active'
     }
   });

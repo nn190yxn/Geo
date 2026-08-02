@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.vite
+**/.vite
+.git
+.env
+.env.*
+uploads
+**/uploads
+coverage
+**/coverage
+*.log
+*.tsbuildinfo

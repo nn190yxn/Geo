@@ -9,7 +9,7 @@ export default defineConfig({
         codeSplitting: {
           minSize: 20000,
           groups: [
-            { name: 'react-vendor', test: /node_modules[\\/](react|react-dom|react-router-dom|zustand)/, priority: 30 },
+            { name: 'react-vendor', test: /node_modules[\\/](react|react-dom|react-router|zustand)/, priority: 30 },
             { name: 'antd-vendor', test: /node_modules[\\/](@ant-design|antd|rc-|@rc-component)/, priority: 20, maxSize: 250000 },
             { name: 'query-vendor', test: /node_modules[\\/]@tanstack/, priority: 15 },
             { name: 'vendor', test: /node_modules/, priority: 10 }

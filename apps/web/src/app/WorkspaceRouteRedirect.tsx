@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useParams } from 'react-router';
 import { useBrandContextStore } from '../stores/brandContextStore';
 import { workspaceRouteAliases } from '../layouts/navigation';
 
 export function WorkspaceRouteRedirect() {
   const { brandId, '*': workspacePath = 'dashboard' } = useParams();
+  const location = useLocation();
   const setActiveBrandId = useBrandContextStore((state) => state.setActiveBrandId);
-  const target = workspaceRouteAliases[workspacePath] ?? '/brands';
+  const target = getWorkspaceRouteTarget(workspacePath, location.search, location.hash);
 
   useEffect(() => {
     if (brandId) {
@@ -15,4 +16,9 @@ export function WorkspaceRouteRedirect() {
   }, [brandId, setActiveBrandId]);
 
   return <Navigate to={target} replace />;
+}
+
+export function getWorkspaceRouteTarget(workspacePath: string, search = '', hash = '') {
+  const pathname = workspaceRouteAliases[workspacePath] ?? '/brands';
+  return `${pathname}${search}${hash}`;
 }

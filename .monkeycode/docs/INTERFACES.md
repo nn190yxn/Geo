@@ -2,7 +2,7 @@
 
 ## 通用响应结构
 
-所有 API 统一使用 `ApiResponse<T>` 响应结构，定义位于 `packages/shared-types/src/index.ts`。
+所有 API 统一使用 `ApiResponse<T>` 响应结构，定义位于 `当前工作区/packages/shared-types/src/index.ts`。
 
 成功响应：
 
@@ -31,9 +31,15 @@
 
 前端统一通过 `x-brand-id` 请求头向后端传递当前品牌上下文。后端中间件读取该请求头并写入 `request.context.brandId`。
 
-前端第一版同时支持品牌化路由别名。访问 `/brands/:brandId/dashboard`、`/brands/:brandId/canvas`、`/brands/:brandId/monitoring`、`/brands/:brandId/reports` 等路径时，前端会先把 `brandId` 写入当前品牌上下文，再跳转到第一版对应页面；主要页面通过 lazy route modules 加载，路由契约保持不变。
+正确性属性 P1 将开始域 `/workspace`、监测域 `/monitoring-runs`、内容域 `/content/generation`、发布域 `/publishing`、分析域 `/evaluations` 和支持工具域 `/advisor-records` 作为代表性主数据查询。对任意生成的合法 `brandId`，请求路径使用 `/brands/:brandId/*`，统一请求层同时从 Zustand 当前品牌上下文注入同值 `x-brand-id`；属性测试要求两处品牌值始终一致。
 
-`/monitoring` 当前产品口径为“AI 回复监测”。该路由继续复用既有监测运行、监测计划和手动答案 API，页面文案强调真实 AI 原始回复获取、手动录入可信过渡路径和回复解读。
+前端第一版同时支持品牌化路由别名。访问 `/brands/:brandId/dashboard`、`/brands/:brandId/canvas`、`/brands/:brandId/monitoring`、`/brands/:brandId/reports` 等路径时，前端会先把 `brandId` 写入当前品牌上下文，再跳转到第一版对应页面；重定向和业务页内部跳转均保留工作流 query 与 hash，主要页面通过 lazy route modules 加载。监测记录进入分析诊断时以记录的 `runId`、`promptId` 覆盖页面旧值，同时保留问题、优化单元和用户意图上下文。
+
+`/monitoring` 当前产品口径为“AI 回复监测”。该路由继续复用既有监测运行、监测计划和手动答案 API，首屏按关键结论、真实回复数、品牌提及率、Top 3 推荐率、引用命中率和平台回复分布展示；统计范围只包含非 `mock_ai` 且具有原始回复的运行。`platform` query 在全部平台、豆包、Kimi、DeepSeek、通义千问和阶跃星辰之间切换当前分析范围，并同步筛选回复明细和恢复状态。页面从 `TestPlan.connectionSummary`、`PlatformConfig.connectionStatus`、`MonitoringRun.status` 和 `retryStatus` 识别缺少真实回复、浏览器待确认、手动待录入、平台待配置和运行失败，统一返回样本范围、受影响指标、用户可理解原因和目标恢复分区；计划、回复或平台请求失败时保留已加载区域并展示请求错误。自动监测、浏览器辅助监测和手动录入三条真实回复路径持续可见。监测主题与问题、计划执行、回复明细和高级工具通过 Tab 渐进展开，并保留回复解读、平台配置和进入优化或内容任务的现有工作流上下文。
+
+优化单元和用户意图列表通过 `getOptimizationUnitWorkflowPaths` 与 `getUserIntentWorkflowPaths` 集中构造行级 CTA。优化单元入口传递 `optimizationUnitId`；用户意图入口同时传递 `optimizationUnitId`、`intentId` 和可用的 `promptId`，手动检测、自动监测和检测记录附加对应 `mode` 与目标 hash，内容生成和引用来源使用 `workflowStagePath` 保留完整对象上下文。
+
+首页和 `/monitoring` 的真实指标共同使用 `hasRealMonitoringResponseSample`：`platformCode` 必须区别于 `mock_ai`，并且 `response.rawText.trim()` 必须包含内容。API 自动采集、浏览器辅助采集和手动录入回复沿用同一判定；标准答案、内容草稿、仅存在回复对象的空白文本和示例回答保持在指标边界之外。Web 监测摘要与 API 首页摘要分别通过 P3/P4 确定性组合测试锁定该契约，任意边界外对象加入真实样本基线后均不得改变样本数、比率或平台拆分。
 
 `/growth-optimization` 当前会读取 `GET /api/v1/brands/:brandId/sprints/current`、`GET /api/v1/brands/:brandId/sprints/:sprintId/alignment` 和 `GET /api/v1/brands/:brandId/sprints/:sprintId/content-gaps/tasks`，用于展示真实 AI 回复、品牌标准答案和内容资产三类对象的差异。该视图为只读诊断层，不创建新的业务对象。
 
@@ -250,7 +256,7 @@ POST /api/v1/brands/:brandId/knowledge-sources/:sourceId/confirm
 
 当前支持 `file`、`webpage`、`wechat_article`、`external_document` 四类来源，创建后状态默认为 `pending`。
 
-品牌资料上传入口使用 multipart 表单字段 `file`，第一版接受 Markdown、Word 和 PDF，上传成功后创建 `KnowledgeSource`，状态为 `processing`。前端品牌工作区提供“上传品牌资料”和“手动填写品牌信息”两个入口，上传后自动调用解析接口，并展示解析中、待确认、解析失败、失败原因和手动填写兜底状态。解析入口返回 `BrandImportDraft`，Markdown 可提取品牌名称、行业、城市、课程或产品、目标客户、核心卖点、权威背书、FAQ、竞品和禁用表达，并为字段标记置信度；前端确认区会展示高置信字段、待确认字段、来源片段、资料完整度进度和缺失项影响说明，用户可编辑字段后确认保存。Word 和 PDF 当前先保存文件并返回可理解的失败草稿，等待后续文档转文本能力接入。确认入口接收用户确认后的 `fields`，保存到 `Brand` 和 `BrandProfile`，并将来源状态更新为 `completed`。
+品牌资料上传入口使用 multipart 表单字段 `file`，接受最大 8 MiB 的 Markdown、DOCX 和文本型 PDF。上传在落盘前验证品牌访问权，并校验扩展名、MIME 和文件内容；旧 DOC 提示另存为 DOCX，扫描件 PDF、加密 PDF、损坏文件、二进制 Markdown、超过 200 页的 PDF 和超过 50 万字符的正文返回可理解错误。服务端使用品牌标识和随机 UUID 生成文件名，并将解析路径限制在 `uploads/brand-imports` 根目录内。上传成功后创建状态为 `processing` 的 `KnowledgeSource`，前端自动调用解析接口并展示解析中、待确认、解析失败、失败原因和手动填写兜底状态。解析入口返回 `BrandImportDraft`，Markdown、DOCX 和 PDF 统一提取品牌名称、行业、城市、课程或产品、目标客户、核心卖点、权威背书、FAQ、竞品和禁用表达，并为字段标记置信度；解析失败时来源状态和 `errorMessage` 持久化为 `failed`，重新解析成功时恢复为 `processing`。前端确认区展示高置信字段、待确认字段、来源片段、资料完整度进度和缺失项影响说明，用户编辑字段后确认保存到 `Brand` 和 `BrandProfile`，来源状态更新为 `completed`。
 
 品牌工作区同时展示“完成首轮监测”步骤条，固定流程为上传资料、选择监测问题、连接 AI 平台、开始监测、查看建议、执行优化、复测增长。步骤条根据品牌档案、监测问题、监测记录和内容资产数量推导当前步骤；点击步骤按钮会展示对应提示卡，并引导到品牌工作区、AI 监测、内容生成或任务复测页面。
 
@@ -389,7 +395,7 @@ type SprintContentGapTaskResult = {
 
 指标摘要只保存展示聚合值，包含问题覆盖率、提及率、推荐率、首位推荐率、Top 3 率、引用命中率、表达准确率、风险表达数、内容缺口数、竞品压制数和样本量。问题雷达返回问题意图、目标平台覆盖、业务价值、优先级、状态和 Sprint 关联状态，并按归一化问题文本统计同一 Sprint 内重复项。品牌标准答案独立保存问题、答案正文、关键点、证据和审核状态，用作真实回复对照基准和内容生成依据。标准答案对照看板按问题输出等待真实回答、等待标准答案、已对齐或需要处理四类状态，并计算要点覆盖、准确性、风险表达、引用缺口和竞品压制证据。内容缺口任务结果记录本次创建的内容策略、内容生成任务、来源问题、标准答案、真实回答运行和缺口类型，并把新任务 ID 合并回 Sprint 的 `relatedContentTaskIds`。Sprint 契约只保存关联 ID 和聚合状态，不保存平台密钥、cookies、storage state、浏览器 profile 路径、真实回复正文或标准答案正文。
 
-后端仓储端口位于 `apps/api/src/modules/permissions/permissions.repository.port.ts`，已新增以下 Sprint 方法签名：
+后端仓储端口位于 `当前工作区/apps/api/src/modules/permissions/permissions.repository.port.ts`，已新增以下 Sprint 方法签名：
 
 - `listVisibilitySprints(userId, brandId)`
 - `getVisibilitySprint(userId, brandId, sprintId)`
@@ -405,7 +411,70 @@ type SprintContentGapTaskResult = {
 
 端口输入类型包含 `VisibilitySprintCreateInput`、`VisibilitySprintStepUpdateInput`、`VisibilitySprintMetricUpdateInput`、`VisibilitySprintRelationsUpdateInput`、`BrandStandardAnswerInput` 和 `BrandStandardAnswerUpdateInput`。所有方法签名都携带 `userId` 与 `brandId`，用于后续实现层复用现有品牌访问校验。
 
-内存仓储已实现上述方法，并预置 `visibility_sprint_demo_supercalf_first_round` 作为追光小牛演示 Sprint。默认 Sprint 当前阶段为 `content_asset_generation`，关联 `test_plan_demo_supercalf_first_round`、`run_demo_weekly_mock`、`standard_answer_demo_local_recommendation`、`generation_demo_gap`、`publishing_record_demo_gap` 和 `task_demo_growth_retest`，用于后续 Sprint API 和前端工作台读取演示数据。Prisma 仓储已通过 `visibility_sprints` 表实现同一组方法，字段包括 `steps`、`metric_summary`、`related_question_ids`、`related_test_plan_ids`、`related_monitoring_run_ids`、`related_standard_answer_ids`、`related_content_task_ids`、`related_publishing_record_ids` 和 `related_retest_task_ids`，这些 JSON 字段只保存聚合状态或关联 ID。标准答案通过 `brand_standard_answers` 表持久化，字段包括 `question_id`、`question`、`answer`、`key_points`、`evidence`、`status`、`reviewed_by` 和 `reviewed_at`。
+产品体验页面模型进一步统一品牌归属。`AnalysisFinding`、`ContentAssetPublishingStats`、`PublishingChannelStats`、`MediaPlatformRule` 和 `PublishingRecordPerformance` 均包含 `brandId`；媒体平台规则写入使用 `MediaPlatformRuleInput`，分析 finding 写入使用 `AnalysisFindingInput`。分析 finding 的 `evidence` 在 memory 和 Prisma 写入路径均执行去空、去重和首尾空白归一化。`PermissionsRepositoryPort` 新增以下可选契约，memory 和 Prisma 仓储均已实现：
+
+- 品牌资料库：`getBrandProfileLibrary`、`saveBrandProfileLibrary`
+- 媒体资产：`listBrandMediaAssets`、`createBrandMediaAsset`、`updateBrandMediaAsset`
+- 内容资产页面聚合：`listContentAssetPageItems`
+- 自有媒体与平台规则：`listOwnedMediaAccounts`、`listMediaPlatformRules`、`createMediaPlatformRule`、`updateMediaPlatformRule`
+- 发文统计：`getPublishingChannelStats`
+- 分析诊断：`listAnalysisFindings`、`createAnalysisFinding`、`updateAnalysisFinding`、`getAnalysisWorkbenchDashboard`
+
+上述端口均接收 `userId` 与 `brandId`，返回值使用 `MaybePromise<T>` 兼容内存同步仓储和 Prisma 异步仓储。
+
+品牌资料库 HTTP API：
+
+```http
+GET /api/v1/brands/:brandId/profile-library
+PATCH /api/v1/brands/:brandId/profile-library
+```
+
+读取接口聚合 `BrandProfile`、知识来源、媒体素材、内容资产、发布账号和竞品，并返回各资料分区的完整度摘要。更新接口接受 `BrandProfileLibraryInput.profile`，保存后重新聚合资料库；响应中的 `profile.missingFields` 使用业务标签，`profile.completenessPrompts.field` 提供稳定字段 key。两个接口沿用用户与品牌访问校验，无权限或品牌不存在时返回 404。`apps/api/test/profile-library.api.test.ts` 使用真实内存仓储和权限服务验证读取、更新、缺失字段、分区完整度、品牌隔离及拒绝无权限访问。
+
+内容资产页面 HTTP API：
+
+```http
+GET /api/v1/brands/:brandId/content-assets
+POST /api/v1/brands/:brandId/content-assets
+```
+
+创建请求使用 `ContentAssetPageInput`，除标题、类型、平台和链接外，必须至少提供一项有效的 `optimizationUnitId`、`userIntent` 或 `sourceReferences`；空字符串、空白来源标题和 `targetKeywords` 均不满足上下文准入。保存边界通过 P5 的 64 组确定性组合测试锁定。列表响应使用 `ContentAssetPageItem` 聚合审核状态、发布状态、复测计划和发布统计。
+
+页面聚合共享 DTO：
+
+- `BeginnerHomeDashboard`：品牌资料完整度、监测对象数量、真实回复状态、内容任务状态、发布统计、分析风险、结果摘要、当前 Sprint 摘要和下一步动作。`resultSummary` 包含 `recommendationRate`、`averageRank`、`citationHitRate`、`pendingIssueCount`、`sampleSize` 和 `rankedSampleSize`
+- `MonitoringObjectDashboard`：按优化单元关联用户意图、监测问题、平台推荐度、平均排名、引用率、内容任务和复测状态
+- `ContentOperationDashboard`：内容任务、内容模板、品牌素材、内容资产、发布准备、渠道发布统计和再次监测状态
+- `PublishingOperationDashboard`：自有媒体账号、平台规则、发布记录、AI 引用、发布后表现、渠道统计和待复测事项
+- `AnalysisDiagnosisDashboard`：竞品、评价、信源、事实四类 finding 分组，以及按动作类型、标签和目标 ID 去重的可执行建议
+
+`apps/api/src/modules/dashboards/dashboard.mapper.ts` 提供五个对应的 `buildXxxDashboard` 纯映射函数。映射输入只接收底层模块已读取的数据，输出集合统一按目标 `brandId` 过滤；`realResponseRuns` 参数要求调用方只传入真实 AI 回复、浏览器辅助结果或手动录入的真实回复。首页推荐度按具有有效品牌排名的真实回复占比计算，平均排名只使用非空有效排名，引用率按回复引用或正向引用分命中计算，待处理问题统计 `reviewRequired` 分析结果。memory 和 Prisma repository 已接入底层聚合契约，BFF HTTP 接口复用同一组 mapper。
+
+页面 BFF HTTP API 已接入：
+
+```http
+GET /api/v1/brands/:brandId/dashboards/home
+GET /api/v1/brands/:brandId/dashboards/monitoring-objects
+GET /api/v1/brands/:brandId/dashboards/content-operation
+GET /api/v1/brands/:brandId/dashboards/publishing-operation
+GET /api/v1/brands/:brandId/dashboards/analysis-diagnosis
+```
+
+五个接口均返回统一 `ApiResponse<T>`，并要求请求携带与路径品牌一致的 `x-brand-id`。中间件执行品牌访问校验，`DashboardsService` 再次检查用户可访问品牌。底层子数据缺失时返回空数组或省略对应可选看板，保证页面可以展示业务空态；聚合异常返回 `DASHBOARD_TEMPORARILY_UNAVAILABLE` 和“页面数据暂时无法加载，请稍后重试”。首页真实回复统计和监测对象平台数据会排除 `mock_ai`，标准答案与内容草稿继续保持独立对象，不进入真实 AI 回复统计。
+
+增长优化前端同时读取 `growth-optimization` 工作台与 `analysis-diagnosis` BFF。`AnalysisDiagnosisDashboard.findingGroups` 按竞品、评价、信源和事实四类返回 finding；每条 finding 使用 `severity`、`evidence`、`userIntent`、`platformCode`、`recommendedActions` 和可选 `relatedTaskId` 生成统一结论卡。`AnalysisRecommendedAction.actionType` 映射到任务、内容生成、品牌资料或再次监测现有路由，路由 query 继续携带优化单元、平台、来源运行和关联任务上下文。
+
+发布运营前端的 `/owned-media`、`/media-platforms` 和 `/publishing` 共同读取 `GET /api/v1/brands/:brandId/dashboards/publishing-operation`。自有媒体列表使用 `accounts` 中的 `platformName`、`authStatus`、`lastAuthorizedAt`、`errorMessage` 和账号级 `stats`，重新授权继续调用 `POST /api/v1/brands/:brandId/publishing/accounts/:accountId/reauthorize`；媒体平台列表直接使用 `platformRules` 中的 `contentFormats`、`intentFit`、`recommendedFrequency`、`coverRatio` 和 `publishingNote`。发布记录工作台组合 `records`、`performance` 和 `pendingRetestItems`，为每条记录展示发布状态、真实链接、发布后表现及再次监测状态；真实发布结果表单要求完整 URL，保存时提交 `published` 状态，随后可进入再次监测任务。账号接入继续调用现有发布账号创建接口，成功后同时失效发布中心和发布运营聚合查询。
+
+平台配置、浏览器会话、LLM 任务、自动化任务包、Sprint 和上述五类页面 BFF 响应统一经过公开响应净化。自由结构中的 `credentialRef`、API Key、授权 token、密码、secret、cookies、storage state、浏览器 profile 路径和 `providerPayload` 会被递归移除；`hasCredential`、`credentialRefMasked`、状态摘要、业务原因、关联 ID 和 token 用量摘要继续保留。Sprint 指标与新手首页指标仅接受非 `mock_ai` 且包含非空 `AIResponse.rawText` 的监测运行，浏览器辅助和手动录入真实回复继续作为有效样本。
+
+`PermissionsRepository` 已实现任务 10.1 新增的全部可选方法。品牌资料库通过现有 profile、知识来源、内容资产、发布账号和竞品集合实时聚合；品牌素材、平台规则和分析 finding 由独立内存集合维护。内容资产页面项从发布记录计算发布状态和统计，从引用来源累加引用次数，并沿内容生成任务、内容策略和增长优化计划关联优化单元、用户意图与复测记录。`listOwnedMediaAccounts` 返回按账号计算的 `stats`，`getPublishingChannelStats` 返回按平台合并的统计，避免多账号重复计数。分析工作台按 `actionType + label + targetId` 去重建议动作。
+
+`PrismaPermissionsRepository` 提供相同聚合语义。`BrandMediaAsset` 保存素材类型、适用平台、用途、来源、审核状态及可选内容任务关联；`MediaPlatformRule` 通过 `[brandId, platform]` 唯一约束保存平台内容规则；`AnalysisFinding` 保存四类 finding、证据、严重程度、建议动作及可选优化单元和任务关联。JSON 字段在仓储边界映射为共享类型数组，所有关联存在性查询同时约束 `brandId`。迁移目录为 `apps/api/prisma/migrations/20260714100000_add_page_aggregation_models/`。
+
+默认 `brand_demo` 已提供知识来源、品牌素材、公众号与官网规则，以及竞品、评价、信源、事实四类分析 finding。演示监测运行仍保留为示例回答来源，不进入真实回复指标聚合。
+
+Sprint 内存仓储已预置 `visibility_sprint_demo_supercalf_first_round` 作为追光小牛演示 Sprint。默认 Sprint 当前阶段为 `content_asset_generation`，关联 `test_plan_demo_supercalf_first_round`、`run_demo_weekly_mock`、`standard_answer_demo_local_recommendation`、`generation_demo_gap`、`publishing_record_demo_gap` 和 `task_demo_growth_retest`，用于 Sprint API 和前端工作台读取演示数据。Prisma 仓储已通过 `visibility_sprints` 表实现同一组 Sprint 方法，字段包括 `steps`、`metric_summary`、`related_question_ids`、`related_test_plan_ids`、`related_monitoring_run_ids`、`related_standard_answer_ids`、`related_content_task_ids`、`related_publishing_record_ids` 和 `related_retest_task_ids`，这些 JSON 字段只保存聚合状态或关联 ID。标准答案通过 `brand_standard_answers` 表持久化，字段包括 `question_id`、`question`、`answer`、`key_points`、`evidence`、`status`、`reviewed_by` 和 `reviewed_at`。
 
 当前 Sprint HTTP API：
 
@@ -531,7 +600,7 @@ GET /api/v1/brands/:brandId/llm/tasks/:jobId
 
 自动化数据层新增 `AutomationPackage`、`AutomationConfirmation`、`PlatformRewriteVersion`、`TestQuestionPoolItem` 和 `TestQuestionSourceRecord`。所有结构包含 `brandId`；平台改写保留 `contentVersionId`，问题池条目可保留 `candidateId`，来源记录保留 `sourceType`、`sourceId` 和摘要。公开 API 继续只返回自动化业务摘要、确认 payload 和脱敏平台状态，不返回真实 API Key、cookies、storage state、浏览器 profile 路径或平台敏感凭据。
 
-前端通过 `AutomationOperatorCard` 统一调用这些接口。品牌工作区、AI 回复监测页和增长优化页提供“让 AI 帮我跑一轮”入口；内容生成页展示平台改写、发布建议和复测建议进度。卡片会读取最近一次任务包，显示当前步骤、整体进度、品牌上下文、问题池数量、监测计划数量和待确认事项，并通过抽屉收口监测问题、分析判断、内容草稿、平台改写、发布建议和手动录入确认。发布建议确认抽屉会展示平台、标题和合规提示，方便品牌方确认后创建发布待办。
+前端通过 `AutomationOperatorCard` 统一调用这些接口。品牌工作区、AI 回复监测页和增长优化页提供“让 AI 帮我跑一轮”入口；内容生成页展示平台改写、发布建议和复测建议进度。卡片读取最近一次任务包，使用统一页面分区展示任务包状态、步骤进度、品牌上下文、问题池数量、监测计划数量和确认队列；加载、请求失败、上下文缺失、空任务包、手动录入和步骤失败分别进入共享状态组件。上下文缺失时品牌栏显示“品牌信息暂不可用”，公开可见文本不回退到 `brandId` 或任务包 ID。已完成与已跳过步骤共同计入整体进度，失败状态保留步骤消息和当前步骤恢复入口。确认抽屉继续收口监测问题、分析判断、内容草稿、平台改写、发布建议和手动录入确认；发布建议确认会展示平台、标题和合规提示，方便品牌方确认后创建发布待办。
 
 当前检查点验证确认：追光小牛可启动自动化任务包，问题池会持续同步监测问题候选并精选本轮问题，监测问题确认后可创建监测计划并执行，后续流程可生成运营判断、内容草稿、平台改写版本、发布建议、发布待办、复测建议，并在复测达标后完成自动化运营闭环。
 
@@ -1010,7 +1079,7 @@ POST /api/v1/brands/:brandId/test-plans/:planId/execute
 
 创建响应的 `data` 为 `TestPlanCreationResult`，包含 `plan`、`questionCount`、`platformCount`、`targetPlatforms`、`estimatedDurationMinutes`、`connectionSummary` 和 `confirmationItems`。当平台尚未配置平台密钥或需要浏览器登录确认时，计划会保留为 `needs_configuration` 或 `needs_confirmation` 状态，供后续执行编排继续处理。
 
-执行入口返回 `TestPlanExecutionResult`。系统会根据每个平台的连接摘要分流：`ready + api` 且问题关联 `promptId` 时创建监测运行并写入 `apiRuns`；浏览器可用或半自动平台会调用 browser connector，成功提取回答后创建监测运行、写入原始回答、触发自动分析，并在 `browserSteps` 返回 `queued` 状态和 `runId`；浏览器读取失败、缺少 `promptId` 或平台要求确认时写入 `needs_confirmation`；手动平台写入 `manualSteps`；未配置平台写入 `configurationItems`。当所有目标平台都缺少可用连接方式时，计划状态为 `needs_configuration`，前端可直接展示连接引导。前端执行后按 API 自动监测、浏览器辅助监测、手动录入、待配置和跳过数量展示摘要；存在确认事项时展示“需要你确认”的下一步提示。
+执行入口返回 `TestPlanExecutionResult`。系统会根据每个平台的连接摘要分流：`ready + api` 且问题关联 `promptId` 时创建监测运行并写入 `apiRuns`；浏览器可用或半自动平台为关联 `promptId` 的问题预创建 `review_required` 运行，并在 `browserSteps` 返回 `queued` 状态和 `runId`，等待用户辅助采集；浏览器问题缺少 `promptId` 时写入 `needs_confirmation`；手动平台写入 `manualSteps`；未配置平台写入 `configurationItems`。当所有目标平台都缺少可用连接方式时，计划状态为 `needs_configuration`。前端执行后按 API 自动监测、浏览器辅助监测、手动录入、待配置和跳过数量展示摘要，并为浏览器步骤提供复制问题、打开官方平台、确认登录和真实回答回填入口。
 
 API 平台执行成功后会保存平台、模型、监测问题、原始回答、调用审计和自动分析结果；执行失败时会记录错误码、失败原因、重试状态和人工录入兜底提示。API 平台缺少 endpoint、模型或平台密钥时会进入连接 AI 平台引导。
 
@@ -1048,6 +1117,8 @@ GET /api/v1/brands/:brandId/canvas
 ```
 
 响应返回 `GeoCanvasWorkspace`，包含监测主题节点、用户场景节点、数据表现节点、内容策略节点、节点连线、GEO 指标看板、内容策略列表和优化任务列表。接口字段仍使用 `optimizationUnits` 与 `userIntents` 保持数据模型稳定。
+
+前端 `/canvas` 将该响应组织为高级关系分析画布，继续使用 `GeoCanvasNode.type` 区分 `optimization_unit`、`user_intent`、`metric` 和 `content_strategy`。节点选择只改变前端详情状态；缩放、定位和首次使用引导不产生接口写入。节点详情通过 `buildNodeWorkflowPaths` 生成连续工作流：真实回复进入 `/monitoring#monitoring-runs-card`，内容动作进入 `/content-generation`，再次监测进入 `/tasks?action=create`；优化对象和用户意图节点会补充 `optimizationUnitId`、`intentId` 与 `question`，已有 `promptId`、`runId`、`taskId` 和 `platformCode` 在对应目标支持时继续保留。
 
 ```http
 POST /api/v1/brands/:brandId/canvas/content-strategies
@@ -1117,6 +1188,8 @@ POST /api/v1/brands/:brandId/content/strategies/generate
 
 内容资产列表支持按 `type`、`platform`、`status` 和 `keyword` 筛选。策略生成会基于内容缺口、信息修正、关键词增强、权威引用和竞品回应生成 `ContentStrategy`，并保存关联优化单元、用户意图和 Prompt。
 
+前端内容资产管理区读取 `GET /api/v1/brands/:brandId/dashboards/content-operation` 中的 `ContentAssetPageItem[]`。页面在当前品牌集合内组合筛选标题或关键词、资产状态、类型、平台、审核状态、发布状态和复测状态，并展示 `reviewStatus`、`publishStatus`、`retestPlanId` 与 `publishingStats`；继续编辑沿用内容资产更新接口，发布准备进入发布记录页，再次监测携带资产首个目标关键词进入任务复测页。保存资产后同时刷新内容中心与内容运营聚合查询。
+
 ### 增长优化计划
 
 ```http
@@ -1174,7 +1247,7 @@ POST /api/v1/brands/:brandId/growth-optimization/plans/:planId/confirm
 
 `GrowthOptimizationWorkspace` 聚合当前品牌的计划列表、当前未完成计划、相关内容策略、优化任务和发布记录。内容建议第一版覆盖公众号推文、小红书图文、官网 FAQ、短视频脚本、平台介绍文案和图片创意需求，并携带目标关键词和生成原因，供后续内容任务生成和复测联动使用。默认追光小牛样例计划为 `growth_plan_demo_supercalf`，关联 `test_plan_demo_supercalf_first_round`，发布平台覆盖 `wechat_official`、`xiaohongshu`、`official_site` 和 `douyin`，复测时间为 `2026-07-27T00:00:00.000Z`。
 
-前端 `/growth-optimization` 页面消费该工作台数据，按计划展示摘要、原因分析、优先级、负责人、截止时间、发布平台、复测时间、内容建议和关联任务，并调用确认计划、内容任务生成、任务状态更新和复测计划接口完成增长优化闭环。
+前端 `/growth-optimization` 页面消费该工作台数据，按优先问题、原因证据、推荐动作、关联内容和复测状态展示计划。关联内容通过 `generationTaskId` 对照 `GrowthOptimizationWorkspace.relatedPublishingRecords` 展示待生成、待发布或已发布状态；复测状态读取计划 `retestAt` 和关联任务最新 `RetestRecord`。页面调用确认计划、内容任务生成、任务状态更新和复测计划接口完成增长优化闭环，并提供更新标准答案依据、进入发布准备和打开关联复测任务入口。
 
 增长优化计划关联的任务完成后，后端会根据任务的来源监测运行和计划复测时间自动创建 `RetestRecord`。复测完成时会对比优化前后的推荐率、品牌排名和表达准确性；若指标未提升，记录 `nextSuggestion` 并把下一轮内容补强建议追加到计划的 `contentRecommendations`。
 
@@ -1218,6 +1291,16 @@ POST /api/v1/brands/:brandId/content/generation/tasks/:taskId/publish-entry
 
 创建任务后返回 `ContentGenerationWorkspace`，其中包含当前任务、生成步骤、当前版本、历史版本、导出记录和发布入口参数。第一版使用模板生成 Markdown 草稿，步骤固定包含策略解析、知识库读取、大纲生成、正文生成和 GEO 规则检查。第三阶段 repository port 已支持按 `stepKey` 更新步骤状态、消息和完成时间，并由步骤状态推导内容生成任务整体状态；生成成功后可写入最新 `ContentVersion`，导出 Markdown 和发布入口继续使用现有 API；生成失败时可记录失败步骤、错误码、错误信息和关联异步任务状态，并通过 `POST /api/v1/brands/:brandId/content/generation/tasks/:taskId/retry` 将失败任务重新入队。`ContentGenerationWorker` 当前提供后端执行边界，前端工作台展示公众号推文、小红书图文、官网 FAQ、短视频脚本、平台介绍文案和图片创意需求 6 类内容任务，并展示建议发布平台、内容主题、目标关键词、引用资料、复测时间、增长计划来源、任务状态、步骤状态、失败提示和重新入队入口。
 
+前端内容任务管理页同时读取 `GET /api/v1/brands/:brandId/publishing`，按 `PublishingRecord.generationTaskId` 关联内容任务，并使用最新 `status: published` 记录的 `updatedAt` 展示发布时间。列表搜索覆盖任务标题、内容模板、内容策略业务标题、目标平台和关键词；状态与目标平台筛选只作用于前端当前品牌任务集合。关联对象列只展示策略标题、“已关联优化计划”或“随内容策略带入”，不展示策略或计划内部 ID。
+
+前端模板选择层保持现有内容生成 API 契约不变。12 个模板按品牌宣传、问答、案例、教程、对比、科普和渠道内容分类，每个模板只将预设的 `contentType` 与 `targetPlatform` 写入 `ContentGenerationTaskInput`；内容主题、目标关键词、引用资料和复测时间继续由用户在现有创建表单中配置。默认模板及分类切换后的首个模板会同步对应表单值。
+
+内容创作台展示状态通过前端 `getContentCreationWorkspaceState` 映射：初始请求为 `loading`，业务错误为 `error`，缺少当前任务为 `empty`，存在任务为 `ready`。任务自身的 `pending`、`running`、`failed` 和 `completed` 继续使用现有 `ContentGenerationTask.status`，右侧根据任务步骤和当前版本展示生成进度、失败重试或草稿编辑。该展示状态不增加 API 字段；生成失败时保留左侧表单值，重试继续调用现有 `POST /api/v1/brands/:brandId/content/generation/tasks/:taskId/retry`。
+
+`/content-optimization` 继续复用内容生成任务接口。用户可选择 `GET /api/v1/brands/:brandId/content` 返回的现有资产，或直接粘贴文章、FAQ、社媒文案和页面正文；结构优化、事实补强、FAQ 补充、引用补强和渠道适配目标与来源内容统一序列化到现有 `ContentGenerationTaskInput.referenceSources`。后端任务、版本、重试、导出和发布接口保持不变，前端根据任务草稿、引用资料和目标平台生成结构、事实、FAQ、引用和渠道五类可解释建议。
+
+内容创建和优化提交前通过 `getContentTaskConfigurationIssues` 执行业务校验：两种模式都要求内容策略，优化模式额外要求现有内容资产或粘贴原文至少存在一项，并要求至少一个优化目标。创建发布记录成功后，`getContentPublishPreparationPath` 使用统一 `workflowStagePath` 进入 `/publishing`，保留来源 query 中的优化单元、用户意图、监测运行、优化计划和内容任务上下文，并写入生成任务、版本、发布记录及 `tab=records`。
+
 保存编辑版本：
 
 ```json
@@ -1237,7 +1320,9 @@ GET /api/v1/brands/:brandId/publishing
 POST /api/v1/brands/:brandId/publishing/accounts
 POST /api/v1/brands/:brandId/publishing/accounts/:accountId/reauthorize
 PATCH /api/v1/brands/:brandId/publishing/accounts/:accountId/status
+PATCH /api/v1/brands/:brandId/publishing/accounts/:accountId/mode
 POST /api/v1/brands/:brandId/publishing/records
+POST /api/v1/brands/:brandId/publishing/records/:recordId/execute
 PATCH /api/v1/brands/:brandId/publishing/records/:recordId/status
 ```
 
@@ -1250,6 +1335,7 @@ PATCH /api/v1/brands/:brandId/publishing/records/:recordId/status
   "platform": "wechat",
   "accountName": "品牌公众号",
   "loginMode": "oauth",
+  "publishingMode": "assisted",
   "authStatus": "connected"
 }
 ```
@@ -1270,7 +1356,13 @@ PATCH /api/v1/brands/:brandId/publishing/records/:recordId/status
 }
 ```
 
-创建发布记录时，后端会校验账号、内容生成任务和内容版本属于当前品牌；若请求来自内容生成发布入口且未传 `contentAssetId`，会自动创建草稿状态的内容资产，再把发布记录关联到该内容资产。授权异常可通过账号状态接口记录 `errorMessage`，重新授权接口会把账号状态恢复为 `connected` 并刷新最近授权时间。
+创建发布记录时，后端会校验账号、内容生成任务和内容版本属于当前品牌；若请求来自内容生成发布入口且未传 `contentAssetId`，会自动创建草稿状态的内容资产，再把发布记录关联到该内容资产。公共创建请求的 `status` 仅接受 `draft | pending`，其余值不会进入新记录。授权异常可通过账号状态接口记录 `errorMessage`，重新授权接口会把账号状态恢复为 `connected` 并刷新最近授权时间。账号发布模式为 `manual | assisted | automatic`：人工模式沿用真实结果回填，半自动模式由用户调用执行接口，自动模式在记录创建后调用同一执行链。历史账号和记录迁移后默认使用 `manual`。
+
+直连执行要求账号状态为 `connected`、账号模式为半自动或自动、记录与账号平台一致且标题正文完整。`PublishingRecordStatus` 在原有 `draft | pending | published | failed` 基础上增加 `queued | publishing`；这两个执行中状态仅由服务内部使用 `PublishingExecutionStatusInput` 写入。公共状态接口使用 `PublishingStatusInput`，仅接受 `draft | pending | published | failed`，并忽略 `externalPlatformId`、`lastAttemptAt` 和 `publishedAt` 等内部字段；人工提交 `published` 时必须同时提供有效 HTTP(S) `publishedUrl`，仓储会补写 `publishedAt`。执行使用记录 ID 作为 `idempotencyKey`，成功后保存 `externalPlatformId`、`publishedUrl`、`lastAttemptAt` 和 `publishedAt`。仅当记录同时为 `published` 且包含可验证的真实链接时，再次执行才返回 `already_published` 并跳过 Adapter。授权、账号、模式、平台、内容或 Adapter 前置条件失败以及 Adapter 调用失败都会写回 `failed` 记录和可见错误，避免记录已创建后只返回服务端异常。
+
+默认平台无关实现从服务端 `GEO_PUBLISHING_WEBHOOKS` 读取 JSON 配置，键为平台 code，值包含 `endpointUrl` 和可选 `authorizationToken`。Webhook 请求使用 `Idempotency-Key` 请求头并传递品牌、账号、平台、标题和正文；上游必须返回有效 HTTP(S) `publishedUrl`，可同时返回 `externalPlatformId`。该配置只存在于服务端运行环境，公开账号和发布记录响应均不包含 endpoint 或 token。
+
+`/publishing` 的筛选在前端当前品牌集合内执行，`q` 匹配标题、正文、账号和真实链接，`status` 匹配发布状态，`channel` 匹配发布渠道；筛选写回 URL 时保留来源工作流 query。新建发布准备记录时，前端要求选择授权状态为 `connected` 的发布账号，并在选择账号后同步其目标平台；当前品牌没有可用账号时显示前往自有媒体接入或恢复授权的提示。半自动记录显示“立即发布”，自动记录由创建响应直接返回执行后的状态，排队和发布中状态均可筛选。人工模式继续支持录入真实外部链接；安排再次监测通过 `workflowStagePath('/tasks', ...)` 保留完整工作流上下文。
 
 ### 任务复测
 
@@ -1283,6 +1375,8 @@ PATCH /api/v1/brands/:brandId/tasks/:taskId/retest/:recordId
 ```
 
 任务看板返回 `TaskBoardDashboard`，包含当前品牌的 `tasks` 和按 `todo`、`doing`、`review`、`retest`、`done`、`reopened` 聚合的 `statusCounts`。
+
+前端 `/tasks` 将底层任务状态与最新 `RetestRecord`、可用的 `SprintRetestTrendItem` 聚合为四类行动状态：尚未进入复测的任务为“待处理”，已有复测计划或底层状态为 `retest` 的任务为“待复测”，`passed` 或 `improved` 为真以及趋势状态为 `improved` 的任务为“已改善”，已重开、复测未通过或趋势要求继续跟进的任务为“继续优化”。列表优先使用 Sprint 趋势项中的 `publishingRecord`、`beforeMetrics` 和 `afterMetrics`，缺少趋势项时使用任务自身最新复测记录。筛选使用 `q` 和四类行动 `status`，写回 URL 时保留发布记录及其他工作流上下文。执行同题再次监测通过 `workflowStagePath('/monitoring', ...)` 传递任务、优化单元、用户意图、Prompt、监测运行、优化计划、内容任务、版本、发布记录和平台上下文，并定位 `monitoring-runs-card`。
 
 创建监测问题任务：
 
@@ -1395,6 +1489,7 @@ POST /api/v1/platforms/:platformId/validate
 GET /api/v1/platforms/browser-sessions
 POST /api/v1/platforms/browser-sessions
 PATCH /api/v1/platforms/browser-sessions/:sessionId
+POST /api/v1/platforms/browser-sessions/:sessionId/responses
 x-brand-id: brand_demo
 ```
 
@@ -1412,15 +1507,15 @@ x-brand-id: brand_demo
 }
 ```
 
-当前 `mode` 支持 `api`、`manual`、`semi_auto` 和 `mock`。新建品牌会默认预置豆包、Kimi、DeepSeek、通义千问和阶跃星辰，均保存业务展示名、连接状态、OpenAI-compatible endpoint 候选、默认模型名称候选和手动录入兜底路径；系统同时保留 `manual_input` 和 `mock_ai` 作为人工录入与开发辅助平台。平台配置公共响应使用 `platformCode` 和 `name` 字段标识平台，不返回 `platformKey`。响应返回 `hasCredential` 与 `credentialRefMasked`，用于表达平台密钥配置状态；真实 `credentialRef` 只进入服务端仓储，不在 API 响应中返回。平台配置公共响应还返回 `availableMethods`、`connectionStatus`、`connectionStatusLabel` 和 `nextAction`，用于归类展示“可自动监测”“可用浏览器辅助监测”“可手动录入”“需要配置”以及下一步处理方式。前端平台连接页面优先展示第一版平台，并按上述四类分组；`needs_confirmation` 且包含浏览器能力的平台归入“可用浏览器辅助监测”，用于提示用户授权或确认。编辑弹窗中只保留平台代码、平台名称、调用方式、平台密钥和启用状态为常规字段，接口地址、模型名称、调用限制统一收纳到“高级设置”。`api` 模式校验要求接口地址、模型名称和可用平台密钥三项齐备，失败时返回业务化原因并写入 `lastValidation`。豆包、Kimi、DeepSeek、通义千问和阶跃星辰在 Adapter registry 中都有直接 OpenAI-compatible 映射，带 endpoint 的 `api` 平台会通过对应 `OpenAICompatibleAdapter` 构造 chat completions 请求，模型来自 `modelName`，平台密钥由内部 `credentialRef` 解析。LLM 自动任务未指定平台时优先选择已配置密钥的 `stepfun`，用于内测阶段统一使用阶跃星辰 `step-3.7-flash` 支撑问题生成、回答解读、内容生成和优化计划。
+当前 `mode` 支持 `api`、`manual`、`semi_auto` 和 `mock`。新建品牌会默认预置豆包、Kimi、DeepSeek、通义千问和阶跃星辰，均保存业务展示名、连接状态、OpenAI-compatible endpoint 候选、默认模型名称候选和手动录入兜底路径；系统同时保留 `manual_input` 和 `mock_ai` 作为手动录入与开发辅助平台。公开新增入口只提供自动监测、浏览器辅助监测和手动录入；历史 `mock` 配置显示为“示例回答（不计入指标）”，不能作为新的监测方式创建。平台配置公共响应使用 `platformCode` 和 `name` 字段标识平台，不返回 `platformKey`。响应返回 `hasCredential` 与 `credentialRefMasked`，用于表达平台密钥配置状态；真实 `credentialRef` 只进入服务端仓储，不在 API 响应中返回。平台配置公共响应还返回 `availableMethods`、`connectionStatus`、`connectionStatusLabel` 和 `nextAction`，用于归类展示“可自动监测”“可用浏览器辅助监测”“可手动录入”“需要配置”以及下一步处理方式。前端平台卡片 view model 只保留配置 ID、展示名、连接状态、监测方式、最近验证摘要和下一步，不携带完整配置或 `lastValidation.message`；卡片只提供一个连接或管理动作。连接检查、平台密钥、接口地址、模型名称和调用限制统一位于管理弹窗。`needs_confirmation` 且包含浏览器能力的平台归入“可用浏览器辅助监测”，用于提示用户授权或确认。`api` 模式校验要求接口地址、模型名称和可用平台密钥三项齐备，失败时返回业务化原因并写入 `lastValidation`。豆包、Kimi、DeepSeek、通义千问和阶跃星辰在 Adapter registry 中都有直接 OpenAI-compatible 映射，带 endpoint 的 `api` 平台会通过对应 `OpenAICompatibleAdapter` 构造 chat completions 请求，模型来自 `modelName`，平台密钥由内部 `credentialRef` 解析。LLM 自动任务未指定平台时优先选择已配置密钥的 `stepfun`，用于内测阶段统一使用阶跃星辰 `step-3.7-flash` 支撑问题生成、回答解读、内容生成和优化计划。
 
 平台状态归类规则：`api` 配置完整且最近校验未失败时返回 `ready`；`semi_auto` 模式返回 `browser_available`，`availableMethods` 为 `['api', 'browser', 'manual']`，`nextAction` 提示补齐平台密钥后可自动监测，也可先用浏览器或手动录入；`manual` 返回 `manual_available`；停用、缺接口地址、缺模型、缺平台密钥或最近校验失败返回 `needs_configuration`，`nextAction` 给出业务化处理建议。
 
 浏览器辅助监测的后端抽象位于 `src/modules/platforms/browser-connectors/`。`BrowserConnector` 为已注册浏览器适配器提供统一契约：`openLoginPage`、`detectLogin`、`sendQuestion`、`waitForAnswer`、`extractAnswer` 和 `stopSession`。返回结果统一包含 `status`、`loginDetected`、`message`、可选 `issueType`、可选 `manualTestPath` 和可选回答字段；验证码、登录失效、页面结构变化、平台限制和风控提示统一返回 `needs_confirmation`，并给出 `/monitoring?platform=:platformCode&mode=manual` 手动录入路径。`FakeBrowserConnector` 用于契约测试，覆盖登录成功、回答成功和需要用户确认的异常分支。
 
-浏览器会话状态通过平台接口暴露：`GET /api/v1/platforms/browser-sessions` 按品牌列出会话摘要；`POST /api/v1/platforms/browser-sessions` 接收 `platformCode` 和可选 `testPlanId`，创建 `opening` 状态会话并保存平台 code、授权品牌范围和可选监测计划 ID；`PATCH /api/v1/platforms/browser-sessions/:sessionId` 接收 `BrowserConnectionStatusInput`，更新登录检测结果、最近操作、最近异常类型、最近提示和最近可用时间。前端浏览器连接向导会打开豆包、Kimi、DeepSeek 或通义千问登录页，提示用户自行登录，登录完成后把会话更新为 `ready` 并写入 `lastAvailableAt`；遇到验证码、登录失效、平台限制或风控时，把会话更新为 `needs_confirmation` 并展示手动录入提示。公共 `BrowserConnectionSession` 只包含 `brandId`、`platformCode`、`status`、`loginDetected`、`authorizedScope`、`lastOperation`、`lastIssueType`、`lastMessage`、`lastAvailableAt`、`createdAt` 和 `updatedAt`，不返回登录信息、浏览器存储、本地配置目录或任何平台密钥。
+浏览器会话状态通过平台接口暴露：`GET /api/v1/platforms/browser-sessions` 按品牌列出会话摘要；`POST /api/v1/platforms/browser-sessions` 接收 `platformCode` 和可选 `testPlanId`，创建 `login_required` 状态会话并保存平台 code、授权品牌范围和可选监测计划 ID；`PATCH /api/v1/platforms/browser-sessions/:sessionId` 接收 `BrowserConnectionStatusInput`，客户端只提交 `login_confirmed`、`issue_reported`、`answer_captured` 或 `session_stopped` 事件，服务端状态机推导目标状态、登录检测结果、最近操作和最近可用时间。`POST /api/v1/platforms/browser-sessions/:sessionId/responses` 接收 `runId`、`rawText`、可选 `modelName` 和 `citations`；服务端要求会话处于 `ready`，并联合校验会话品牌、授权计划、计划运行清单和平台 code，成功后保存真实回答、触发分析并记录 `answer_captured`。公共 `BrowserConnectionSession` 只包含 `brandId`、`platformCode`、`status`、`loginDetected`、`authorizedScope`、`lastOperation`、`lastIssueType`、`lastMessage`、`lastAvailableAt`、`createdAt` 和 `updatedAt`，不会返回登录信息、浏览器存储、本地配置目录或任何平台密钥。
 
-第一版浏览器 connector 注册在 `BrowserConnectorRegistry`，默认包含 `doubao`、`kimi`、`deepseek` 和 `qianwen`。这些 connector 都实现登录页打开、登录检测、发送问题、等待回答、提取回答和停止会话契约；当前实现使用可测试的浏览器适配边界和平台元数据，返回平台登录页 URL、平台专属 `modelName` 和手动录入路径。阶跃星辰当前走 OpenAI-compatible API 接入候选和手动录入路径。遇到验证码、风控、登录失效、平台限制或页面结构变化时，connector 停止自动化流程并返回 `needs_confirmation`。监测计划执行流程会消费该 registry，成功回答进入 `MonitoringRun`、`AIResponse` 和 `AnalysisResult`，异常回答留在 `browserSteps` 与 `confirmationItems` 中等待用户确认。
+第一版浏览器 connector 注册在 `BrowserConnectorRegistry`，默认包含 `doubao`、`kimi`、`deepseek` 和 `qianwen`。这些 connector 实现登录页打开、登录检测、发送问题、等待回答、提取回答和停止会话契约，作为后续受控平台适配扩展边界；当前真实执行路径采用用户辅助流程，由用户主动在官方平台登录和提交问题，再将完整回答回填到绑定会话。阶跃星辰当前走 OpenAI-compatible API 接入候选和手动录入路径。验证码、风控、登录失效、平台限制或页面结构变化通过 `issue_reported` 事件进入确认或过期状态，系统不会尝试绕过平台验证。
 
 第一版默认平台配置如下：
 
@@ -1539,7 +1634,7 @@ x-brand-id: brand_demo
 }
 ```
 
-竞品分析响应返回 `CompetitorDashboard`，包含竞品档案列表、竞品提及率、竞品压制率、平均排名差、高风险意图和对比明细。对比明细按同 Prompt、同平台、同用户意图和同优化单元聚合，记录品牌排名、竞品排名、排名差、压制状态、推荐理由和引用来源。连续压制达到竞品规则阈值时，后端会生成高优先级 `competitor_response` 内容策略。
+竞品分析响应返回 `CompetitorDashboard`，包含竞品档案列表、竞品提及率、竞品压制率、平均排名差、高风险意图和对比明细。对比明细按同 Prompt、同平台、同用户意图和同优化单元聚合，记录品牌排名、竞品排名、排名差、压制状态、推荐理由、引用来源及 `capturedAt` 真实监测采集时间。前端使用 `capturedAt` 按日期生成竞品趋势，并按 `runId` 去重计算当前范围的品牌平均推荐排名、压制风险和 AI 平台矩阵；竞品提及率继续使用后端基于全部真实监测样本计算的整体口径。连续压制达到竞品规则阈值时，后端会生成高优先级 `competitor_response` 内容策略。
 
 竞品发现支持创建发现任务、查询候选和保存人工决策。创建发现任务可传 `city`、`campusRadiusKm`、`keywords`、`sourceProvider` 和 `forceRefresh`；`sourceProvider` 第一版默认 `amap`，服务端只返回配置状态，不返回地图 API Key。发现任务响应包含 `providerStatus`、`providerMessage` 和 `cacheHit`，用于提示高德地图配置状态、配额或故障兜底，以及是否复用缓存候选。未配置真实地图服务时，系统使用内测候选源生成贵阳本地儿童运动线下候选，候选包含来源平台、POI ID、名称、地址、城市、类目、最近校区距离、命中关键词、匹配分、建议标签、匹配理由、置信度和确认状态。候选保存决策时传入 `label`，可选值为 `direct_competitor`、`indirect_competitor`、`local_alternative`、`national_benchmark` 和 `excluded`；确认后的候选会写入竞品档案，排除候选只保留排除原因并写入审计记录。
 
@@ -1565,7 +1660,7 @@ x-brand-id: brand_demo
 }
 ```
 
-引用分析响应返回 `CitationDashboard`，包含引用总数、内容引用率、官网引用率、权威来源占比、来源类型分布、内容引用率趋势、引用来源明细和已绑定内容资产列表。引用来源按 `official_site`、`media`、`social`、`encyclopedia`、`third_party` 分类，并记录 `high`、`medium`、`low`、`unknown` 权威等级。创建引用增强策略会生成 `authority_citation` 类型内容策略，用于后续内容运营闭环。
+引用分析响应返回 `CitationDashboard`。`sampleCount` 表示符合真实回复边界的样本数，`citedSampleCount` 表示其中原始回答包含引用的样本数，`citationRate` 为两者计算得到的真实回复引用率；`totalCitations` 表示识别出的引用次数。`contentCitationRate` 保留内容资产绑定率语义，即已绑定内容资产的引用次数占总引用次数比例。响应同时包含官网引用率、权威来源占比、来源类型分布、每日真实样本数与引用率趋势、引用来源明细和已绑定内容资产列表。引用来源只保留真实回复关联记录，按 `official_site`、`media`、`social`、`encyclopedia`、`third_party` 分类，并记录 `high`、`medium`、`low`、`unknown` 权威等级；前端对空来源标题和空地址分别显示“未识别来源”和“来源地址待补充”。创建引用增强策略会生成 `authority_citation` 类型内容策略，用于后续内容运营闭环。
 
 ### 评价分析
 
@@ -1576,7 +1671,9 @@ POST /api/v1/brands/:brandId/evaluations/:issueId/knowledge
 x-brand-id: brand_demo
 ```
 
-评价分析响应返回 `EvaluationDashboard`，包含样本数、正向表达率、中性表达率、负向表达率、准确表达率、评价趋势、错误表达类型分布和表达问题列表。表达问题类型包括 `misinformation`、`missing_selling_point`、`blocked_expression`、`negative_expression` 和 `low_accuracy`，严重程度包括 `high`、`medium` 和 `low`。
+评价分析响应返回 `EvaluationDashboard`，包含样本数、正向表达率、中性表达率、负向表达率、准确表达率、评价趋势、错误表达类型分布和表达问题列表。表达问题类型包括 `misinformation`、`missing_selling_point`、`blocked_expression`、`negative_expression` 和 `low_accuracy`，严重程度包括 `high`、`medium` 和 `low`；`EvaluationIssue.userIntent` 返回监测运行关联的用户意图展示文本。前端日期范围用于筛选趋势与表达证据，平台和处理状态用于筛选表达证据，并根据当前证据重新计算问题类型数量与占比；四项摘要继续使用后端品牌整体真实样本口径。事实问题缺少问题文本时显示“事实依据缺失，请补充品牌资料或可信来源”，缺少修正表达时引导补充事实依据后人工确认。
+
+`/facts` 复用评价分析接口，并在展示层只选择 `misinformation`、`low_accuracy` 和 `blocked_expression` 三类事实风险。页面按事实风险、高风险事实、受影响用户意图、事实准确表达率、事实准确性趋势、风险分布、失真信息、证据和修正建议组织。信源、评价和事实页面在 `sampleCount=0` 时展示真实回复采集路径，在 `sampleCount` 为 1 或 2 时保留可用分析并展示补充品牌事实、标准答案与权威资料路径。
 
 表达问题列表记录原始回答片段、正确表达建议、关联平台、关联 Prompt 和处理状态。创建修正策略会生成 `correction` 类型内容策略；更新品牌知识库会将正确表达建议写入推荐表达，并在错误信息、禁用表达或负向表达场景下把原始片段写入禁用表达。
 
@@ -1616,6 +1713,8 @@ x-brand-id: brand_demo
 
 单品牌报告聚合 GEO 指数、指标解释、平台表现、优化单元表现、竞品表现、引用来源、评价分析、内容缺口、问题归因、行动建议、任务进度和数据缺口。多品牌报告聚合品牌排名、品牌对比、强势平台、薄弱场景、风险提示、交付进度、下一步动作和高优先级问题。客户交付报告使用同一聚合快照生成客户交付版 Markdown 结构。
 
+报告中心前端使用品牌级列表接口填充统一管理列表，并在选择报告或存在最新报告时调用单份详情接口刷新阅读内容。列表支持报告名称、类型、生成状态和创建日期组合筛选；品牌列和详情统一显示“当前品牌”，公开可见文本不展示 `brandId` 或报告 ID。详情区域展示报告元信息、数据缺口和 Markdown 正文。导出动作在浏览器端使用当前 `ReportRecord.content` 生成 `.md` 文件，不新增服务端导出接口或持久化记录。
+
 ### 顾问服务
 
 ```http
@@ -1647,6 +1746,21 @@ x-brand-id: brand_demo
 
 顾问工作台前端会将问题、建议、服务目标、里程碑、负责人、预期结果、完成动作、数据变化和下一步合并为结构化 Markdown 内容写入 `content` 字段。`followUpItems` 继续承载待跟进事项、负责人、截止日期和状态。
 
+顾问服务前端将 `AdvisorDashboard.records` 中的记录及其 `followUpItems` 映射为统一服务任务行。服务记录状态根据跟进事项推导为已记录、待处理、进行中或已完成；负责人和下一步优先从结构化 `content` 中提取，并回退到创建人和未完成跟进事项。跟进任务使用自身状态、负责人和截止日期，并保留所属服务记录与关联报告上下文。名称、类型、状态和服务日期筛选只作用于前端聚合结果，不改变现有 API 请求或响应结构。
+
+### 内测反馈
+
+```http
+GET /api/v1/brands/:brandId/inner-test-feedback
+POST /api/v1/brands/:brandId/inner-test-feedback
+PATCH /api/v1/brands/:brandId/inner-test-feedback/:feedbackId
+x-brand-id: brand_demo
+```
+
+创建请求包含 `page`、`module`、`type`、`severity` 和 `description`。`type` 支持 `usability`、`bug`、`copy`、`data`、`workflow`、`configuration` 和 `other`；`severity` 支持 `high`、`medium` 和 `low`，兼容未传严重程度的旧创建请求并默认保存为 `medium`。更新请求可传 `status`、`severity` 和 `resolutionNote`，其中状态支持 `open`、`triaged`、`in_progress` 和 `resolved`。
+
+列表响应返回 `InnerTestFeedbackDashboard`，包含品牌标识、反馈记录和状态计数。每条 `InnerTestFeedback` 持久化严重程度；Prisma `InnerTestFeedbackRecord.severity` 默认值为 `medium`，迁移目录为 `apps/api/prisma/migrations/20260717023000_add_feedback_severity/`。前端组合筛选在浏览器端作用于问题描述、模块、页面、类型、严重程度、状态及创建日期，继续使用现有品牌级 CRUD 路径。
+
 ### 当前用户
 
 ```http
@@ -1669,7 +1783,7 @@ GET /api/v1/permissions/audit-logs?brandId=:brandId&action=:action&resourceType=
 
 ## 前端 API 封装
 
-前端请求封装位于 `apps/web/src/api/http.ts`。
+前端请求封装位于 `当前工作区/apps/web/src/api/http.ts`。
 
 当前封装行为：
 
@@ -1677,3 +1791,253 @@ GET /api/v1/permissions/audit-logs?brandId=:brandId&action=:action&resourceType=
 - 从 Zustand 品牌上下文读取 `activeBrandId`
 - 自动设置 `x-brand-id`
 - 返回共享 `ApiResponse<T>` 类型
+
+## 前端页面骨架接口
+
+统一页面骨架位于 `当前工作区/apps/web/src/components/ProductPage.tsx`。
+
+```ts
+type ProductPageHeaderProps = {
+  title: string;
+  description: ReactNode;
+  context?: ReactNode;
+  primaryAction?: ReactNode;
+  secondaryActions?: ReactNode;
+};
+
+type ProductPageStatusSlots = {
+  loadingState?: ReactNode;
+  partialState?: ReactNode;
+  errorState?: ReactNode;
+};
+
+type ProductPageProps = ProductPageHeaderProps & ProductPageStatusSlots & {
+  children: ReactNode;
+  className?: string;
+};
+
+type ProductPageSectionProps = {
+  children: ReactNode;
+  title?: string;
+  description?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+};
+```
+
+`ProductPage` 固定按页面标题、状态反馈和主内容顺序渲染。错误、部分数据和加载插槽位于同一 `aria-live="polite"` 状态区域；`ProductPageSection` 提供内容面板、区域标题、区域说明和区域操作位置。业务页面可逐页迁移，现有路由、查询和动作组件继续作为插槽内容传入。
+
+## 前端页面状态接口
+
+统一页面状态组件位于 `当前工作区/apps/web/src/components/PageState.tsx`。
+
+```ts
+type GuidedEmptyStateProps = {
+  title: string;
+  reason: ReactNode;
+  impact: ReactNode;
+  benefit: ReactNode;
+  actionLabel: string;
+  onAction: () => void;
+  supportingText?: ReactNode;
+};
+
+type BusinessEmptyStateProps = {
+  title: string;
+  missing: string;
+  reason: string;
+  nextStep: string;
+  benefit?: ReactNode;
+  actionLabel?: string;
+  onAction?: () => void;
+  secondaryAction?: ReactNode;
+};
+
+type RegionErrorStateProps = {
+  title?: string;
+  description?: ReactNode;
+  action?: ReactNode;
+};
+
+type PageSkeletonProps = {
+  rows?: number;
+};
+
+type PartialDataNoticeProps = {
+  message?: ReactNode;
+  description: ReactNode;
+  action?: ReactNode;
+};
+```
+
+`GuidedEmptyState` 固定渲染原因、影响、完成收益和一个主操作，适用于缺少业务前置数据的页面级或区域级空态。`BusinessEmptyState` 统一渲染缺少内容、影响范围、建议下一步和可选完成收益；`EmptyState` 进入业务空态分支时会为完成收益提供默认业务文案。`RegionErrorState` 提供局部失败及重试入口，`PageSkeleton` 提供首屏结构占位，`PartialDataNotice` 表达已有部分数据可用且其余数据仍在准备中。
+
+`pageStateActionMap` 集中维护常见恢复动作：`retry` 由当前页面执行重新加载；`supplementBrandProfile` 指向 `/brand-profile`；`startMonitoring` 指向 `/monitoring`；`createContent` 指向 `/content-generation`；`recordPublishingResult` 指向 `/publishing?tab=records`。业务页面负责根据当前品牌和工作流上下文执行导航。
+
+## 前端筛选与分析组件接口
+
+统一筛选 query 位于 `当前工作区/apps/web/src/app/filterQuery.ts`，共享组件位于 `当前工作区/apps/web/src/components/`。
+
+```ts
+type UnifiedFilterValue<Status extends string = string> = {
+  search: string;
+  from?: string;
+  to?: string;
+  platform: 'all' | BeginnerFriendlyPlatform;
+  status: 'all' | Status;
+};
+
+type UnifiedFilterBarProps<Status extends string = string> = {
+  value: UnifiedFilterValue<Status>;
+  onChange: (value: UnifiedFilterValue<Status>) => void;
+  onClear?: () => void;
+  statusOptions?: readonly { value: Status; label: string }[];
+  searchPlaceholder?: string;
+  resultCount: number;
+  totalCount?: number;
+  showDateRange?: boolean;
+  showPlatform?: boolean;
+};
+
+type PlatformSwitchProps = {
+  value: 'all' | BeginnerFriendlyPlatform;
+  onChange: (value: 'all' | BeginnerFriendlyPlatform) => void;
+  includeAll?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+};
+```
+
+`readUnifiedFilterQuery` 读取并校验 `q`、`from`、`to`、`platform` 和 `status`；`mergeUnifiedFilterQuery` 只更新这五类筛选参数并保留其他 query；`clearUnifiedFilterQuery` 只清除筛选参数。页面负责通过 React Router 将返回的 search 字符串写回当前路由，hash 不参与 helper 输入，因此继续由当前 location 保留。
+
+`PlatformSwitch` 固定使用 `preferredAIPlatformOptions`，顺序为豆包、Kimi、DeepSeek、通义千问和阶跃星辰，并可在首项显示全部平台。
+
+公开显示 helper 位于 `src/utils/displayLabels.ts`。平台 code、品牌角色、负责人、内容类型和任务状态统一转换为业务标签；空值或未收录值使用“未知平台”“自定义平台”“其他负责人”“其他内容”或“未知状态”等稳定兜底，公开页面不回显内部枚举和 ID。`src/api/http.ts` 在 API 响应进入页面前过滤 provider、HTTP 状态、数据库和异常堆栈等技术错误详情，业务错误继续保留服务端返回的可执行说明。
+
+分析域在 `src/features/analysis/analysisScopeQuery.ts` 和 `src/features/analysis/components/` 提供扩展 scope 与共享页面骨架：
+
+```ts
+type AnalysisScopeValue<Status extends string = string> = UnifiedFilterValue<Status> & {
+  optimizationUnitId?: string;
+  intentId?: string;
+};
+
+type AnalysisScopeBarProps<Status extends string = string> = {
+  value: AnalysisScopeValue<Status>;
+  onChange: (value: AnalysisScopeValue<Status>) => void;
+  onClear: () => void;
+  statusOptions?: readonly UnifiedFilterOption<Status>[];
+  optimizationUnitOptions?: readonly UnifiedFilterOption[];
+  intentOptions?: readonly UnifiedFilterOption[];
+  resultCount: number;
+  totalCount?: number;
+};
+```
+
+`readAnalysisScopeQuery`、`mergeAnalysisScopeQuery` 和 `clearAnalysisScopeQuery` 统一处理 `q`、`from`、`to`、`platform`、`status`、`optimizationUnitId` 与 `intentId`。合并与清空只改动这七个参数并保留监测运行、Prompt、内容任务、发布记录等工作流 query；未知优化单元或用户意图 ID 在范围栏显示为“当前优化单元”或“当前用户意图”，避免将内部 ID 暴露为公开标签。
+
+竞品、评价、事实、信源和增长优化页面使用同一 URL scope。各页只对明细模型真实提供的字段执行过滤；缺少对应维度的聚合指标继续明确采用品牌整体真实样本口径，避免生成筛选后的推测指标。
+
+```ts
+type MetricSummaryItem = {
+  key: string;
+  label: ReactNode;
+  value: ReactNode;
+  suffix?: ReactNode;
+  description?: ReactNode;
+  status?: ReactNode;
+};
+
+type InsightOverviewProps = {
+  title: ReactNode;
+  description: ReactNode;
+  findings?: readonly ReactNode[];
+  tone?: 'neutral' | 'success' | 'warning' | 'danger';
+  toneLabel?: string;
+  actions?: ReactNode;
+  children?: ReactNode;
+};
+
+type InsightDetailSectionProps = {
+  title: ReactNode;
+  description?: ReactNode;
+  resultCount?: number;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+};
+```
+
+`MetricSummaryGrid` 支持二到五列和加载骨架。`InsightOverview` 承载关键结论、等级、发现和动作，`InsightDetailSection` 承载趋势、分布、表格或证据明细，并为宽内容提供横向滚动边界。
+
+`AnalysisWorkbench` 组合 `ProductPage`、`ProductPageSection`、`InsightOverview` 和 `InsightDetailSection`，固定输出分析范围、关键结论、趋势与分布、证据明细和建议动作。趋势或分布、证据明细可按页面数据能力省略；关键结论根据发现文本映射为需要处理、持续观察或可执行等级，建议动作继续使用现有业务路由和上下文。
+
+## 前端工作区模板接口
+
+工作区共享状态和三类页面模板位于 `当前工作区/apps/web/src/components/`。
+
+```ts
+type WorkspaceViewState = 'ready' | 'loading' | 'empty' | 'partial' | 'error';
+
+type QueryWorkspaceResource = {
+  isLoading: boolean;
+  response?: ApiResponse<unknown>;
+};
+
+type WorkspaceStateSlots = {
+  loadingState?: ReactNode;
+  emptyState?: ReactNode;
+  partialState?: ReactNode;
+  errorState?: ReactNode;
+};
+
+type CreationWorkspaceProps = WorkspaceStateSlots & {
+  configuration: ReactNode;
+  result: ReactNode;
+  configurationTitle: ReactNode;
+  resultTitle: ReactNode;
+  state?: WorkspaceViewState;
+  primaryAction?: ReactNode;
+  secondaryActions?: ReactNode;
+  mobileOrder?: 'configuration-first' | 'result-first';
+};
+
+type AssetLibraryCategory<Key extends string = string> = {
+  key: Key;
+  label: ReactNode;
+  count?: number;
+  completeness?: number;
+  status?: 'complete' | 'partial' | 'empty' | 'error';
+  disabled?: boolean;
+};
+
+type AssetLibraryProps<Key extends string = string> = WorkspaceStateSlots & {
+  categories: readonly AssetLibraryCategory<Key>[];
+  activeCategory: Key;
+  onCategoryChange: (key: Key) => void;
+  editor: ReactNode;
+  state?: WorkspaceViewState;
+  completeness?: number;
+  mobileOrder?: 'navigation-first' | 'editor-first';
+};
+
+type ManagementListPageProps<RecordType extends object> = WorkspaceStateSlots & {
+  title: string;
+  description: ReactNode;
+  summary?: ReactNode;
+  filters?: ReactNode;
+  tableProps: TableProps<RecordType>;
+  state?: WorkspaceViewState;
+};
+
+type ManagementPrimaryActions =
+  | readonly []
+  | readonly [ReactNode]
+  | readonly [ReactNode, ReactNode];
+```
+
+`getWorkspaceStateVisibility` 让 `ready` 和 `partial` 保留真实内容；`loading`、`empty` 和 `error` 分别切换到对应状态区域。`getQueryGroupWorkspaceState(resources, hasContent)` 汇总多查询结果：没有成功结果且仍在加载时返回 `loading`，没有成功结果且存在失败时返回 `error`，已有成功结果且仍有加载或失败时返回 `partial`，全部成功后按 `hasContent` 返回 `ready` 或 `empty`。`normalizeCompleteness` 将有限数字四舍五入并限制到 `0-100`，缺省值和非有限数字不显示完整度。
+
+`CreationWorkspace` 始终保留配置区，只切换结果区状态。`AssetLibrary` 始终保留分类导航和完整度摘要，只切换编辑区状态。`ManagementListPage` 在加载状态保留 Table 最终结构，在空态使用 `emptyState` 作为 Table 空内容，在错误状态隐藏表格并保留页面级上下文。
+
+`ManagementRowActions` 接受最多两个 `primaryActions`，低频操作通过 `moreAction` 提供。三个模板均提供区域 aria 标签、状态播报和移动端内容顺序配置。

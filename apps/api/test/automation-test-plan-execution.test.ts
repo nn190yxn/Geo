@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { AutomationOrchestratorService } from '../src/modules/automation/automation-orchestrator.service';
 import { AutomationRepository } from '../src/modules/automation/automation.repository';
@@ -99,7 +99,7 @@ describe('Automation test plan execution', () => {
     expect(executionStep?.message).toContain('手动处理 1 个');
   });
 
-  it('requires confirmation instead of generating fake browser answers', () => {
+  it('queues a traceable browser run without generating fake answers', () => {
     const harness = createHarness();
     const plan = harness.permissionsRepository.createTestPlan('user_demo', 'brand_demo', {
       name: '浏览器真实回填计划',
@@ -122,35 +122,24 @@ describe('Automation test plan execution', () => {
 
     const executed = harness.service.executeTestPlan('user_demo', 'brand_demo', automationPackage.packageId);
 
-    expect(executed).toEqual(expect.objectContaining({ status: 'waiting_confirmation', currentStep: 'test_plan_execution' }));
-    expect(executed.confirmations).toContainEqual(
-      expect.objectContaining({
-        type: 'manual_test_required',
-        status: 'pending',
-        payload: expect.objectContaining({
-          blockingSteps: [expect.objectContaining({
-            platformCode: 'kimi',
-            status: 'needs_confirmation',
-            message: expect.stringContaining('尚未接入真实回答回填')
-          })]
-        })
-      })
-    );
+    expect(executed).toEqual(expect.objectContaining({ status: 'running', currentStep: 'test_plan_execution' }));
+    expect(executed.confirmations).toEqual([]);
     expect(executed.stepSummaries).toContainEqual(
       expect.objectContaining({
         code: 'test_plan_execution',
-        status: 'waiting_confirmation',
-        message: expect.stringContaining('浏览器队列 0 个')
+        status: 'running',
+        message: expect.stringContaining('浏览器队列 1 个')
       })
     );
     expect(executed.stepSummaries).toContainEqual(
       expect.objectContaining({ code: 'answer_analysis', status: 'pending' })
     );
-    expect(harness.permissionsRepository.listTestPlans('user_demo', 'brand_demo')?.find((item) => item.id === plan?.id)?.monitoringRunIds).toEqual([]);
-    expect(() => harness.confirmationQueue.resolveConfirmation('user_demo', 'brand_demo', executed.packageId, executed.confirmations[0]?.confirmationId ?? '', {
-      action: 'approve',
-      decision: '确认继续'
-    })).toThrow(BadRequestException);
+    const runIds = harness.permissionsRepository.listTestPlans('user_demo', 'brand_demo')?.find((item) => item.id === plan?.id)?.monitoringRunIds ?? [];
+    expect(runIds).toHaveLength(1);
+    expect(harness.permissionsRepository.getMonitoringRun('user_demo', 'brand_demo', runIds[0] ?? '')).toMatchObject({
+      platformCode: 'kimi',
+      status: 'review_required'
+    });
   });
 
   it('requires a related test plan before executing', () => {

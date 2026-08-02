@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PermissionsRepository } from '../src/modules/permissions/permissions.repository';
 
-function createCompletedRun(repository: PermissionsRepository, rawText: string, citations: string[] = []) {
-  repository.saveBrandProfile('user_demo', 'brand_demo', {
+function createCompletedRun(repository: PermissionsRepository, rawText: string, citations: string[] = [], brandId = 'brand_demo') {
+  repository.saveBrandProfile('user_demo', brandId, {
     intro: '追光小牛是贵阳儿童运动成长连锁品牌',
     valueProps: ['ACE 成长体系', '科学运动改造大脑'],
     offerings: ['快乐体操', '少儿跑酷'],
@@ -14,12 +14,12 @@ function createCompletedRun(repository: PermissionsRepository, rawText: string, 
     competitors: ['竞品A', '竞品B'],
     faqs: [{ question: '适合谁', answer: '贵阳儿童家庭' }]
   });
-  const unit = repository.createOptimizationUnit('user_demo', 'brand_demo', {
+  const unit = repository.createOptimizationUnit('user_demo', brandId, {
     name: '贵阳儿童运动成长推荐',
     type: 'brand',
     priority: 'high'
   });
-  const intent = repository.createUserIntent('user_demo', 'brand_demo', {
+  const intent = repository.createUserIntent('user_demo', brandId, {
     optimizationUnitId: unit?.id ?? '',
     category: 'category_recommendation',
     text: '选择儿童运动成长机构',
@@ -32,16 +32,16 @@ function createCompletedRun(repository: PermissionsRepository, rawText: string, 
     platformCodes: ['manual_input'],
     frequency: 'manual'
   });
-  const prompts = repository.batchGenerateBrandPrompts('user_demo', 'brand_demo', {
+  const prompts = repository.batchGenerateBrandPrompts('user_demo', brandId, {
     templateId: template.id,
     intentIds: [intent?.id ?? '']
   });
-  const run = repository.createMonitoringRun('user_demo', 'brand_demo', {
+  const run = repository.createMonitoringRun('user_demo', brandId, {
     promptId: prompts?.[0].id ?? '',
     platformCode: 'manual_input'
   });
 
-  return repository.addManualResponse('user_demo', 'brand_demo', run?.id ?? '', {
+  return repository.addManualResponse('user_demo', brandId, run?.id ?? '', {
     rawText,
     citations,
     modelName: 'manual'
@@ -176,12 +176,19 @@ describe('analysis result repository', () => {
 
   it('generates a growth optimization plan from weak analysis results', () => {
     const repository = new PermissionsRepository();
-    const missingBrandRun = createCompletedRun(repository, '竞品A是贵阳儿童运动训练推荐，覆盖基础训练。');
-    const riskRun = createCompletedRun(repository, '竞品A覆盖基础训练。追光小牛保证长高，适合贵阳儿童家庭。');
-    repository.parseAnalysisResult('user_demo', 'brand_demo', missingBrandRun?.id ?? '');
-    repository.parseAnalysisResult('user_demo', 'brand_demo', riskRun?.id ?? '');
+    const brand = repository.createBrand('user_demo', {
+      name: '增长计划测试品牌',
+      industry: '儿童运动',
+      businessScope: '儿童运动成长服务',
+      targetAudience: '儿童家庭'
+    });
+    const brandId = brand?.brandId ?? '';
+    const missingBrandRun = createCompletedRun(repository, '竞品A是贵阳儿童运动训练推荐，覆盖基础训练。', [], brandId);
+    const riskRun = createCompletedRun(repository, '竞品A覆盖基础训练。追光小牛保证长高，适合贵阳儿童家庭。', [], brandId);
+    repository.parseAnalysisResult('user_demo', brandId, missingBrandRun?.id ?? '');
+    repository.parseAnalysisResult('user_demo', brandId, riskRun?.id ?? '');
 
-    const plan = repository.generateGrowthOptimizationPlan('user_demo', 'brand_demo');
+    const plan = repository.generateGrowthOptimizationPlan('user_demo', brandId);
     const reasonTypes = plan?.reasons.map((reason) => reason.type) ?? [];
 
     expect(plan?.priority).toBe('high');
@@ -191,7 +198,7 @@ describe('analysis result repository', () => {
     expect(reasonTypes).toContain('competitor_stronger');
     expect(reasonTypes).toContain('risk_expression');
     expect(plan?.contentRecommendations.map((item) => item.contentType)).toEqual(expect.arrayContaining(['website_faq', 'wechat_article', 'platform_profile_copy']));
-    expect(repository.getGrowthOptimizationWorkspace('user_demo', 'brand_demo')?.currentPlan?.id).toBe(plan?.id);
+    expect(repository.getGrowthOptimizationWorkspace('user_demo', brandId)?.currentPlan?.id).toBe(plan?.id);
   });
 
   it('confirms a growth optimization plan and creates executable tasks once', () => {

@@ -18,6 +18,8 @@ import {
 } from './report-renderer';
 import { buildAnalysisResultFields, pickSentence } from './analysis-result-builder';
 import { getMissingApiConfigMessage, getModeValidationMessage } from '../platforms/platform-validation-message';
+import { hasRealMonitoringResponse } from '../monitoring/real-monitoring-response';
+import { applyBrowserConnectionEvent } from '../platforms/browser-session-state';
 import type {
   AccessibleBrand,
   AdvisorDashboard,
@@ -34,6 +36,11 @@ import type {
   BrandProfileCompleteness,
   BrandProfileCompletenessPrompt,
   BrandProfileInput,
+  BrandProfileLibrary,
+  BrandProfileLibraryInput,
+  BrandProfileLibrarySection,
+  BrandMediaAsset,
+  BrandMediaAssetInput,
   BrandStandardAnswer,
   BrandStandardAnswerEvidence,
   BrandStandardAnswerInput,
@@ -61,6 +68,10 @@ import type {
   AnalysisResult,
   AnalysisResultInput,
   AnalysisSentiment,
+  AnalysisFinding,
+  AnalysisFindingInput,
+  AnalysisRecommendedAction,
+  AnalysisWorkbenchDashboard,
   Competitor,
   CompetitorCandidate,
   CompetitorCandidateConfirmationResult,
@@ -87,6 +98,7 @@ import type {
   ContentAsset,
   ContentAssetFilter,
   ContentAssetInput,
+  ContentAssetPageItem,
   ContentCenterDashboard,
   ContentExportRecord,
   ContentGenerationCompletionInput,
@@ -143,12 +155,18 @@ import type {
   PublishingAccountInput,
   PublishingAuthStatus,
   PublishingDashboard,
+  PublishingExecutionStatusInput,
+  PublishingMode,
+  PublishingModeInput,
+  PublishingChannelStats,
+  OwnedMediaAccount,
+  MediaPlatformRule,
+  MediaPlatformRuleInput,
   PromptTemplate,
   PromptTemplateInput,
   PublishingRecord,
   PublishingRecordInput,
   PublishingRecordStatus,
-  PublishingStatusInput,
   OptimizationTask,
   OptimizationTaskInput,
   OptimizationTaskStatus,
@@ -331,6 +349,7 @@ const permissions: UserBrandPermission[] = [
 
 const profiles = new Map<BrandId, BrandProfile>();
 const knowledgeSources: KnowledgeSource[] = [];
+const brandMediaAssets: BrandMediaAsset[] = [];
 const optimizationUnits: OptimizationUnit[] = [];
 const testThemes: TestTheme[] = [];
 const testQuestionCandidates: TestQuestionCandidate[] = [];
@@ -379,6 +398,8 @@ const contentVersions: ContentVersion[] = [];
 const contentExportRecords: ContentExportRecord[] = [];
 const publishingAccounts: PublishingAccount[] = [];
 const publishingRecords: PublishingRecord[] = [];
+const mediaPlatformRules: MediaPlatformRule[] = [];
+const analysisFindings: AnalysisFinding[] = [];
 const optimizationTasks: OptimizationTask[] = [];
 const growthOptimizationPlans: GrowthOptimizationPlan[] = [];
 const reports: ReportRecord[] = [];
@@ -447,6 +468,32 @@ profiles.set('brand_demo', {
   completenessScore: 100,
   missingFields: [],
   completenessPrompts: [],
+  updatedAt: now
+});
+
+knowledgeSources.push({
+  id: 'knowledge_demo_brand_profile',
+  brandId: 'brand_demo',
+  name: '追光小牛品牌核心资料',
+  sourceType: 'webpage',
+  sourceUrl: 'https://example.com/supercalf-brand-profile',
+  status: 'completed',
+  createdAt: now,
+  updatedAt: now
+});
+
+brandMediaAssets.push({
+  id: 'media_asset_demo_homepage',
+  brandId: 'brand_demo',
+  title: '追光小牛品牌核心档案',
+  assetType: 'content_asset',
+  applicablePlatforms: ['website', 'wechat_official'],
+  contentUsage: '品牌介绍、课程体系和家长决策内容',
+  source: '品牌内容资产',
+  reviewStatus: 'approved',
+  relatedContentTaskId: 'generation_demo_gap',
+  sourceUrl: 'https://example.com/supercalf-brand-profile',
+  createdAt: now,
   updatedAt: now
 });
 
@@ -745,6 +792,55 @@ evaluationIssues.push({
   updatedAt: now
 });
 
+analysisFindings.push(
+  {
+    id: 'finding_demo_competitor_difference',
+    brandId: 'brand_demo',
+    type: 'competitor',
+    title: '竞品差异内容需要持续补强',
+    optimizationUnitId: 'unit_demo_core',
+    userIntent: '贵阳有哪些适合 2-14 岁孩子的儿童运动成长机构？',
+    evidence: ['现有品牌资料已记录 ACE 成长体系、数据化体测和家校服务等差异点'],
+    severity: 'high',
+    recommendedActions: [{ actionType: 'generate_content', label: '生成竞品差异内容', targetId: 'strategy_demo_gap' }],
+    relatedTaskId: 'task_demo_content_gap'
+  },
+  {
+    id: 'finding_demo_risk_expression',
+    brandId: 'brand_demo',
+    type: 'evaluation',
+    title: '敏感效果表达需要统一',
+    optimizationUnitId: 'unit_demo_core',
+    userIntent: '贵阳儿童增高体能课怎么选？',
+    evidence: ['品牌资料要求身高、感统和中考达标相关内容使用审慎表达'],
+    severity: 'medium',
+    recommendedActions: [{ actionType: 'update_knowledge', label: '补充审慎表达资料', targetId: 'brand_demo' }],
+    relatedTaskId: 'task_demo_growth_profile'
+  },
+  {
+    id: 'finding_demo_source_coverage',
+    brandId: 'brand_demo',
+    type: 'citation',
+    title: '品牌事实需要更多权威信源覆盖',
+    optimizationUnitId: 'unit_demo_core',
+    evidence: ['当前资料库已收录品牌核心档案，课程 FAQ 和校区案例仍可继续补充'],
+    severity: 'medium',
+    recommendedActions: [{ actionType: 'generate_content', label: '生成可引用 FAQ', targetId: 'generation_demo_gap' }],
+    relatedTaskId: 'task_demo_growth_publish'
+  },
+  {
+    id: 'finding_demo_fact_review',
+    brandId: 'brand_demo',
+    type: 'fact',
+    title: '效果类事实需要保留核验材料',
+    optimizationUnitId: 'unit_demo_core',
+    evidence: ['体测变化和训练案例应关联训练周期、体测报告或家长反馈'],
+    severity: 'medium',
+    recommendedActions: [{ actionType: 'update_knowledge', label: '补充事实核验材料', targetId: 'brand_demo' }],
+    relatedTaskId: 'task_demo_growth_profile'
+  }
+);
+
 growthOptimizationPlans.push({
   id: 'growth_plan_demo_supercalf',
   brandId: 'brand_demo',
@@ -855,11 +951,35 @@ publishingAccounts.push({
   platform: 'wechat_official',
   accountName: '追光小牛公众号',
   loginMode: 'manual',
+  publishingMode: 'assisted',
   authStatus: 'connected',
   lastAuthorizedAt: now,
   createdAt: now,
   updatedAt: now
 });
+
+mediaPlatformRules.push(
+  {
+    brandId: 'brand_demo',
+    platform: 'wechat_official',
+    name: '公众号',
+    contentFormats: ['长图文', '课程 FAQ', '家长案例'],
+    intentFit: '品牌知识沉淀与家长决策说明',
+    recommendedFrequency: '每周 1-2 篇',
+    coverRatio: '2.35:1',
+    publishingNote: '标题突出本地场景，正文引用课程体系和真实证据'
+  },
+  {
+    brandId: 'brand_demo',
+    platform: 'website',
+    name: '品牌官网',
+    contentFormats: ['品牌介绍', '课程 FAQ', '校区案例'],
+    intentFit: '沉淀可引用的品牌事实和课程资料',
+    recommendedFrequency: '每月更新 2-4 次',
+    coverRatio: '16:9',
+    publishingNote: '页面保留清晰标题、更新时间和可核验来源'
+  }
+);
 
 publishingAccounts.push({
   id: 'publishing_account_demo_website',
@@ -867,6 +987,7 @@ publishingAccounts.push({
   platform: 'website',
   accountName: '追光小牛官网内容位',
   loginMode: 'manual',
+  publishingMode: 'manual',
   authStatus: 'connected',
   lastAuthorizedAt: now,
   createdAt: now,
@@ -884,6 +1005,7 @@ publishingRecords.push({
   body: '# 贵阳家长如何选择儿童运动成长机构\n\n追光小牛内测内容草稿，用于验证 AI 平台是否准确理解品牌定位、ACE 体系、课程矩阵和真实背书。',
   platform: 'wechat_official',
   accountName: '追光小牛公众号',
+  publishingMode: 'assisted',
   status: 'draft',
   createdAt: now,
   updatedAt: now
@@ -1268,6 +1390,125 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     profiles.set(brandId, profile);
 
     return profile;
+  }
+
+  getBrandProfileLibrary(userId: string, brandId: BrandId): BrandProfileLibrary | null {
+    const brand = this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) {
+      return null;
+    }
+
+    const profile = profiles.get(brandId) ?? createEmptyProfile(brandId);
+    const scopedKnowledgeSources = knowledgeSources.filter((source) => source.brandId === brandId);
+    const scopedMediaAssets = brandMediaAssets.filter((asset) => asset.brandId === brandId);
+    const scopedContentAssets = contentAssets.filter((asset) => asset.brandId === brandId);
+    const scopedPublishingAccounts = publishingAccounts.filter((account) => account.brandId === brandId);
+    const scopedCompetitors = competitors.filter((competitor) => competitor.brandId === brandId);
+
+    return {
+      brandId,
+      profile,
+      sections: buildBrandProfileLibrarySections(
+        brand,
+        profile,
+        scopedKnowledgeSources,
+        scopedMediaAssets,
+        scopedPublishingAccounts,
+        scopedCompetitors
+      ),
+      knowledgeSources: scopedKnowledgeSources,
+      mediaAssets: scopedMediaAssets,
+      contentAssets: scopedContentAssets,
+      publishingAccounts: scopedPublishingAccounts,
+      competitors: scopedCompetitors,
+      updatedAt: [
+        profile.updatedAt,
+        ...scopedKnowledgeSources.map((item) => item.updatedAt),
+        ...scopedMediaAssets.map((item) => item.updatedAt),
+        ...scopedContentAssets.map((item) => item.updatedAt),
+        ...scopedPublishingAccounts.map((item) => item.updatedAt),
+        ...scopedCompetitors.map((item) => item.updatedAt)
+      ].sort((left, right) => right.localeCompare(left))[0] ?? brand.updatedAt
+    };
+  }
+
+  saveBrandProfileLibrary(userId: string, brandId: BrandId, input: BrandProfileLibraryInput): BrandProfileLibrary | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    if (input.profile && !this.saveBrandProfile(userId, brandId, input.profile)) {
+      return null;
+    }
+
+    return this.getBrandProfileLibrary(userId, brandId);
+  }
+
+  listBrandMediaAssets(userId: string, brandId: BrandId): BrandMediaAsset[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    return brandMediaAssets.filter((asset) => asset.brandId === brandId);
+  }
+
+  createBrandMediaAsset(userId: string, brandId: BrandId, input: BrandMediaAssetInput): BrandMediaAsset | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    const title = input.title?.trim();
+    if (!title || (input.relatedContentTaskId && !contentGenerationTasks.some(
+      (task) => task.brandId === brandId && task.id === input.relatedContentTaskId
+    ))) {
+      return null;
+    }
+
+    const timestamp = new Date().toISOString();
+    const asset: BrandMediaAsset = {
+      id: `media_asset_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      brandId,
+      title,
+      assetType: input.assetType ?? 'image',
+      applicablePlatforms: normalizeUniqueStringList(input.applicablePlatforms ?? []),
+      contentUsage: input.contentUsage?.trim() ?? '',
+      source: input.source?.trim() ?? '',
+      reviewStatus: input.reviewStatus ?? 'pending',
+      relatedContentTaskId: input.relatedContentTaskId,
+      sourceUrl: input.sourceUrl?.trim() || undefined,
+      fileRef: input.fileRef?.trim() || undefined,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+
+    brandMediaAssets.unshift(asset);
+    return asset;
+  }
+
+  updateBrandMediaAsset(userId: string, brandId: BrandId, assetId: string, input: BrandMediaAssetInput): BrandMediaAsset | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    const asset = brandMediaAssets.find((item) => item.brandId === brandId && item.id === assetId);
+    if (!asset || input.title?.trim() === '' || (input.relatedContentTaskId && !contentGenerationTasks.some(
+      (task) => task.brandId === brandId && task.id === input.relatedContentTaskId
+    ))) {
+      return null;
+    }
+
+    if (input.title !== undefined) asset.title = input.title.trim();
+    if (input.assetType !== undefined) asset.assetType = input.assetType;
+    if (input.applicablePlatforms !== undefined) asset.applicablePlatforms = normalizeUniqueStringList(input.applicablePlatforms);
+    if (input.contentUsage !== undefined) asset.contentUsage = input.contentUsage.trim();
+    if (input.source !== undefined) asset.source = input.source.trim();
+    if (input.reviewStatus !== undefined) asset.reviewStatus = input.reviewStatus;
+    if (input.relatedContentTaskId !== undefined) asset.relatedContentTaskId = input.relatedContentTaskId;
+    if (input.sourceUrl !== undefined) asset.sourceUrl = input.sourceUrl.trim() || undefined;
+    if (input.fileRef !== undefined) asset.fileRef = input.fileRef.trim() || undefined;
+    asset.updatedAt = new Date().toISOString();
+
+    return asset;
   }
 
   listKnowledgeSources(userId: string, brandId: BrandId): KnowledgeSource[] | null {
@@ -1877,11 +2118,11 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       id: `browser_session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       brandId,
       platformCode: input.platformCode,
-      status: 'opening',
+      status: 'login_required',
       loginDetected: false,
       authorizedScope: buildBrowserAuthorizedScope(brandId, input.platformCode, input.testPlanId),
-      lastOperation: 'open_login_page',
-      lastMessage: '正在打开浏览器登录页。',
+      lastOperation: 'await_user_login',
+      lastMessage: '请在官方平台登录，完成后回到这里确认。',
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -1901,13 +2142,10 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       return null;
     }
 
-    session.status = input.status;
-    if (input.loginDetected !== undefined) session.loginDetected = input.loginDetected;
-    if (input.lastOperation !== undefined) session.lastOperation = input.lastOperation;
-    if (input.lastIssueType !== undefined) session.lastIssueType = input.lastIssueType;
-    if (input.lastMessage !== undefined) session.lastMessage = input.lastMessage;
-    if (input.lastAvailableAt !== undefined) session.lastAvailableAt = input.lastAvailableAt;
-    session.updatedAt = new Date().toISOString();
+    Object.assign(session, applyBrowserConnectionEvent(session, input));
+    if (session.lastIssueType === undefined) {
+      delete session.lastIssueType;
+    }
 
     return session;
   }
@@ -2668,7 +2906,17 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       return null;
     }
 
-    const sources = this.syncCitationSources(brand).filter((source) => source.brandId === brandId);
+    const samples = this.getAnalysisSamples(brandId);
+    const sampleResponseIds = new Set(samples.map((sample) => sample.analysis.responseId));
+    const sources = this.syncCitationSources(brand).filter((source) => source.brandId === brandId && sampleResponseIds.has(source.responseId));
+    const citationSamples = samples.map((sample) => {
+      const response = aiResponses.find((item) => item.id === sample.analysis.responseId);
+      return {
+        date: response?.respondedAt.slice(0, 10) ?? sample.analysis.updatedAt.slice(0, 10),
+        cited: (response?.citations.length ?? 0) > 0
+      };
+    });
+    const citedSampleCount = citationSamples.filter((sample) => sample.cited).length;
     const totalCitations = sources.reduce((sum, source) => sum + source.citationCount, 0);
     const contentCitationCount = sources
       .filter((source) => Boolean(source.contentAssetId))
@@ -2682,12 +2930,15 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
 
     return {
       brandId,
+      sampleCount: samples.length,
+      citedSampleCount,
+      citationRate: samples.length === 0 ? 0 : clampScore((citedSampleCount / samples.length) * 100),
       totalCitations,
       contentCitationRate: totalCitations === 0 ? 0 : clampScore((contentCitationCount / totalCitations) * 100),
       officialCitationRate: totalCitations === 0 ? 0 : clampScore((officialCitationCount / totalCitations) * 100),
       authoritySourceRate: totalCitations === 0 ? 0 : clampScore((authorityCitationCount / totalCitations) * 100),
       sourceTypeBreakdown: buildCitationTypeBreakdown(sources, totalCitations),
-      trend: buildCitationTrend(sources),
+      trend: buildCitationTrend(sources, citationSamples),
       sources,
       contentAssets: contentAssets.filter((asset) => asset.brandId === brandId)
     };
@@ -2796,6 +3047,90 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       trend: buildEvaluationTrend(samples),
       issueTypeBreakdown: buildEvaluationIssueBreakdown(issues),
       issues
+    };
+  }
+
+  listAnalysisFindings(userId: string, brandId: BrandId): AnalysisFinding[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    return analysisFindings.filter((finding) => finding.brandId === brandId);
+  }
+
+  createAnalysisFinding(userId: string, brandId: BrandId, input: AnalysisFindingInput): AnalysisFinding | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId) || !isValidAnalysisFindingRelation(brandId, input)) {
+      return null;
+    }
+
+    const title = input.title.trim();
+    if (!title) {
+      return null;
+    }
+
+    const finding: AnalysisFinding = {
+      id: `finding_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      brandId,
+      ...input,
+      title,
+      userIntent: input.userIntent?.trim() || undefined,
+      platformCode: input.platformCode?.trim() || undefined,
+      evidence: normalizeUniqueStringList(input.evidence),
+      recommendedActions: input.recommendedActions.map((action) => ({
+        ...action,
+        label: action.label.trim(),
+        targetId: action.targetId?.trim() || undefined
+      }))
+    };
+
+    analysisFindings.unshift(finding);
+    return finding;
+  }
+
+  updateAnalysisFinding(
+    userId: string,
+    brandId: BrandId,
+    findingId: string,
+    input: Partial<AnalysisFindingInput>
+  ): AnalysisFinding | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId) || !isValidAnalysisFindingRelation(brandId, input)) {
+      return null;
+    }
+
+    const finding = analysisFindings.find((item) => item.brandId === brandId && item.id === findingId);
+    if (!finding || input.title?.trim() === '') {
+      return null;
+    }
+
+    if (input.type !== undefined) finding.type = input.type;
+    if (input.title !== undefined) finding.title = input.title.trim();
+    if (input.optimizationUnitId !== undefined) finding.optimizationUnitId = input.optimizationUnitId;
+    if (input.userIntent !== undefined) finding.userIntent = input.userIntent.trim() || undefined;
+    if (input.platformCode !== undefined) finding.platformCode = input.platformCode.trim() || undefined;
+    if (input.evidence !== undefined) finding.evidence = normalizeUniqueStringList(input.evidence);
+    if (input.severity !== undefined) finding.severity = input.severity;
+    if (input.recommendedActions !== undefined) {
+      finding.recommendedActions = input.recommendedActions.map((action) => ({
+        ...action,
+        label: action.label.trim(),
+        targetId: action.targetId?.trim() || undefined
+      }));
+    }
+    if (input.relatedTaskId !== undefined) finding.relatedTaskId = input.relatedTaskId;
+
+    return finding;
+  }
+
+  getAnalysisWorkbenchDashboard(userId: string, brandId: BrandId): AnalysisWorkbenchDashboard | null {
+    const findings = this.listAnalysisFindings(userId, brandId);
+    if (!findings) {
+      return null;
+    }
+
+    return {
+      brandId,
+      findings,
+      recommendedActions: dedupeAnalysisRecommendedActions(findings.flatMap((finding) => finding.recommendedActions))
     };
   }
 
@@ -2913,6 +3248,71 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
         (!filter.status || asset.status === filter.status) &&
         (!filter.keyword || asset.targetKeywords.some((keyword) => keyword.includes(filter.keyword as string)));
     });
+  }
+
+  listContentAssetPageItems(userId: string, brandId: BrandId, filter: ContentAssetFilter = {}): ContentAssetPageItem[] | null {
+    const assets = this.listContentAssets(userId, brandId, filter);
+    if (!assets) {
+      return null;
+    }
+
+    return assets.map((asset) => this.buildContentAssetPageItem(brandId, asset));
+  }
+
+  private buildContentAssetPageItem(brandId: BrandId, asset: ContentAsset): ContentAssetPageItem {
+    const records = publishingRecords
+      .filter((record) => record.brandId === brandId && record.contentAssetId === asset.id)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const citations = citationSources.filter(
+      (citation) => citation.brandId === brandId && citation.contentAssetId === asset.id
+    );
+    const generationTaskIds = new Set(records.flatMap((record) => record.generationTaskId ? [record.generationTaskId] : []));
+    const relatedTasks = contentGenerationTasks.filter(
+      (task) => task.brandId === brandId && generationTaskIds.has(task.id)
+    );
+    const relatedStrategies = contentStrategies.filter(
+      (strategy) => strategy.brandId === brandId && relatedTasks.some((task) => task.strategyId === strategy.id)
+    );
+    const relatedGrowthPlanIds = new Set(relatedTasks.flatMap(
+      (task) => task.growthOptimizationPlanId ? [task.growthOptimizationPlanId] : []
+    ));
+    const relatedIntentIds = new Set(relatedStrategies.flatMap((strategy) => strategy.intentId ? [strategy.intentId] : []));
+    const relatedIntent = userIntents.find((intent) => intent.brandId === brandId && relatedIntentIds.has(intent.id));
+    const relatedStrategyIds = new Set(relatedStrategies.map((strategy) => strategy.id));
+    const retestTask = optimizationTasks.find(
+      (task) => task.brandId === brandId &&
+        ((task.strategyId && relatedStrategyIds.has(task.strategyId)) ||
+          (task.growthOptimizationPlanId && relatedGrowthPlanIds.has(task.growthOptimizationPlanId))) &&
+        (task.retestPlanAt || task.retestRecords.length > 0)
+    );
+    const latestRetestRecord = retestTask?.retestRecords
+      .slice()
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    const latestPublishingStatus = records[0]?.status;
+
+    return {
+      ...asset,
+      optimizationUnitId: relatedStrategies.find((strategy) => strategy.optimizationUnitId)?.optimizationUnitId,
+      userIntent: relatedIntent?.text,
+      sourceReferences: citations.map((citation) => ({
+        type: 'citation' as const,
+        title: citation.title,
+        url: citation.url
+      })),
+      reviewStatus: asset.status === 'published' ? 'approved' : 'pending',
+      publishStatus: latestPublishingStatus === 'queued' || latestPublishingStatus === 'publishing'
+        ? 'pending'
+        : latestPublishingStatus ?? (asset.status === 'published' ? 'published' : 'not_started'),
+      retestPlanId: latestRetestRecord?.id ?? (retestTask?.retestPlanAt ? retestTask.id : undefined),
+      publishingStats: {
+        brandId,
+        totalRecords: records.length,
+        publishedRecords: records.filter((record) => record.status === 'published').length,
+        failedRecords: records.filter((record) => record.status === 'failed').length,
+        citationCount: citations.reduce((sum, citation) => sum + citation.citationCount, 0),
+        relatedIntentCount: relatedIntentIds.size
+      }
+    };
   }
 
   createContentAsset(userId: string, brandId: BrandId, input: ContentAssetInput): ContentAsset | null {
@@ -3537,6 +3937,100 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     };
   }
 
+  listOwnedMediaAccounts(userId: string, brandId: BrandId): OwnedMediaAccount[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    return publishingAccounts
+      .filter((account) => account.brandId === brandId)
+      .map((account) => ({
+        ...account,
+        platformName: getPublishingPlatformName(account.platform),
+        stats: buildPublishingChannelStats(
+          brandId,
+          account.platform,
+          publishingRecords.filter((record) => record.brandId === brandId && record.accountId === account.id)
+        )
+      }));
+  }
+
+  listMediaPlatformRules(userId: string, brandId: BrandId): MediaPlatformRule[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    return mediaPlatformRules.filter((rule) => rule.brandId === brandId);
+  }
+
+  createMediaPlatformRule(userId: string, brandId: BrandId, input: MediaPlatformRuleInput): MediaPlatformRule | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    const platform = input.platform.trim();
+    const name = input.name.trim();
+    if (!platform || !name || mediaPlatformRules.some((rule) => rule.brandId === brandId && rule.platform === platform)) {
+      return null;
+    }
+
+    const rule: MediaPlatformRule = {
+      brandId,
+      platform,
+      name,
+      contentFormats: normalizeUniqueStringList(input.contentFormats),
+      intentFit: input.intentFit.trim(),
+      recommendedFrequency: input.recommendedFrequency.trim(),
+      coverRatio: input.coverRatio.trim(),
+      publishingNote: input.publishingNote.trim()
+    };
+
+    mediaPlatformRules.push(rule);
+    return rule;
+  }
+
+  updateMediaPlatformRule(
+    userId: string,
+    brandId: BrandId,
+    platform: string,
+    input: Partial<MediaPlatformRuleInput>
+  ): MediaPlatformRule | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    const rule = mediaPlatformRules.find((item) => item.brandId === brandId && item.platform === platform);
+    if (!rule || input.name?.trim() === '') {
+      return null;
+    }
+
+    if (input.name !== undefined) rule.name = input.name.trim();
+    if (input.contentFormats !== undefined) rule.contentFormats = normalizeUniqueStringList(input.contentFormats);
+    if (input.intentFit !== undefined) rule.intentFit = input.intentFit.trim();
+    if (input.recommendedFrequency !== undefined) rule.recommendedFrequency = input.recommendedFrequency.trim();
+    if (input.coverRatio !== undefined) rule.coverRatio = input.coverRatio.trim();
+    if (input.publishingNote !== undefined) rule.publishingNote = input.publishingNote.trim();
+    return rule;
+  }
+
+  getPublishingChannelStats(userId: string, brandId: BrandId): PublishingChannelStats[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+      return null;
+    }
+
+    const records = publishingRecords.filter((record) => record.brandId === brandId);
+    const platforms = new Set([
+      ...publishingAccounts.filter((account) => account.brandId === brandId).map((account) => account.platform),
+      ...records.map((record) => record.platform)
+    ]);
+
+    return Array.from(platforms).map((platform) => buildPublishingChannelStats(
+      brandId,
+      platform,
+      records.filter((record) => record.platform === platform)
+    ));
+  }
+
   connectPublishingAccount(userId: string, brandId: BrandId, input: PublishingAccountInput): PublishingAccount | null {
     if (!this.findAccessibleBrandDetail(userId, brandId)) {
       return null;
@@ -3554,6 +4048,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       platform: normalized.platform,
       accountName: normalized.accountName,
       loginMode: normalized.loginMode ?? inferPublishingLoginMode(normalized.platform),
+      publishingMode: normalized.publishingMode ?? 'manual',
       authStatus: normalized.authStatus ?? 'connected',
       errorMessage: normalized.errorMessage,
       lastAuthorizedAt: normalized.authStatus === 'error' ? undefined : timestamp,
@@ -3604,6 +4099,15 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     return account;
   }
 
+  updatePublishingAccountMode(userId: string, brandId: BrandId, accountId: string, input: PublishingModeInput): PublishingAccount | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    const account = publishingAccounts.find((item) => item.brandId === brandId && item.id === accountId);
+    if (!account) return null;
+    account.publishingMode = normalizePublishingMode(input.publishingMode);
+    account.updatedAt = new Date().toISOString();
+    return account;
+  }
+
   createPublishingRecord(userId: string, brandId: BrandId, input: PublishingRecordInput): PublishingRecord | null {
     if (!this.findAccessibleBrandDetail(userId, brandId)) {
       return null;
@@ -3645,6 +4149,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       body: input.body?.trim() || version?.body || '',
       platform: input.targetPlatform?.trim() || account?.platform || asset.platform,
       accountName: account?.accountName,
+      publishingMode: account?.publishingMode ?? 'manual',
       status: input.status ? normalizePublishingRecordStatus(input.status) : 'draft',
       createdAt: timestamp,
       updatedAt: timestamp
@@ -3655,7 +4160,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     return record;
   }
 
-  updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingStatusInput): PublishingRecord | null {
+  updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingExecutionStatusInput): PublishingRecord | null {
     if (!this.findAccessibleBrandDetail(userId, brandId)) {
       return null;
     }
@@ -3666,7 +4171,10 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     }
 
     record.status = normalizePublishingRecordStatus(input.status);
-    record.publishedUrl = input.publishedUrl?.trim();
+    record.externalPlatformId = input.externalPlatformId?.trim() || record.externalPlatformId;
+    record.publishedUrl = input.publishedUrl?.trim() || record.publishedUrl;
+    record.lastAttemptAt = input.lastAttemptAt || record.lastAttemptAt;
+    record.publishedAt = input.publishedAt || (record.status === 'published' ? new Date().toISOString() : record.publishedAt);
     record.errorMessage = record.status === 'failed' ? input.errorMessage?.trim() || '发布失败，请检查平台账号状态' : undefined;
     record.updatedAt = new Date().toISOString();
 
@@ -4086,7 +4594,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       };
     }
 
-    return buildMemoryBrowserPendingResult(platformCode);
+    const run = this.findOrCreateManualAnswerRun(userId, brandId, testPlanId, question, platformCode);
+    return buildMemoryBrowserPendingResult(platformCode, run);
   }
 
   private executeApiTestPlanStep(
@@ -4478,6 +4987,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
 
     const normalized = normalizeInnerTestFeedbackUpdateInput(input);
     record.status = normalized.status ?? record.status;
+    record.severity = normalized.severity ?? record.severity;
     record.resolutionNote = normalized.resolutionNote ?? record.resolutionNote;
     record.updatedAt = new Date().toISOString();
     this.createAuditLog(userId, {
@@ -4691,7 +5201,10 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
         const run = monitoringRuns.find((item) => item.id === analysis.runId);
         const prompt = run ? brandPrompts.find((item) => item.id === run.promptId) : undefined;
 
-        return run && prompt ? { analysis, run, prompt, profile: profiles.get(brandId) ?? createEmptyProfile(brandId) } : null;
+        const detail = run ? this.toMonitoringRunDetail(run) : null;
+        return detail && prompt && hasRealMonitoringResponse(detail)
+          ? { analysis, run, prompt, profile: profiles.get(brandId) ?? createEmptyProfile(brandId) }
+          : null;
       })
       .filter((sample): sample is AnalysisSample => Boolean(sample));
   }
@@ -4815,6 +5328,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
         if (existing) {
           existing.suggestedExpression = draft.suggestedExpression;
           existing.severity = draft.severity;
+          existing.userIntent = userIntents.find((intent) => intent.id === sample.run.intentId)?.text;
           existing.updatedAt = timestamp;
           continue;
         }
@@ -4826,6 +5340,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
           runId: sample.run.id,
           promptId: sample.prompt.id,
           promptText: sample.prompt.text,
+          userIntent: userIntents.find((intent) => intent.id === sample.run.intentId)?.text,
           platformCode: sample.run.platformCode,
           status: 'open',
           createdAt: timestamp,
@@ -5455,6 +5970,10 @@ function normalizeStringList(values: string[] = []): string[] {
   return values.map((value) => value.trim()).filter(Boolean);
 }
 
+function normalizeUniqueStringList(values: string[] = []): string[] {
+  return Array.from(new Set(normalizeStringList(values)));
+}
+
 function cleanStringList(values: string[] = []): string[] {
   return normalizeStringList(values);
 }
@@ -5870,7 +6389,7 @@ type BrowserTestPlanStepResult = {
   run?: MonitoringRunDetail;
 };
 
-function buildMemoryBrowserPendingResult(platformCode: string): BrowserTestPlanStepResult {
+function buildMemoryBrowserPendingResult(platformCode: string, run: MonitoringRunDetail | null): BrowserTestPlanStepResult {
   const platform = supportedBrowserPlatformMetadata[platformCode];
   if (!platform) {
     return { status: 'needs_confirmation', message: '这个平台暂时不能用浏览器辅助监测，请改用手动录入。' };
@@ -5878,7 +6397,8 @@ function buildMemoryBrowserPendingResult(platformCode: string): BrowserTestPlanS
 
   return {
     status: 'needs_confirmation',
-    message: `${platform.displayName}浏览器自动执行尚未接入真实回答回填，请连接真实浏览器或改用手动录入后再分析。`
+    message: `${platform.displayName}已准备浏览器辅助监测，请登录官方平台、提交问题并回填真实回答。`,
+    ...(run ? { run } : {})
   };
 }
 
@@ -6667,11 +7187,12 @@ function normalizeAdvisorRecordInput(input: AdvisorRecordInput): Omit<AdvisorRec
   };
 }
 
-function normalizeInnerTestFeedbackInput(input: InnerTestFeedbackInput): InnerTestFeedbackInput {
+function normalizeInnerTestFeedbackInput(input: InnerTestFeedbackInput): InnerTestFeedbackInput & Pick<InnerTestFeedback, 'severity'> {
   return {
     page: input.page.trim(),
     module: input.module.trim(),
     type: innerTestFeedbackTypes.includes(input.type) ? input.type : 'other',
+    severity: input.severity && innerTestFeedbackSeverities.includes(input.severity) ? input.severity : 'medium',
     description: input.description.trim()
   };
 }
@@ -6679,6 +7200,7 @@ function normalizeInnerTestFeedbackInput(input: InnerTestFeedbackInput): InnerTe
 function normalizeInnerTestFeedbackUpdateInput(input: InnerTestFeedbackUpdateInput): InnerTestFeedbackUpdateInput {
   return {
     status: input.status && innerTestFeedbackStatuses.includes(input.status) ? input.status : undefined,
+    severity: input.severity && innerTestFeedbackSeverities.includes(input.severity) ? input.severity : undefined,
     resolutionNote: input.resolutionNote?.trim()
   };
 }
@@ -6706,6 +7228,7 @@ const advisorRecordTypes: AdvisorRecordType[] = ['diagnosis', 'service_plan', 'r
 const advisorFollowUpStatuses: AdvisorFollowUpItem['status'][] = ['todo', 'doing', 'done'];
 const innerTestFeedbackTypes: InnerTestFeedback['type'][] = ['usability', 'bug', 'copy', 'data', 'workflow', 'configuration', 'other'];
 const innerTestFeedbackStatuses: InnerTestFeedbackStatus[] = ['open', 'triaged', 'in_progress', 'resolved'];
+const innerTestFeedbackSeverities: InnerTestFeedback['severity'][] = ['high', 'medium', 'low'];
 
 function buildIntentMetrics(intent: UserIntent): IntentPlatformMetric[] {
   const prompts = brandPrompts.filter((prompt) => prompt.intentId === intent.id && prompt.enabled);
@@ -6988,7 +7511,8 @@ function buildCompetitorComparisons(
         suppressed,
         recommendationReason: sample.analysis.recommendationReason,
         citationSources: aiResponses.find((response) => response.id === sample.analysis.responseId)?.citations ?? [],
-        runId: sample.run.id
+        runId: sample.run.id,
+        capturedAt: sample.run.completedAt ?? sample.run.startedAt ?? sample.run.createdAt
       };
     });
   });
@@ -7101,16 +7625,23 @@ function buildCitationTypeBreakdown(sources: CitationSource[], totalCitations: n
   });
 }
 
-function buildCitationTrend(sources: CitationSource[]): Array<{ date: string; citationCount: number; contentCitationRate: number }> {
+function buildCitationTrend(
+  sources: CitationSource[],
+  samples: Array<{ date: string; cited: boolean }>
+): CitationDashboard['trend'] {
+  const dates = new Set([...sources.map((source) => source.citedAt.slice(0, 10)), ...samples.map((sample) => sample.date)]);
   const grouped = new Map<string, CitationSource[]>();
   for (const source of sources) {
     const date = source.citedAt.slice(0, 10);
     grouped.set(date, [...(grouped.get(date) ?? []), source]);
   }
 
-  return Array.from(grouped.entries())
-    .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
-    .map(([date, daySources]) => {
+  return Array.from(dates)
+    .sort((dateA, dateB) => dateA.localeCompare(dateB))
+    .map((date) => {
+      const daySources = grouped.get(date) ?? [];
+      const daySamples = samples.filter((sample) => sample.date === date);
+      const citedSampleCount = daySamples.filter((sample) => sample.cited).length;
       const citationCount = daySources.reduce((sum, source) => sum + source.citationCount, 0);
       const contentCitationCount = daySources
         .filter((source) => Boolean(source.contentAssetId))
@@ -7118,6 +7649,9 @@ function buildCitationTrend(sources: CitationSource[]): Array<{ date: string; ci
 
       return {
         date,
+        sampleCount: daySamples.length,
+        citedSampleCount,
+        citationRate: daySamples.length === 0 ? 0 : clampScore((citedSampleCount / daySamples.length) * 100),
         citationCount,
         contentCitationRate: citationCount === 0 ? 0 : clampScore((contentCitationCount / citationCount) * 100)
       };
@@ -7378,6 +7912,136 @@ function slugify(value: string): string {
   return normalized || 'content-draft';
 }
 
+function buildBrandProfileLibrarySections(
+  brand: BrandDetail,
+  profile: BrandProfile,
+  scopedKnowledgeSources: KnowledgeSource[],
+  scopedMediaAssets: BrandMediaAsset[],
+  scopedPublishingAccounts: PublishingAccount[],
+  scopedCompetitors: Competitor[]
+): BrandProfileLibrarySection[] {
+  return [
+    buildBrandProfileLibrarySection(
+      'basic-info',
+      '基础信息',
+      '品牌定位、行业、业务范围和介绍',
+      [
+        ['品牌名称', brand.name],
+        ['所属行业', brand.industry],
+        ['业务范围', brand.businessScope],
+        ['目标人群', brand.targetAudience],
+        ['品牌介绍', profile.intro]
+      ],
+      1
+    ),
+    buildBrandProfileLibrarySection(
+      'products',
+      '产品与价值',
+      '产品服务、核心价值和可信证明',
+      [
+        ['产品服务', profile.offerings.length],
+        ['核心价值', profile.valueProps.length],
+        ['可信证明', profile.proofPoints.length]
+      ],
+      profile.offerings.length
+    ),
+    buildBrandProfileLibrarySection(
+      'audiences',
+      '目标客户',
+      '目标客户和典型决策人群',
+      [
+        ['目标客户', profile.targetCustomers.length],
+        ['目标人群说明', brand.targetAudience]
+      ],
+      profile.targetCustomers.length
+    ),
+    buildBrandProfileLibrarySection(
+      'brand-knowledge',
+      '品牌知识',
+      '知识来源、常见问题和内容规则',
+      [
+        ['知识来源', scopedKnowledgeSources.length],
+        ['常见问题', profile.faqs.length],
+        ['内容规则', profile.contentRules.length]
+      ],
+      scopedKnowledgeSources.length + profile.faqs.length
+    ),
+    buildBrandProfileLibrarySection(
+      'media-assets',
+      '品牌素材',
+      '图片、文档、网页和内容素材',
+      [['品牌素材', scopedMediaAssets.length]],
+      scopedMediaAssets.length
+    ),
+    buildBrandProfileLibrarySection(
+      'owned-media',
+      '自有媒体',
+      '品牌官网和媒体账号',
+      [['自有媒体账号', scopedPublishingAccounts.length]],
+      scopedPublishingAccounts.length
+    ),
+    buildBrandProfileLibrarySection(
+      'competitors',
+      '竞品资料',
+      '竞品档案和差异说明',
+      [['竞品档案', scopedCompetitors.length]],
+      scopedCompetitors.length
+    )
+  ];
+}
+
+function buildBrandProfileLibrarySection(
+  key: BrandProfileLibrarySection['key'],
+  title: string,
+  description: string,
+  fields: Array<[string, string | number]>,
+  itemCount: number
+): BrandProfileLibrarySection {
+  const missingItems = fields.filter(([, value]) => typeof value === 'number' ? value === 0 : value.trim() === '').map(([label]) => label);
+  return {
+    key,
+    title,
+    description,
+    completeness: Math.round(((fields.length - missingItems.length) / fields.length) * 100),
+    missingItems,
+    itemCount
+  };
+}
+
+function buildPublishingChannelStats(
+  brandId: BrandId,
+  platform: string,
+  records: PublishingRecord[]
+): PublishingChannelStats {
+  return {
+    brandId,
+    platform,
+    totalRecords: records.length,
+    draftRecords: records.filter((record) => record.status === 'draft').length,
+    pendingRecords: records.filter((record) => ['pending', 'queued', 'publishing'].includes(record.status)).length,
+    publishedRecords: records.filter((record) => record.status === 'published').length,
+    failedRecords: records.filter((record) => record.status === 'failed').length
+  };
+}
+
+function isValidAnalysisFindingRelation(
+  brandId: BrandId,
+  input: Pick<Partial<AnalysisFindingInput>, 'optimizationUnitId' | 'relatedTaskId'>
+): boolean {
+  return (!input.optimizationUnitId || optimizationUnits.some(
+    (unit) => unit.brandId === brandId && unit.id === input.optimizationUnitId
+  )) && (!input.relatedTaskId || optimizationTasks.some(
+    (task) => task.brandId === brandId && task.id === input.relatedTaskId
+  ));
+}
+
+function dedupeAnalysisRecommendedActions(actions: AnalysisRecommendedAction[]): AnalysisRecommendedAction[] {
+  return Array.from(new Map(actions.map((action) => [
+    `${action.actionType}:${action.label}:${action.targetId ?? ''}`,
+    action
+  ])).values());
+}
+
 const publishingPlatformCatalog = [
   { platform: 'wechat', name: '公众号', loginMode: 'oauth' as const },
   { platform: 'toutiao', name: '头条号', loginMode: 'oauth' as const },
@@ -7385,6 +8049,13 @@ const publishingPlatformCatalog = [
   { platform: 'baijiahao', name: '百家号', loginMode: 'oauth' as const },
   { platform: 'website', name: '官网', loginMode: 'manual' as const }
 ];
+
+function getPublishingPlatformName(platform: string): string {
+  if (platform === 'wechat_official') {
+    return '公众号';
+  }
+  return publishingPlatformCatalog.find((item) => item.platform === platform)?.name ?? platform;
+}
 
 function buildPublishingPlatforms(accounts: PublishingAccount[]) {
   return publishingPlatformCatalog.map((platform) => {
@@ -7403,6 +8074,7 @@ function normalizePublishingAccountInput(input: PublishingAccountInput): Publish
     platform: input.platform?.trim(),
     accountName: input.accountName?.trim(),
     loginMode: input.loginMode && ['oauth', 'manual', 'cookie'].includes(input.loginMode) ? input.loginMode : undefined,
+    publishingMode: input.publishingMode ? normalizePublishingMode(input.publishingMode) : undefined,
     authStatus: input.authStatus ? normalizePublishingAuthStatus(input.authStatus) : undefined,
     errorMessage: input.errorMessage?.trim()
   };
@@ -7412,8 +8084,12 @@ function normalizePublishingAuthStatus(status: PublishingAuthStatus): Publishing
   return ['connected', 'expired', 'error', 'disconnected'].includes(status) ? status : 'disconnected';
 }
 
+function normalizePublishingMode(mode: PublishingMode): PublishingMode {
+  return ['manual', 'assisted', 'automatic'].includes(mode) ? mode : 'manual';
+}
+
 function normalizePublishingRecordStatus(status: PublishingRecordStatus): PublishingRecordStatus {
-  return ['draft', 'pending', 'published', 'failed'].includes(status) ? status : 'draft';
+  return ['draft', 'pending', 'queued', 'publishing', 'published', 'failed'].includes(status) ? status : 'draft';
 }
 
 function inferPublishingLoginMode(platform: string) {
