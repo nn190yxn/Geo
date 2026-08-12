@@ -1,16 +1,31 @@
-# 多品牌 GEO 管理平台
+# AI品牌曝光助手
 
-这是多品牌 GEO 管理平台的完整工程，采用 monorepo 组织前端、后端、共享类型和数据库迁移。
+AI品牌曝光助手帮助企业了解品牌在 AI 搜索回答中的出现情况，持续完成问题监测、内容优化、发布跟进与效果复盘。
 
-## 目录
+## 能解决什么问题
 
-```text
-apps/web      Vite + React 前端应用
-apps/api      NestJS API 服务
-packages/shared-types  前后端共享契约
-```
+- 查看 AI 在用户提问时是否提到您的品牌，以及推荐位置和引用来源。
+- 找出品牌资料、内容表达、竞品比较和权威信源中的改进机会。
+- 将优化建议转为内容草稿、发布计划和再次监测任务。
+- 用周期报告和客户交付包汇总可追溯的结果与下一步行动。
 
-## 本地开发
+## Windows 安装与使用
+
+1. 在仓库的 Releases 页面下载最新的 `.exe` 或 `.msi` 安装包。
+2. 安装并启动 Docker Desktop。
+3. 运行“启动 AI品牌曝光助手”，浏览器会打开 `http://localhost:4173`。
+
+程序使用本机 Docker 运行数据库、API 和网页服务。停止服务时数据仍保留，安装新版本后会继续使用已有数据库和上传文件。
+
+当前发布包为未签名安装包。Windows 出现安全提示时，请在确认下载来源为本仓库 Release 后继续安装。
+
+## 版本更新
+
+发布团队推送 `v1.0.1` 这类版本标签后，GitHub Actions 会自动构建新的 MSI 和 EXE 并发布到 Releases。当前安装版支持通过新安装包覆盖升级，并保留本地业务数据。
+
+应用启动时会检查 GitHub 最新稳定版。发现更新后，页面顶部会显示版本号、发布说明和“查看并下载更新”入口；用户确认后可从 GitHub Release 下载新版安装包覆盖升级。
+
+## 开发与验证
 
 开发环境需要 Node.js 22.22 或更高版本。
 
@@ -21,42 +36,8 @@ npm install
 # 启动前端与后端开发服务
 npm run dev
 
-# 仅启动前端
-npm run dev:web
-
-# 仅启动后端
-npm run dev:api
-```
-
-前端开发服务通过 `/api` 代理到后端 `http://localhost:3001`。
-
-## 测试版封装
-
-Docker 测试版封装包含 Web、API、PostgreSQL、自动迁移和持久化卷。启动与环境配置说明见 `deploy/README.md`。
-
-## 环境变量
-
-内测默认大模型使用阶跃星辰 `step-3.7-flash`。本地或试运行环境可以在 `.env` 中配置：
-
-```bash
-STEPFUN_API_KEY=""
-GEO_AI_PLATFORM_CONFIGURED="false"
-```
-
-配置 `STEPFUN_API_KEY` 后，新品牌默认阶跃星辰平台会自动引用该环境变量，健康检查中的 `dependencies.aiPlatforms` 会显示为 `configured`。使用其它平台作为默认模型时，可在平台配置补齐后设置 `GEO_AI_PLATFORM_CONFIGURED=true`。
-
-## 验证
-
-```bash
 # 运行完整交付门禁
 npm run verify
-
-# 检查 API 健康状态
-node -e 'fetch("http://localhost:3001/api/v1/health").then(async r => { console.log(r.status, await r.text()) })'
 ```
 
-## API 边界
-
-所有业务 API 使用 `/api/v1` 前缀，前端请求会自动携带 `x-brand-id` 请求头作为品牌上下文。后端统一返回 `ApiResponse<T>` 结构，错误响应包含 `code`、`message` 和 `requestId`。
-
-当前使用本地示例用户，前端或调试请求可通过 `x-user-id` 指定用户；未传时默认使用 `user_demo`。
+前端开发服务通过 `/api` 代理到后端 `http://localhost:3001`。完整部署与 Windows 发布说明见 `deploy/README.md`。

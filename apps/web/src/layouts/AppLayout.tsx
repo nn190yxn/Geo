@@ -6,6 +6,7 @@ import type { AccessibleBrand } from '@geo-platform/shared-types';
 import { apiGet } from '../api/http';
 import { readWorkflowRouteContext } from '../app/routePaths';
 import { getApiErrorMessage } from '../components/PageState';
+import { ReleaseUpdateNotice } from '../components/ReleaseUpdateNotice';
 import { BrandCapabilityProvider } from '../access-control/BrandCapabilityContext';
 import { useBrandContextStore } from '../stores/brandContextStore';
 import { getBrandRoleDisplay } from '../utils/displayLabels';
@@ -149,6 +150,7 @@ export function AppLayout() {
           </div>
         </Layout.Header>
         <Layout.Content className="app-content" id="app-main-content" ref={mainContentRef} tabIndex={-1}>
+          <ReleaseUpdateNotice />
           {brandsQuery.data && !brandsQuery.data.success ? (
             <Alert type="error" message={getApiErrorMessage(brandsQuery.data, '品牌列表暂时无法加载，请重新进入页面。')} showIcon className="page-alert" />
           ) : null}
