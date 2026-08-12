@@ -50,18 +50,22 @@ jobs:
           Copy-Item deploy/windows/Stop-GEO.ps1 release/payload/windows/Stop-GEO.ps1
       - name: Install Windows packagers
         shell: pwsh
-        run: choco install innosetup wixtoolset --version=3.11.2.4516 --yes --no-progress
+        run: choco install innosetup wixtoolset --yes --no-progress
       - name: Build EXE and MSI
         shell: pwsh
         env:
-          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
-          GEO_RELEASE_STAGE: ${{ github.workspace }}\release
+        GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
+        GEO_RELEASE_STAGE: ${{ github.workspace }}\release
         run: |
-          $innoSetup = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-          $wixBin = Join-Path ${env:ProgramFiles(x86)} 'WiX Toolset v3.11\bin'
+          $innoSetup = (Get-Command ISCC.exe -ErrorAction Stop).Source
+          $candle = (Get-Command candle.exe -ErrorAction Stop).Source
+          $light = (Get-Command light.exe -ErrorAction Stop).Source
           & $innoSetup deploy/windows/GEO.iss
-          & (Join-Path $wixBin 'candle.exe') -dReleaseVersion=$env:GEO_RELEASE_VERSION -dReleaseStage=$env:GEO_RELEASE_STAGE -out release/output/GEO.wixobj deploy/windows/GEO.wxs
-          & (Join-Path $wixBin 'light.exe') -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed.' }
+          & $candle -dReleaseVersion=$env:GEO_RELEASE_VERSION -dReleaseStage=$env:GEO_RELEASE_STAGE -out release/output/GEO.wixobj deploy/windows/GEO.wxs
+          if ($LASTEXITCODE -ne 0) { throw 'WiX compilation failed.' }
+          & $light -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
+          if ($LASTEXITCODE -ne 0) { throw 'WiX linking failed.' }
       - name: Verify installer assets
         shell: pwsh
         run: |
