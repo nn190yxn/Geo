@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="GEO Platform" Language="1033" Version="$(var.ReleaseVersion)" Manufacturer="GEO Platform" UpgradeCode="2BFF3D4C-9EBB-4F49-8C2D-7F81D24F5585">
+  <Product Id="*" Name="AI品牌曝光助手" Language="2052" Version="$(var.ReleaseVersion)" Manufacturer="AI品牌曝光助手" UpgradeCode="2BFF3D4C-9EBB-4F49-8C2D-7F81D24F5585">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
-    <MajorUpgrade DowngradeErrorMessage="A newer version of GEO Platform is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 AI品牌曝光助手。" />
     <MediaTemplate EmbedCab="yes" />
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLFOLDER" Name="GEO Platform">
+        <Directory Id="INSTALLFOLDER" Name="AI品牌曝光助手">
           <Directory Id="RELEASEDIR" Name="release" />
           <Directory Id="WINDOWSDIR" Name="windows" />
         </Directory>
@@ -25,7 +25,7 @@
         <File Id="StopScript" Source="$(var.ReleaseStage)\payload\windows\Stop-GEO.ps1" />
       </Component>
     </DirectoryRef>
-    <Feature Id="MainFeature" Title="GEO Platform" Level="1">
+    <Feature Id="MainFeature" Title="AI品牌曝光助手" Level="1">
       <ComponentRef Id="ReleasePayload" />
       <ComponentRef Id="ControlScripts" />
     </Feature>

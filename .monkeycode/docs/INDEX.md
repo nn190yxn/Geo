@@ -20,6 +20,7 @@
 - `当前工作区/.monkeycode/docs/DEPLOYMENT_RUNBOOK.md`：生产试运行部署、健康检查、回滚和排障手册
 - `当前工作区/.monkeycode/docs/PILOT_DEMO_CHECKLIST.md`：试点客户演示数据、演示路径、验收清单和反馈转需求记录格式
 - `当前工作区/.monkeycode/docs/CONTINUOUS_ITERATION_PLAYBOOK.md`：阶段复盘、反馈转需求、行业规则变化和验证门禁机制
+- `当前工作区/deploy/README.md`：AI品牌曝光助手的 Docker 测试运行与 Windows 单机安装包发布说明
 
 ## 规格文档
 

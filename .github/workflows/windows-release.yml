@@ -59,7 +59,7 @@ jobs:
         run: |
           iscc deploy/windows/GEO.iss
           candle -dReleaseVersion=$env:GEO_RELEASE_VERSION -dReleaseStage=$env:GEO_RELEASE_STAGE -out release/output/GEO.wixobj deploy/windows/GEO.wxs
-          light -out release/output/GEO-Platform-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
+          light -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
       - name: Verify installer assets
         shell: pwsh
         run: |
@@ -67,9 +67,10 @@ jobs:
           if ((Get-ChildItem release/output/*.exe).Count -ne 1 -or (Get-ChildItem release/output/*.msi).Count -ne 1) { throw 'Expected one EXE and one MSI installer.' }
       - uses: softprops/action-gh-release@v2
         with:
+          name: AI品牌曝光助手 ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            Windows 单机安装包包含 GEO 的 API、Web 与 PostgreSQL Docker 部署内容。
+            AI品牌曝光助手 Windows 单机安装包包含 API、Web 与 PostgreSQL Docker 部署内容。
             安装前请安装并启动 Docker Desktop。当前安装包未进行 Windows 代码签名。
           files: |
             release/output/*.exe

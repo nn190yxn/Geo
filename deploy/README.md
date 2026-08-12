@@ -1,15 +1,15 @@
-# GEO 平台测试版封装
+# AI品牌曝光助手测试版封装
 
 ## Windows 单机发布
 
 推送 `v<major>.<minor>.<patch>` 格式标签后，GitHub Actions 会构建 API 和 Web 镜像，并在 Windows Runner 中发布 MSI 与 EXE 安装包到对应 GitHub Release。封装发生在 GitHub，开发机只需提交代码和推送发布标签。
 
-Windows 安装包通过 Docker Desktop 在本机运行 PostgreSQL、API 和 Web。安装前安装并启动 Docker Desktop；安装后从开始菜单运行“启动 GEO Platform”，浏览器会打开 `http://localhost:4173`。停止服务使用“停止 GEO Platform”，该操作保留数据库和上传文件卷，升级安装包后会继续使用既有数据。
+Windows 安装包通过 Docker Desktop 在本机运行 PostgreSQL、API 和 Web。安装前安装并启动 Docker Desktop；安装后从开始菜单运行“启动 AI品牌曝光助手”，浏览器会打开 `http://localhost:4173`。停止服务使用“停止 AI品牌曝光助手”，该操作保留数据库和上传文件卷，升级安装包后会继续使用既有数据。
 
 首版安装包未进行 Windows 代码签名。发布资产包含：
 
-- `GEO-Platform-<version>-Setup.exe`
-- `GEO-Platform-<version>.msi`
+- `AI品牌曝光助手-<version>-安装程序.exe`
+- `AI品牌曝光助手-<version>.msi`
 
 Windows 自动发布的实现位于 `.github/workflows/windows-release.yml`，单机启动和停止脚本位于 `deploy/windows/`。
 

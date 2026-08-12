@@ -2,12 +2,12 @@
 
 ## 介绍
 
-GEO 平台需要通过 GitHub Releases 持续发布 Windows 单机安装包。安装包在 Windows 主机上使用 Docker Desktop 运行 PostgreSQL、API 和 Web 服务，并保留数据库与上传文件卷。
+AI品牌曝光助手需要通过 GitHub Releases 持续发布 Windows 单机安装包。安装包在 Windows 主机上使用 Docker Desktop 运行 PostgreSQL、API 和 Web 服务，并保留数据库与上传文件卷。
 
 ## 术语
 
 - **发布标签**：格式为 `v<major>.<minor>.<patch>` 的 Git 标签。
-- **单机安装包**：包含 GEO 容器镜像、部署配置和启动脚本的 MSI 或 EXE 文件。
+- **单机安装包**：包含 AI品牌曝光助手容器镜像、部署配置和启动脚本的 MSI 或 EXE 文件。
 - **运行时前置条件**：Windows 主机已安装并启动 Docker Desktop，且 Docker CLI 可用。
 
 ## 需求
