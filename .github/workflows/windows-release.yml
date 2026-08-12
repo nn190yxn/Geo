@@ -51,30 +51,46 @@ jobs:
       - name: Install Windows packagers
         shell: pwsh
         run: choco install innosetup wixtoolset --yes --no-progress
-      - name: Build EXE and MSI
+      - name: Build EXE
         shell: pwsh
         env:
           GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
           GEO_RELEASE_STAGE: ${{ github.workspace }}\release
         run: |
           $innoSetup = (Get-Command ISCC.exe -ErrorAction Stop).Source
+          & $innoSetup deploy/windows/GEO.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed.' }
+      - name: Build MSI
+        id: msi
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
+          GEO_RELEASE_STAGE: ${{ github.workspace }}\release
+        run: |
           $candle = (Get-Command candle.exe -ErrorAction Stop).Source
           $light = (Get-Command light.exe -ErrorAction Stop).Source
           $releaseVersionDefine = "-dReleaseVersion=$($env:GEO_RELEASE_VERSION)"
           $releaseStageDefine = "-dReleaseStage=$($env:GEO_RELEASE_STAGE)"
-          & $innoSetup deploy/windows/GEO.iss
-          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed.' }
           & $candle $releaseVersionDefine $releaseStageDefine -out release/output/GEO.wixobj deploy/windows/GEO.wxs
           if ($LASTEXITCODE -ne 0) { throw 'WiX compilation failed.' }
           & $light -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
           if ($LASTEXITCODE -ne 0) { throw 'WiX linking failed.' }
-      - name: Verify installer assets
+      - name: Verify EXE installer
         shell: pwsh
         run: |
-          Get-ChildItem release/output/*.exe, release/output/*.msi | Format-Table Name, Length
-          if ((Get-ChildItem release/output/*.exe).Count -ne 1 -or (Get-ChildItem release/output/*.msi).Count -ne 1) { throw 'Expected one EXE and one MSI installer.' }
+          Get-ChildItem release/output/*.exe | Format-Table Name, Length
+          if ((Get-ChildItem release/output/*.exe).Count -ne 1) { throw 'Expected one EXE installer.' }
+      - name: Upload MSI diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-diagnostics
+          path: release/output/
+          if-no-files-found: warn
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           name: AI品牌曝光助手 ${{ github.ref_name }}
           generate_release_notes: true
           body: |
@@ -82,4 +98,10 @@ jobs:
             安装前请安装并启动 Docker Desktop。当前安装包未进行 Windows 代码签名。
           files: |
             release/output/*.exe
+      - name: Upload MSI to release
+        if: ${{ steps.msi.outcome == 'success' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
             release/output/*.msi
