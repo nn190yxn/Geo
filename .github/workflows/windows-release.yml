@@ -60,9 +60,11 @@ jobs:
           $innoSetup = (Get-Command ISCC.exe -ErrorAction Stop).Source
           $candle = (Get-Command candle.exe -ErrorAction Stop).Source
           $light = (Get-Command light.exe -ErrorAction Stop).Source
+          $releaseVersionDefine = "-dReleaseVersion=$($env:GEO_RELEASE_VERSION)"
+          $releaseStageDefine = "-dReleaseStage=$($env:GEO_RELEASE_STAGE)"
           & $innoSetup deploy/windows/GEO.iss
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed.' }
-          & $candle -dReleaseVersion=$env:GEO_RELEASE_VERSION -dReleaseStage=$env:GEO_RELEASE_STAGE -out release/output/GEO.wixobj deploy/windows/GEO.wxs
+          & $candle $releaseVersionDefine $releaseStageDefine -out release/output/GEO.wixobj deploy/windows/GEO.wxs
           if ($LASTEXITCODE -ne 0) { throw 'WiX compilation failed.' }
           & $light -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
           if ($LASTEXITCODE -ne 0) { throw 'WiX linking failed.' }
