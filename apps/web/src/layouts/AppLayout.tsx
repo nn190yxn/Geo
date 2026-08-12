@@ -6,6 +6,7 @@ import type { AccessibleBrand } from '@geo-platform/shared-types';
 import { apiGet } from '../api/http';
 import { readWorkflowRouteContext } from '../app/routePaths';
 import { getApiErrorMessage } from '../components/PageState';
+import { BrandCapabilityProvider } from '../access-control/BrandCapabilityContext';
 import { useBrandContextStore } from '../stores/brandContextStore';
 import { getBrandRoleDisplay } from '../utils/displayLabels';
 import { initialAppShellInteractionState, reduceAppShellInteraction, useAppShellMode } from './AppShellState';
@@ -181,7 +182,9 @@ export function AppLayout() {
               ))}
             </nav>
           ) : null}
-          <Outlet />
+          <BrandCapabilityProvider capabilities={activeBrand?.capabilities ?? null}>
+            <Outlet />
+          </BrandCapabilityProvider>
         </Layout.Content>
       </Layout>
       {isMobile ? (

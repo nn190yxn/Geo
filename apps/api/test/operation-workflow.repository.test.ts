@@ -62,8 +62,7 @@ describe('operation workflow repository integration', () => {
       platformCode: 'manual_input'
     });
     const completedRun = repository.addManualResponse('user_demo', brand.brandId, run?.id ?? '', {
-      rawText: `${brand.name}适合需要 GEO 运营闭环的团队，引用 https://workflow.example.com/case 。`,
-      citations: ['https://workflow.example.com/case'],
+      rawText: '当前回答只介绍通用运营流程，尚未覆盖具体服务品牌。',
       modelName: 'manual'
     });
     const analysis = repository.parseAnalysisResult('user_demo', brand.brandId, run?.id ?? '');
@@ -103,12 +102,21 @@ describe('operation workflow repository integration', () => {
     });
     const planned = repository.planOptimizationTaskRetest('user_demo', brand.brandId, task?.id ?? '', {
       sourceRunId: run?.id,
-      retestRunId: run?.id,
-      targetScore: 80
+      targetScore: 1
     });
+    const retestRun = repository.createMonitoringRun('user_demo', brand.brandId, {
+      promptId: prompt?.id ?? '',
+      platformCode: 'manual_input'
+    });
+    repository.addManualResponse('user_demo', brand.brandId, retestRun?.id ?? '', {
+      rawText: `${brand.name}适合需要 GEO 运营闭环的团队，引用 https://workflow.example.com/case 。`,
+      citations: ['https://workflow.example.com/case'],
+      modelName: 'manual'
+    });
+    repository.parseAnalysisResult('user_demo', brand.brandId, retestRun?.id ?? '');
+    repository.bindOptimizationTaskRetestRun('user_demo', brand.brandId, task?.id ?? '', planned?.retestRecords[0]?.id ?? '', retestRun?.id ?? '');
     const completedTask = repository.completeOptimizationTaskRetest('user_demo', brand.brandId, task?.id ?? '', planned?.retestRecords[0]?.id ?? '', {
-      actualScore: 88,
-      targetScore: 80
+      targetScore: 1
     });
     const report = repository.createReport('user_demo', brand.brandId, {
       type: 'customer_delivery',
@@ -124,7 +132,7 @@ describe('operation workflow repository integration', () => {
 
     expect(profile?.completenessScore).toBeGreaterThan(80);
     expect(completedRun?.status).toBe('completed');
-    expect(analysis?.brandMentioned).toBe(true);
+    expect(analysis?.brandMentioned).toBe(false);
     expect(exportRecord?.content).toContain('GEO 运营闭环服务说明');
     expect(publishing).toMatchObject({ accountId: account?.id, status: 'pending' });
     expect(completedTask).toMatchObject({ status: 'done', sourceRunId: run?.id });
@@ -135,7 +143,7 @@ describe('operation workflow repository integration', () => {
       optimizationUnits: 1,
       intents: 1,
       prompts: 1,
-      monitoringRuns: 1,
+      monitoringRuns: 2,
       reports: 1,
       advisorRecords: 1
     });

@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { LLMTaskType } from '@geo-platform/shared-types';
 
-const themeTypes = ['brand', 'category', 'location', 'age_group', 'pain_point', 'offering', 'competitor', 'buying_decision'];
+const themeTypes = ['brand', 'category', 'scenario', 'audience', 'pain_point', 'location', 'buying_decision', 'competitor_comparison', 'age_group', 'offering', 'competitor'];
+const discoveryDimensions = ['brand', 'category', 'scenario', 'audience', 'pain_point', 'location', 'buying_decision', 'competitor_comparison'];
+const userStages = ['awareness', 'consideration', 'decision'];
+const generationMethods = ['deterministic', 'ai', 'merged'];
 const priorities = ['high', 'medium', 'low'];
 const questionPurposes = ['brand_mentioned', 'rank_first', 'value_prop_accuracy', 'competitor_presence', 'risk_expression'];
 const sentiments = ['positive', 'neutral', 'negative', 'unknown'];
@@ -134,6 +137,13 @@ function validateQuestionCandidateInput(input: unknown) {
   requireEnum(value.priority, priorities, 'candidate.priority 不支持');
   requireNonEmptyString(value.estimatedValue, 'candidate.estimatedValue 不能为空');
 
+  if (value.discoveryDimension !== undefined) requireEnum(value.discoveryDimension, discoveryDimensions, 'candidate.discoveryDimension 不支持');
+  if (value.businessValue !== undefined) requireEnum(value.businessValue, priorities, 'candidate.businessValue 不支持');
+  if (value.recommendationProbability !== undefined) requireNumberInRange(value.recommendationProbability, 0, 1, 'candidate.recommendationProbability 必须在 0 到 1 之间');
+  if (value.userStage !== undefined) requireEnum(value.userStage, userStages, 'candidate.userStage 不支持');
+  if (value.generationRationale !== undefined) requireNonEmptyString(value.generationRationale, 'candidate.generationRationale 不能为空');
+  if (value.generationMethod !== undefined) requireEnum(value.generationMethod, generationMethods, 'candidate.generationMethod 不支持');
+  if (value.mergedFrom !== undefined) requireArrayOfStrings(value.mergedFrom, 'candidate.mergedFrom 必须是字符串数组');
   if (value.editable !== undefined) requireBoolean(value.editable, 'candidate.editable 必须是布尔值');
   if (value.selected !== undefined) requireBoolean(value.selected, 'candidate.selected 必须是布尔值');
 }

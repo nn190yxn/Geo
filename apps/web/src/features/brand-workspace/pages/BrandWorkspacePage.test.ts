@@ -6,9 +6,18 @@ import { getBrandProfileAssetCategories } from '../components/BrandKnowledgeCard
 import { firstRoundSteps, getFirstRoundCurrentStep, getFirstRoundStepStatus } from './firstRoundWorkflow';
 import { getSprintMetricCards, getSprintNextAction, getSprintProgressPercent, getSprintStatusLabel, getSprintStepDisplayStatus } from './sprintWorkspace';
 import { beginnerQuestionEntries, beginnerStartActions, getBeginnerActionState, getBeginnerMetrics, getBeginnerTodos, getNextBeginnerTodo, getWorkspaceModuleMetric, workspaceModules } from './workspaceModules';
-import { getBrandWorkspacePageMode, getBrandWorkspacePagePresentation } from './BrandWorkspacePage';
+import { getBrandWorkspacePageMode, getBrandWorkspacePagePresentation, getQuickStartMonitoringPath, isQuickStartMode } from './BrandWorkspacePage';
 
 describe('BrandWorkspacePage import helpers', () => {
+  it('enters quick start from the brands query without adding a route', () => {
+    expect(isQuickStartMode('?quickStart=1')).toBe(true);
+    expect(isQuickStartMode('?quickStart=0')).toBe(false);
+    expect(isQuickStartMode('')).toBe(false);
+  });
+  it('opens the newly created first-round monitoring plan', () => {
+    expect(getQuickStartMonitoringPath('plan quick-start'))
+      .toBe('/monitoring?planId=plan+quick-start#test-question-candidate-card');
+  });
   it('shows ready import drafts as confirmation work', () => {
     expect(getBrandImportDraftState({ status: 'ready_for_confirmation' })).toEqual({
       label: '待确认',

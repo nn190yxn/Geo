@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { TestPlanExecutionResult, TestQuestionCandidate } from '@geo-platform/shared-types';
-import { getConnectionSummaryLabel, getDefaultQuestionCandidates, getDurationLabel, getExecutionResultSummary, getPlatformPreview, getQuestionCandidateCountLabel, getThemeCandidateIds, questionPurposeLabels, themeTypeLabels, toQuestionCandidateUpdateInput } from './testQuestionDisplay';
+import { getConnectionSummaryLabel, getDefaultQuestionCandidates, getDurationLabel, getExecutionResultSummary, getPlatformPreview, getQuestionCandidateCountLabel, getThemeCandidateIds, parseQuestionSeedWords, questionPurposeLabels, themeTypeLabels, toQuestionCandidateUpdateInput } from './testQuestionDisplay';
 
 describe('test question display helpers', () => {
   it('keeps beginner-facing labels for themes and purposes', () => {
     expect(themeTypeLabels.location).toBe('地域词');
+    expect(themeTypeLabels.scenario).toBe('使用场景');
     expect(questionPurposeLabels.value_prop_accuracy).toBe('卖点是否准确');
+  });
+
+  it('normalizes and deduplicates question seed words', () => {
+    expect(parseQuestionSeedWords('少儿跑酷、 贵阳\n少儿跑酷')).toEqual(['少儿跑酷', '贵阳']);
   });
 
   it('shows high priority questions first within the default list', () => {
@@ -88,6 +93,7 @@ function createCandidate(priority: TestQuestionCandidate['priority'], question: 
     brandId: 'brand_demo',
     themeId,
     question,
+    promptKind: 'discovery',
     purposes: ['brand_mentioned'],
     targetPlatforms: ['doubao'],
     priority,

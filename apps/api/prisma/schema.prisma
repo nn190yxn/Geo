@@ -9,6 +9,7 @@ datasource db {
 
 model Brand {
   id          String   @id @default(cuid())
+  organizationId String @map("organization_id")
   name        String
   status      String   @default("active")
   description String?
@@ -28,9 +29,11 @@ model Brand {
   llmTaskRuns LLMTaskRun[]
   monitoringRuns  MonitoringRun[]
   geoMetricSnapshots GEOMetricSnapshot[]
+  measurementAttributions MeasurementAttribution[]
   permissions     UserBrandPermission[]
   profile         BrandProfile?
   knowledgeSources KnowledgeSource[]
+  knowledgeChunks KnowledgeChunk[]
   brandMediaAssets BrandMediaAsset[]
   optimizationUnits OptimizationUnit[]
   testThemes TestTheme[]
@@ -62,14 +65,62 @@ model Brand {
   platformRewriteVersions PlatformRewriteVersion[]
   testQuestionPoolItems TestQuestionPoolItem[]
   testQuestionSourceRecords TestQuestionSourceRecord[]
+  searchDemandSnapshots SearchDemandSnapshot[]
+  searchDemandCandidates SearchDemandCandidate[]
   reports Report[]
+  operationCycles OperationCycle[]
+  deliveryBundles DeliveryBundle[]
+  clientReadGrants ClientReadGrant[]
+  publicBrandProfile PublicBrandProfile?
   advisorRecords AdvisorRecord[]
   innerTestFeedback InnerTestFeedback[]
   auditLogs AuditLog[]
+  quickStartSession QuickStartSession?
+  diagnosticScoreSnapshots DiagnosticScoreSnapshot[]
+  taskAcceptanceSnapshots TaskAcceptanceSnapshot[]
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  productEvents ProductEvent[]
 
+  @@index([organizationId])
   @@index([status])
   @@index([industry])
   @@map("brands")
+}
+
+model QuickStartSession {
+  id String @id @default(cuid())
+  brandId String @unique @map("brand_id")
+  currentStep String @default("website") @map("current_step")
+  status String @default("in_progress")
+  draft Json @default("{}")
+  version Int @default(1)
+  startedAt DateTime @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@map("quick_start_sessions")
+}
+
+model DiagnosticScoreSnapshot {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  websiteUrl String @map("website_url")
+  rawChecks Json @map("raw_checks")
+  dimensionScores Json @map("dimension_scores")
+  normalizedWeights Json @map("normalized_weights")
+  policy Json
+  ruleVersion String @map("rule_version")
+  totalScore Float @map("total_score")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId, createdAt])
+  @@index([ruleVersion])
+  @@map("diagnostic_score_snapshots")
 }
 
 model Organization {
@@ -81,9 +132,34 @@ model Organization {
 
   members OrganizationMember[]
   auditLogs AuditLog[]
+  brands Brand[]
+  productEvents ProductEvent[]
 
   @@index([status])
   @@map("organizations")
+}
+
+model ProductEvent {
+  id String @id @default(cuid())
+  organizationId String @map("organization_id")
+  brandId String @map("brand_id")
+  actorUserId String? @map("actor_user_id")
+  eventType String @map("event_type")
+  entityType String? @map("entity_type")
+  entityId String? @map("entity_id")
+  failureCategory String? @map("failure_category")
+  metadata Json @default("{}")
+  idempotencyKey String @map("idempotency_key")
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@unique([brandId, eventType, idempotencyKey])
+  @@index([organizationId, occurredAt])
+  @@index([brandId, occurredAt])
+  @@index([brandId, eventType, occurredAt])
+  @@map("product_events")
 }
 
 model Role {
@@ -219,6 +295,7 @@ model BrandPrompt {
   intentId String @map("intent_id")
   templateId String? @map("template_id")
   text String
+  promptKind String @default("discovery") @map("prompt_kind")
   category String
   targetKeywords Json @default("[]") @map("target_keywords")
   platformCodes Json @default("[]") @map("platform_codes")
@@ -238,6 +315,7 @@ model BrandPrompt {
   @@index([brandId])
   @@index([intentId])
   @@index([enabled])
+  @@index([promptKind])
   @@map("brand_prompts")
 }
 
@@ -247,10 +325,18 @@ model TestQuestionCandidate {
   themeId String @map("theme_id")
   promptId String? @map("prompt_id")
   question String
+  promptKind String @default("discovery") @map("prompt_kind")
   purposes Json @default("[]")
   targetPlatforms Json @default("[]") @map("target_platforms")
   priority String @default("medium")
   estimatedValue String @default("") @map("estimated_value")
+  discoveryDimension String? @map("discovery_dimension")
+  businessValue String? @map("business_value")
+  recommendationProbability Float? @map("recommendation_probability")
+  userStage String? @map("user_stage")
+  generationRationale String? @map("generation_rationale")
+  generationMethod String? @map("generation_method")
+  mergedFrom Json @default("[]") @map("merged_from")
   editable Boolean @default(true)
   selected Boolean @default(false)
   createdAt DateTime @default(now()) @map("created_at")
@@ -263,8 +349,10 @@ model TestQuestionCandidate {
 
   @@index([brandId])
   @@index([themeId])
+  @@index([discoveryDimension])
   @@index([promptId])
   @@index([selected])
+  @@index([promptKind])
   @@map("test_question_candidates")
 }
 
@@ -281,10 +369,34 @@ model KnowledgeSource {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  chunks KnowledgeChunk[]
 
   @@index([brandId])
   @@index([status])
   @@map("knowledge_sources")
+}
+
+model KnowledgeChunk {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  sourceId String @map("source_id")
+  sourceUrl String? @map("source_url")
+  sourceVersion Int @map("source_version")
+  chunkIndex Int @map("chunk_index")
+  content String
+  contentHash String @map("content_hash")
+  reviewStatus String @default("pending") @map("review_status")
+  searchVector Unsupported("tsvector")? @map("search_vector")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  source KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+
+  @@unique([brandId, sourceId, sourceVersion, chunkIndex])
+  @@index([brandId, reviewStatus])
+  @@index([sourceId, sourceVersion])
+  @@map("knowledge_chunks")
 }
 
 model BrandProfile {
@@ -404,6 +516,37 @@ model PlatformConfig {
   @@map("platform_configs")
 }
 
+model OrganizationProviderConfig {
+  id String @id @default(cuid())
+  organizationId String @map("organization_id")
+  platformCode String @map("platform_code")
+  modelName String @map("model_name")
+  endpointUrl String? @map("endpoint_url")
+  purpose String @default("generation")
+  credentialRef String? @map("credential_ref")
+  enabled Boolean @default(true)
+  priority Int @default(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([organizationId, platformCode, purpose])
+  @@index([organizationId, enabled, priority])
+  @@map("organization_provider_configs")
+}
+
+model ProviderHealthCheck {
+  id String @id @default(cuid())
+  providerConfigId String @map("provider_config_id")
+  status String
+  latencyMs Int? @map("latency_ms")
+  errorCategory String? @map("error_category")
+  checkedAt DateTime @default(now()) @map("checked_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([providerConfigId, checkedAt])
+  @@map("provider_health_checks")
+}
+
 model BrowserConnectionSession {
   id String @id @default(cuid())
   brandId String @map("brand_id")
@@ -462,6 +605,10 @@ model AsyncJob {
   jobType String @map("job_type")
   status String @default("queued")
   entityId String @map("entity_id")
+  idempotencyKey String? @map("idempotency_key")
+  stepCode String? @map("step_code")
+  progress Json @default("{}")
+  resultSummary Json? @map("result_summary")
   attemptCount Int @default(0) @map("attempt_count")
   maxAttempts Int @default(3) @map("max_attempts")
   nextRunAt DateTime? @map("next_run_at")
@@ -477,6 +624,7 @@ model AsyncJob {
   @@index([status])
   @@index([entityId])
   @@index([nextRunAt])
+  @@unique([brandId, idempotencyKey])
   @@map("async_jobs")
 }
 
@@ -504,6 +652,91 @@ model LLMTaskRun {
   @@map("llm_task_runs")
 }
 
+model QuotaAccount {
+  id String @id @default(cuid())
+  scopeType String @map("scope_type")
+  scopeId String @map("scope_id")
+  limitAmount Decimal? @map("limit_amount") @db.Decimal(12, 6)
+  reservedAmount Decimal @default(0) @map("reserved_amount") @db.Decimal(12, 6)
+  consumedAmount Decimal @default(0) @map("consumed_amount") @db.Decimal(12, 6)
+  enabled Boolean @default(true)
+  frozen Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([scopeType, scopeId])
+  @@index([scopeType])
+  @@map("quota_accounts")
+}
+
+model QuotaAdjustmentAudit {
+  id String @id @default(cuid())
+  actorId String @map("actor_id")
+  scopeType String @map("scope_type")
+  scopeId String @map("scope_id")
+  reason String
+  beforeAmount Decimal @map("before_amount") @db.Decimal(12, 6)
+  afterAmount Decimal @map("after_amount") @db.Decimal(12, 6)
+  deltaAmount Decimal @map("delta_amount") @db.Decimal(12, 6)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([scopeType, scopeId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("quota_adjustment_audits")
+}
+
+model UsageReservation {
+  id String @id @default(cuid())
+  taskKey String @unique @map("task_key")
+  userId String @map("user_id")
+  organizationId String @map("organization_id")
+  brandId String @map("brand_id")
+  taskType String @map("task_type")
+  requestedCost Decimal @map("requested_cost") @db.Decimal(12, 6)
+  settledCost Decimal @default(0) @map("settled_cost") @db.Decimal(12, 6)
+  status String @default("reserved")
+  rejectionReason String? @map("rejection_reason")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([organizationId])
+  @@index([brandId])
+  @@index([status])
+  @@map("usage_reservations")
+}
+
+model UsageLedgerEntry {
+  id String @id @default(cuid())
+  reservationId String @map("reservation_id")
+  eventType String @map("event_type")
+  amount Decimal @default(0) @db.Decimal(12, 6)
+  providerCode String? @map("provider_code")
+  attemptOrder Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([reservationId])
+  @@index([eventType])
+  @@map("usage_ledger_entries")
+}
+
+model ProviderSpendStage {
+  id String @id @default(cuid())
+  taskKey String @map("task_key")
+  stepCode String @map("step_code")
+  attemptOrder Int @map("attempt_order")
+  leaseToken String? @map("lease_token")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  providerCode String? @map("provider_code")
+  incurredCost Decimal @default(0) @map("incurred_cost") @db.Decimal(12, 6)
+  completedAt DateTime? @map("completed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([taskKey, stepCode, attemptOrder])
+  @@index([leaseExpiresAt])
+  @@map("provider_spend_stages")
+}
+
 model MonitoringRun {
   id String @id @default(cuid())
   brandId String @map("brand_id")
@@ -512,6 +745,16 @@ model MonitoringRun {
   promptId String @map("prompt_id")
   testPlanId String? @map("test_plan_id")
   platformCode String @map("platform_code")
+  modelName String @default("unknown") @map("model_name")
+  collectionMethod String @default("unknown") @map("collection_method")
+  clientSurface String @default("unknown") @map("client_surface")
+  promptKind String @default("discovery") @map("prompt_kind")
+  searchEnabled Boolean? @map("search_enabled")
+  market String @default("unknown")
+  language String @default("unknown")
+  evidenceLevel String @default("unknown") @map("evidence_level")
+  manualConfirmed Boolean? @map("manual_confirmed")
+  baselineVersion String @default("unknown") @map("baseline_version")
   status String @default("pending")
   startedAt DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
@@ -530,7 +773,29 @@ model MonitoringRun {
   @@index([testPlanId])
   @@index([status])
   @@index([createdAt])
+  @@index([promptKind, clientSurface])
   @@map("monitoring_runs")
+}
+
+model MeasurementAttribution {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  baselineWindowStart DateTime @map("baseline_window_start")
+  baselineWindowEnd DateTime @map("baseline_window_end")
+  observationWindowStart DateTime @map("observation_window_start")
+  observationWindowEnd DateTime @map("observation_window_end")
+  controlQuestions Json @default("[]") @map("control_questions")
+  externalEvents Json @default("[]") @map("external_events")
+  conclusionType String @default("observational_correlation") @map("conclusion_type")
+  conclusion String @default("")
+  updatedBy String @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId, updatedAt])
+  @@map("measurement_attributions")
 }
 
 model TestPlan {
@@ -565,18 +830,29 @@ model AIResponse {
   brandId String @map("brand_id")
   rawText String @map("raw_text")
   citations Json @default("[]")
-  modelName String? @map("model_name")
+  platformCode String @default("unknown") @map("platform_code")
+  modelName String @default("unknown") @map("model_name")
+  collectionMethod String @default("unknown") @map("collection_method")
+  clientSurface String @default("unknown") @map("client_surface")
+  searchEnabled Boolean? @map("search_enabled")
+  market String @default("unknown")
+  language String @default("unknown")
+  evidenceLevel String @default("unknown") @map("evidence_level")
+  manualConfirmed Boolean? @map("manual_confirmed")
+  baselineVersion String @default("unknown") @map("baseline_version")
   respondedAt DateTime @map("responded_at")
   parseStatus String @default("pending") @map("parse_status")
   createdAt DateTime @default(now()) @map("created_at")
 
   run MonitoringRun @relation(fields: [runId], references: [id], onDelete: Restrict)
   analysisResult AnalysisResult?
+
   citationSources CitationSource[]
   evaluationIssues EvaluationIssue[]
 
   @@index([runId])
   @@index([brandId])
+  @@index([clientSurface])
   @@map("ai_responses")
 }
 
@@ -713,6 +989,10 @@ model CompetitorCandidate {
   confidence String
   isCampusFocus Boolean @default(false) @map("is_campus_focus")
   decisionStatus String @default("pending") @map("decision_status")
+  lifecycleStatus String @default("candidate") @map("lifecycle_status")
+  evidenceSampleIds Json @default("[]") @map("evidence_sample_ids")
+  sampleConfirmedAt DateTime? @map("sample_confirmed_at")
+  confirmedAt DateTime? @map("confirmed_at")
   excludedReason String? @map("excluded_reason")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -738,6 +1018,7 @@ model CitationSource {
   sourceType String @map("source_type")
   authorityLevel String @map("authority_level")
   citationCount Int @default(1) @map("citation_count")
+  absorptionEvidence Json @default("[]") @map("absorption_evidence")
   createdAt DateTime @default(now()) @map("created_at")
 
   brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
@@ -761,6 +1042,8 @@ model ContentAsset {
   targetKeywords Json @default("[]") @map("target_keywords")
   reuseOfAssetId String? @map("reuse_of_asset_id")
   brandAdaptation String? @map("brand_adaptation")
+  sourceFacts Json @default("[]") @map("source_facts")
+  reviewStatus String @default("pending") @map("review_status")
   status String @default("draft")
   publishedAt DateTime? @map("published_at")
   createdAt DateTime @default(now()) @map("created_at")
@@ -771,12 +1054,27 @@ model ContentAsset {
   reusedBy ContentAsset[] @relation("ContentAssetReuse")
   reuseOfAsset ContentAsset? @relation("ContentAssetReuse", fields: [reuseOfAssetId], references: [id], onDelete: SetNull)
   publishingRecords PublishingRecord[]
+  technicalVersions TechnicalAssetVersion[]
 
   @@index([brandId])
   @@index([status])
   @@index([url])
   @@index([reuseOfAssetId])
   @@map("content_assets")
+}
+
+model TechnicalAssetVersion {
+  id String @id @default(cuid())
+  contentAssetId String @map("content_asset_id")
+  version Int
+  body String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([contentAssetId, version], name: "unique_technical_asset_version")
+  @@index([contentAssetId])
+  @@map("technical_asset_versions")
 }
 
 model BrandMediaAsset {
@@ -1099,6 +1397,7 @@ model TestQuestionPoolItem {
   brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
   candidate TestQuestionCandidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
   sourceRecords TestQuestionSourceRecord[]
+  confirmedDemandCandidates SearchDemandCandidate[]
 
   @@index([brandId])
   @@index([candidateId])
@@ -1123,6 +1422,46 @@ model TestQuestionSourceRecord {
   @@index([poolItemId])
   @@index([sourceType])
   @@map("test_question_source_records")
+}
+
+model SearchDemandSnapshot {
+  id String @id
+  brandId String @map("brand_id")
+  seedTerm String @map("seed_term")
+  source String
+  market String
+  capturedAt DateTime @map("captured_at")
+  previousSnapshotId String? @map("previous_snapshot_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  candidates SearchDemandCandidate[]
+
+  @@index([brandId, seedTerm, source, market, capturedAt])
+  @@map("search_demand_snapshots")
+}
+
+model SearchDemandCandidate {
+  id String @id
+  snapshotId String @map("snapshot_id")
+  brandId String @map("brand_id")
+  question String
+  normalizedQuestion String @map("normalized_question")
+  risingObservation Boolean @default(false) @map("rising_observation")
+  status String @default("candidate")
+  confirmedPoolItemId String? @map("confirmed_pool_item_id")
+  confirmedAt DateTime? @map("confirmed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  snapshot SearchDemandSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  confirmedPoolItem TestQuestionPoolItem? @relation(fields: [confirmedPoolItemId], references: [id], onDelete: SetNull)
+
+  @@unique([snapshotId, normalizedQuestion])
+  @@index([brandId])
+  @@index([snapshotId, status])
+  @@index([confirmedPoolItemId])
+  @@map("search_demand_candidates")
 }
 
 model ContentExportRecord {
@@ -1180,6 +1519,10 @@ model PublishingRecord {
   platform String
   accountName String? @map("account_name")
   publishingMode String @default("manual") @map("publishing_mode")
+  contentVersion String? @map("content_version")
+  materialRequirementsConfirmed Boolean @default(false) @map("material_requirements_confirmed")
+  retestPlanAt DateTime? @map("retest_plan_at")
+  confirmedAt DateTime? @map("confirmed_at")
   status String @default("draft")
   externalPlatformId String? @map("external_platform_id")
   publishedUrl String? @map("published_url")
@@ -1199,6 +1542,7 @@ model PublishingRecord {
   @@index([contentAssetId])
   @@index([accountId])
   @@index([status])
+  @@index([retestPlanAt])
   @@map("publishing_records")
 }
 
@@ -1279,6 +1623,7 @@ model OptimizationTask {
   strategy ContentStrategy? @relation(fields: [strategyId], references: [id], onDelete: SetNull)
   growthOptimizationPlan GrowthOptimizationPlan? @relation(fields: [growthOptimizationPlanId], references: [id], onDelete: SetNull)
   analysisFindings AnalysisFinding[]
+  acceptanceSnapshots TaskAcceptanceSnapshot[]
 
   @@index([brandId])
   @@index([optimizationUnitId])
@@ -1289,6 +1634,26 @@ model OptimizationTask {
   @@index([retestRunId])
   @@index([status])
   @@map("optimization_tasks")
+}
+
+model TaskAcceptanceSnapshot {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  taskId String @map("task_id")
+  checkerId String @map("checker_id")
+  status String
+  progressValue Float @map("progress_value")
+  targetValue Float @map("target_value")
+  evidence Json
+  checkedAt DateTime @map("checked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  task OptimizationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([brandId, taskId, checkedAt])
+  @@index([checkerId, status])
+  @@map("task_acceptance_snapshots")
 }
 
 model Report {
@@ -1311,6 +1676,70 @@ model Report {
   @@index([type])
   @@index([status])
   @@map("reports")
+}
+
+model OperationCycle {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  status String @default("queued")
+  currentStep String @default("site_audit") @map("current_step")
+  progress Json @default("{}")
+  failureReason String? @map("failure_reason")
+  retryStatus String @default("not_retried") @map("retry_status")
+  confirmationItems Json @default("[]") @map("confirmation_items")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId, status])
+  @@map("operation_cycles")
+}
+
+model DeliveryBundle {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  cycleId String? @map("cycle_id")
+  reportId String @map("report_id")
+  snapshot Json
+  methodologyVersion String @map("methodology_version")
+  manifest Json @default("[]")
+  generatedAt DateTime @default(now()) @map("generated_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([brandId, generatedAt])
+  @@index([reportId])
+  @@map("delivery_bundles")
+}
+
+model ClientReadGrant {
+  id String @id @default(cuid())
+  brandId String @map("brand_id")
+  clientId String @map("client_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@unique([brandId, clientId])
+  @@index([clientId, expiresAt])
+  @@map("client_read_grants")
+}
+
+model PublicBrandProfile {
+  id String @id @default(cuid())
+  brandId String @unique @map("brand_id")
+  status String @default("draft")
+  publicData Json @default("{}") @map("public_data")
+  publishedAt DateTime? @map("published_at")
+  withdrawnAt DateTime? @map("withdrawn_at")
+  viewCount Int @default(0) @map("view_count")
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@map("public_brand_profiles")
 }
 
 model AdvisorRecord {

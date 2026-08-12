@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BeginnerHomeDashboard } from '@geo-platform/shared-types';
-import { getBeginnerActionRoute, getBeginnerHomeQuestions, getBeginnerJourneyStages } from './BeginnerHomeState';
+import { getBeginnerActionRoute, getBeginnerHomeQuestions, getBeginnerJourneyStages, getBrandActionPath } from './BeginnerHomeState';
 
 function createDashboard(overrides: Partial<BeginnerHomeDashboard> = {}): BeginnerHomeDashboard {
   return {
@@ -48,5 +48,45 @@ describe('BeginnerHomeState', () => {
     expect(questions[1].route).toContain('/brands/brand%20demo/growth-optimization?question=');
     expect(questions[1].route.endsWith('#standard-answer-diagnosis')).toBe(true);
     expect(questions[2].route.endsWith('#optimization-plans')).toBe(true);
+  });
+
+  it('为行动透传全部工作流上下文并编码品牌标识', () => {
+    const route = getBrandActionPath('brand demo', {
+      id: 'task:one',
+      category: 'execution',
+      label: '执行任务',
+      reason: '处理问题',
+      targetPath: '/tasks',
+      expectedBusinessValue: 'high',
+      context: {
+        question: '品牌怎么样？',
+        optimizationUnitId: 'unit-1',
+        intentId: 'intent-1',
+        promptId: 'prompt-1',
+        runId: 'run-1',
+        taskId: 'task-1',
+        generationTaskId: 'generation-1',
+        publishingRecordId: 'record-1',
+        platformCode: 'doubao',
+        mode: 'retest'
+      }
+    });
+
+    expect(route).toContain('/brands/brand%20demo/tasks?');
+    for (const value of ['question=', 'optimizationUnitId=unit-1', 'intentId=intent-1', 'promptId=prompt-1', 'runId=run-1', 'taskId=task-1', 'generationTaskId=generation-1', 'publishingRecordId=record-1', 'platformCode=doubao', 'mode=retest']) {
+      expect(route).toContain(value);
+    }
+  });
+
+  it('缺少上下文时生成合法品牌路径', () => {
+    expect(getBrandActionPath('brand/a', {
+      id: 'review',
+      category: 'review',
+      label: '查看报告',
+      reason: '复盘',
+      targetPath: '/reports',
+      context: { question: '', runId: undefined },
+      expectedBusinessValue: 'medium'
+    })).toBe('/brands/brand%2Fa/reports');
   });
 });

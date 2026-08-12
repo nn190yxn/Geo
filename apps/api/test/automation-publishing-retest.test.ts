@@ -60,14 +60,28 @@ describe('Automation publishing and retest flow', () => {
 
     expect(retestSuggested).toEqual(expect.objectContaining({ status: 'running', currentStep: 'retest_suggestion' }));
     expect(retestTask).toEqual(expect.objectContaining({ status: 'retest', sourceRunId }));
-    expect(retestTask?.retestRecords[0]).toEqual(expect.objectContaining({ sourceRunId, targetScore: 85 }));
+    expect(retestTask?.retestRecords[0]).toEqual(expect.objectContaining({ sourceRunId, retestRunId: '', targetScore: 85, status: 'planned' }));
+
+    const sourceRun = harness.permissionsRepository.getMonitoringRun('user_demo', 'brand_demo', sourceRunId);
+    const retestRun = harness.permissionsRepository.createMonitoringRun('user_demo', 'brand_demo', {
+      promptId: sourceRun?.promptId ?? '',
+      platformCode: sourceRun?.platformCode ?? 'manual_input'
+    });
+    harness.permissionsRepository.bindOptimizationTaskRetestRun('user_demo', 'brand_demo', retestTask?.id ?? '', retestTask?.retestRecords[0]?.id ?? '', retestRun?.id ?? '');
+    harness.permissionsRepository.addManualResponse('user_demo', 'brand_demo', retestRun?.id ?? '', {
+      rawText: '追光小牛适合贵阳儿童运动成长，ACE 成长体系覆盖体能、认知和参与度。',
+      modelName: 'manual'
+    });
+    harness.permissionsRepository.parseAnalysisResult('user_demo', 'brand_demo', retestRun?.id ?? '');
 
     const completed = harness.service.completeRetest('user_demo', 'brand_demo', retestSuggested.packageId, retestTask?.id ?? '', retestTask?.retestRecords[0]?.id ?? '', {
       actualScore: 92,
-      targetScore: 85,
+      targetScore: 1,
       notes: '复测达到目标'
     });
+    const completedTask = harness.permissionsRepository.getTaskBoard('user_demo', 'brand_demo')?.tasks.find((task) => task.id === retestTask?.id);
 
+    expect(completedTask).toEqual(expect.objectContaining({ status: 'done', retestRecords: [expect.objectContaining({ status: 'improved', passed: true })] }));
     expect(completed).toEqual(expect.objectContaining({ status: 'completed', currentStep: 'completed' }));
     expect(completed.stepSummaries).toContainEqual(expect.objectContaining({ code: 'retest_suggestion', status: 'completed', message: '复测结果已回写，任务包完成。' }));
   });
@@ -166,7 +180,7 @@ function createSourceRun(repository: PermissionsRepository): string {
     platformCode: 'manual_input'
   });
   repository.addManualResponse('user_demo', 'brand_demo', run?.id ?? '', {
-    rawText: '追光小牛适合贵阳儿童运动成长，ACE 成长体系覆盖体能、认知和参与度。',
+    rawText: '贵阳儿童运动成长课程信息，建议核对课程体系、校区和服务安排。',
     modelName: 'manual'
   });
   repository.parseAnalysisResult('user_demo', 'brand_demo', run?.id ?? '');

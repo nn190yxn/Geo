@@ -22,8 +22,9 @@ describe('workflow route paths', () => {
       optimizationUnitId: 'unit-1',
       intentId: 'intent-1',
       promptId: 'prompt-1',
+      planId: 'plan-1',
       mode: 'manual'
-    }, 'manual-test-entry')).toBe('/monitoring?optimizationUnitId=unit-1&intentId=intent-1&promptId=prompt-1&mode=manual#manual-test-entry');
+    }, 'manual-test-entry')).toBe('/monitoring?optimizationUnitId=unit-1&intentId=intent-1&promptId=prompt-1&planId=plan-1&mode=manual#manual-test-entry');
   });
 
   it('builds a brand-scoped monitoring question deep link', () => {

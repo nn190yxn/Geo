@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import type {
   AnalysisDiagnosisDashboard,
   ApiResponse,
+  BrandActionDashboard,
   BeginnerHomeDashboard,
   ContentOperationDashboard,
   MonitoringObjectDashboard,
@@ -18,6 +19,11 @@ export class DashboardsController {
   @Get('home')
   async getHome(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<BeginnerHomeDashboard>> {
     return success(await this.dashboardsService.getBeginnerHomeDashboard(request.context.userId, brandId));
+  }
+
+  @Get('actions')
+  async getActions(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<BrandActionDashboard>> {
+    return success(await this.dashboardsService.getBrandActionDashboard(request.context.userId, brandId));
   }
 
   @Get('monitoring-objects')

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readWebhookPublishingConfigs, WebhookPublishingAdapter } from '../src/modules/publishing/adapters/webhook-publishing.adapter';
+import { PublishingAdapterError } from '../src/modules/publishing/adapters/publishing.adapter';
 
 const payload = {
   idempotencyKey: 'record_1',

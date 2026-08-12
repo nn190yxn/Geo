@@ -8,6 +8,7 @@ import {
   getTaskRetestMonitoringPath,
   getTaskRetestNextStep,
   getTaskRetestOperationRows,
+  prioritizeTaskRetestRows,
   readTaskRetestFilters
 } from './TaskRetestPage';
 
@@ -39,8 +40,8 @@ const completedRecord: RetestRecord = {
   actualScore: 86,
   passed: true,
   improved: true,
-  beforeMetrics: { mentionRate: 0.4, brandRank: 5, accuracyScore: 0.6 },
-  afterMetrics: { mentionRate: 0.7, brandRank: 2, accuracyScore: 0.8 },
+  beforeMetrics: { mentionRate: 0.4, brandRank: 5, accuracyScore: 0.6, citationRate: 0.3 },
+  afterMetrics: { mentionRate: 0.7, brandRank: 2, accuracyScore: 0.8, citationRate: 0.65 },
   createdAt: '2026-07-20T00:00:00.000Z',
   updatedAt: '2026-07-21T00:00:00.000Z'
 };
@@ -79,7 +80,8 @@ describe('TaskRetestPage helpers', () => {
     expect(getRetestMetricComparison(row)).toEqual([
       '提及率 40% → 70%',
       '品牌排名 5 → 2',
-      '表达准确率 60% → 80%'
+      '表达准确率 60% → 80%',
+      '引用率 30% → 65%'
     ]);
   });
 
@@ -91,6 +93,16 @@ describe('TaskRetestPage helpers', () => {
     const filtered = getFilteredTaskRetestRows(rows, { search: '权威引用', platform: 'all', status: 'follow_up' });
 
     expect(filtered.map((row) => row.task.id)).toEqual(['task-2']);
+  });
+
+  it('moves the workflow task to the first visible row', () => {
+    const rows = getTaskRetestOperationRows([
+      baseTask,
+      { ...baseTask, id: 'task-2', title: '评价表达修正' }
+    ]);
+
+    expect(prioritizeTaskRetestRows(rows, 'task-2').map((row) => row.task.id)).toEqual(['task-2', 'task-1']);
+    expect(prioritizeTaskRetestRows(rows)).toBe(rows);
   });
 
   it('serializes action filters while preserving workflow context', () => {

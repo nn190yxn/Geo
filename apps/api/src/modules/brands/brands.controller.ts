@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Optional, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -32,6 +32,10 @@ import type {
   GrowthOptimizationWorkspace,
   KnowledgeSource,
   KnowledgeSourceInput,
+  KnowledgeChunk,
+  KnowledgeChunkSyncResult,
+  KnowledgeQueryInput,
+  KnowledgeQueryResult,
   OptimizationPlanningInput,
   OptimizationPlanningOutput,
   ManualTestAnswerBatchInput,
@@ -43,6 +47,7 @@ import type {
   OptimizationUnitPriority,
   OptimizationUnitType,
   PromptBatchGenerateInput,
+  QuestionDiscoveryRequest,
   TestAssetGenerationResult,
   TestQuestionCandidate,
   TestQuestionCandidateInput,
@@ -70,9 +75,12 @@ import type {
 import { LLMOrchestrationService } from '../llm/llm-orchestration.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { monitoringFrequencies, userIntentCategories } from '../permissions/permissions.repository';
+import { KnowledgeRetrievalService } from './knowledge-retrieval.service';
 import { BrandImportService } from './brand-import.service';
-import { TestQuestionService } from './test-question.service';
+import { normalizeQuestionText, TestQuestionService } from './test-question.service';
 import { TestThemeService } from './test-theme.service';
+import { KnowledgeChunkService } from './knowledge-chunk.service';
+import { ProductEventRecorderService } from '../product-events/product-event-recorder.service';
 
 type UploadedBrandFile = {
   originalname: string;
@@ -99,7 +107,10 @@ export class BrandsController {
     private readonly brandImportService: BrandImportService,
     private readonly testQuestionService: TestQuestionService,
     private readonly testThemeService: TestThemeService,
-    private readonly llmService: LLMOrchestrationService
+    private readonly llmService: LLMOrchestrationService,
+    private readonly productEventRecorder: ProductEventRecorderService,
+    @Optional() private readonly knowledgeChunkService?: KnowledgeChunkService,
+    @Optional() private readonly knowledgeRetrievalService?: KnowledgeRetrievalService
   ) {}
 
   @Get()
@@ -137,9 +148,18 @@ export class BrandsController {
 
   @Post()
   async createBrand(@Req() request: Request, @Body() body: BrandMutationInput): Promise<ApiResponse<BrandDetail>> {
+    const brand = await this.permissionsService.createBrand(request.context.userId, normalizeBrandInput(body));
+    await this.productEventRecorder.record({
+      actorUserId: request.context.userId,
+      brandId: brand.brandId,
+      eventType: 'brand_created',
+      entityType: 'brand',
+      entityId: brand.brandId,
+      idempotencyKey: `brand-created:${brand.brandId}`
+    });
     return {
       success: true,
-      data: await this.permissionsService.createBrand(request.context.userId, normalizeBrandInput(body))
+      data: brand
     };
   }
 
@@ -306,6 +326,32 @@ export class BrandsController {
     };
   }
 
+  @Get(':brandId/knowledge-chunks')
+  async listKnowledgeChunks(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Query('sourceId') sourceId?: string
+  ): Promise<ApiResponse<KnowledgeChunk[]>> {
+    return { success: true, data: await this.requireKnowledgeChunkService().list(request.context.userId, brandId, sourceId?.trim() || undefined) };
+  }
+
+  @Post(':brandId/knowledge-chunks/sync')
+  async syncKnowledgeChunks(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<KnowledgeChunkSyncResult>> {
+    return { success: true, data: await this.requireKnowledgeChunkService().syncConfirmedFacts(request.context.userId, brandId) };
+  }
+
+  @Post(':brandId/knowledge/search')
+  async searchKnowledge(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Body() body: KnowledgeQueryInput
+  ): Promise<ApiResponse<KnowledgeQueryResult>> {
+    if (!body?.query?.trim()) throw new BadRequestException('知识查询内容不能为空');
+    const result = await this.requireKnowledgeRetrievalService().query(request.context.userId, brandId, body);
+    if (!result) throw new NotFoundException('品牌知识库不存在或当前用户无权访问');
+    return { success: true, data: result };
+  }
+
   @Post(':brandId/knowledge-sources/upload')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -408,6 +454,21 @@ export class BrandsController {
     if (!brand || !profile || !updatedSource) {
       throw new NotFoundException('品牌资料确认失败，请确认当前用户有权访问该品牌');
     }
+    await this.knowledgeChunkService?.ingestSource(
+      request.context.userId,
+      brandId,
+      updatedSource,
+      buildBrandImportKnowledgeBlocks(payload),
+      'approved'
+    );
+    await this.productEventRecorder.record({
+      actorUserId: request.context.userId,
+      brandId,
+      eventType: 'profile_confirmed',
+      entityType: 'knowledge_source',
+      entityId: sourceId,
+      idempotencyKey: `profile-confirmed:${sourceId}`
+    });
 
     return {
       success: true,
@@ -417,6 +478,16 @@ export class BrandsController {
         source: updatedSource
       }
     };
+  }
+
+  private requireKnowledgeChunkService(): KnowledgeChunkService {
+    if (!this.knowledgeChunkService) throw new NotFoundException('品牌知识片段服务不可用');
+    return this.knowledgeChunkService;
+  }
+
+  private requireKnowledgeRetrievalService(): KnowledgeRetrievalService {
+    if (!this.knowledgeRetrievalService) throw new NotFoundException('品牌知识检索服务不可用');
+    return this.knowledgeRetrievalService;
   }
 
   @Get(':brandId/test-themes')
@@ -434,7 +505,11 @@ export class BrandsController {
   }
 
   @Post(':brandId/test-themes/generate')
-  async generateTestThemes(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<TestAssetGenerationResult<TestTheme>>> {
+  async generateTestThemes(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Body() body: QuestionDiscoveryRequest = {}
+  ): Promise<ApiResponse<TestAssetGenerationResult<TestTheme>>> {
     const brand = (await this.permissionsService.listAccessibleBrandDetails(request.context.userId)).find((item) => item.brandId === brandId);
     const profile = await this.permissionsService.getBrandProfile(request.context.userId, brandId);
     const existing = await this.permissionsService.listTestThemes(request.context.userId, brandId);
@@ -444,7 +519,7 @@ export class BrandsController {
     }
 
     const existingKeys = new Set(existing.map((theme) => `${theme.type}:${theme.name}`));
-    const generated = await this.testThemeService.generateThemesWithLLM(request.context.userId, brandId, brand, profile);
+    const generated = await this.testThemeService.generateThemesWithLLM(request.context.userId, brandId, brand, profile, normalizeSeedWords(body.seedWords));
     const created = generated.items
       .filter((theme) => !existingKeys.has(`${theme.type}:${theme.name}`))
       .map((theme) => this.permissionsService.createTestTheme(request.context.userId, brandId, theme))
@@ -542,7 +617,8 @@ export class BrandsController {
   @Post(':brandId/test-question-candidates/generate')
   async generateTestQuestionCandidates(
     @Req() request: Request,
-    @Param('brandId') brandId: string
+    @Param('brandId') brandId: string,
+    @Body() body: QuestionDiscoveryRequest = {}
   ): Promise<ApiResponse<TestAssetGenerationResult<TestQuestionCandidate>>> {
     const brand = (await this.permissionsService.listAccessibleBrandDetails(request.context.userId)).find((item) => item.brandId === brandId);
     const profile = await this.permissionsService.getBrandProfile(request.context.userId, brandId);
@@ -553,14 +629,14 @@ export class BrandsController {
       throw new NotFoundException('品牌档案或测试主题不存在，无法生成测试问法');
     }
 
-    const existingKeys = new Set(existing.map((candidate) => `${candidate.themeId}:${candidate.question}`));
-    const generated = await this.testQuestionService.generateCandidatesWithLLM(request.context.userId, brandId, brand, profile, themes);
-    const generatedKeys = new Set(generated.items.map((candidate) => `${candidate.themeId}:${candidate.question}`));
+    const existingKeys = new Set(existing.map((candidate) => normalizeQuestionText(candidate.question)));
+    const generated = await this.testQuestionService.generateCandidatesWithLLM(request.context.userId, brandId, brand, profile, themes, normalizeSeedWords(body.seedWords));
+    const generatedKeys = new Set(generated.items.map((candidate) => normalizeQuestionText(candidate.question)));
     const created = generated.items
-      .filter((candidate) => !existingKeys.has(`${candidate.themeId}:${candidate.question}`))
+      .filter((candidate) => !existingKeys.has(normalizeQuestionText(candidate.question)))
       .map((candidate) => this.permissionsService.createTestQuestionCandidate(request.context.userId, brandId, candidate))
       .filter((candidate): candidate is TestQuestionCandidate => Boolean(candidate));
-    const alreadyWritten = existing.filter((candidate) => generatedKeys.has(`${candidate.themeId}:${candidate.question}`));
+    const alreadyWritten = existing.filter((candidate) => generatedKeys.has(normalizeQuestionText(candidate.question)));
 
     return {
       success: true,
@@ -662,6 +738,14 @@ export class BrandsController {
     if (!result) {
       throw new NotFoundException('监测计划不存在或当前用户无权访问');
     }
+    await this.productEventRecorder.record({
+      actorUserId: request.context.userId,
+      brandId,
+      eventType: 'recommendation_adopted',
+      entityType: 'growth_optimization_plan',
+      entityId: planId,
+      idempotencyKey: `recommendation-adopted:${planId}`
+    });
 
     return {
       success: true,
@@ -1258,10 +1342,45 @@ function normalizeStringList(values: string[] = []): string[] {
   return values.map((value) => value.trim()).filter(Boolean);
 }
 
+function normalizeSeedWords(values: string[] | undefined): string[] {
+  if (values !== undefined && !Array.isArray(values)) {
+    throw new BadRequestException('种子词必须是字符串数组');
+  }
+
+  const normalized = [...new Set(normalizeStringList(values).map((value) => value.slice(0, 80)))];
+  if (normalized.length > 20) {
+    throw new BadRequestException('种子词最多支持 20 个');
+  }
+
+  return normalized;
+}
+
 function isSupportedBrandImportFile(fileName: string, mimeType: string): boolean {
   const extension = extname(fileName).toLowerCase();
 
   return supportedBrandImportExtensions.includes(extension) && supportedBrandImportMimeTypes.includes(mimeType);
+}
+
+function buildBrandImportKnowledgeBlocks(payload: { brand: object; profile: object }): string[] {
+  return [
+    ...toKnowledgeBlocks(payload.brand, 'brand'),
+    ...toKnowledgeBlocks(payload.profile, 'profile')
+  ];
+}
+
+function toKnowledgeBlocks(value: object, prefix: string): string[] {
+  return Object.entries(value).flatMap(([key, item]) => {
+    if (typeof item === 'string' && item.trim()) return [`${prefix}.${key}：${item.trim()}`];
+    if (Array.isArray(item)) {
+      return item.flatMap((entry, index) => {
+        if (typeof entry === 'string' && entry.trim()) return [`${prefix}.${key}[${index}]：${entry.trim()}`];
+        if (entry && typeof entry === 'object') return toKnowledgeBlocks(entry as object, `${prefix}.${key}[${index}]`);
+        return [];
+      });
+    }
+    if (item && typeof item === 'object') return toKnowledgeBlocks(item as object, `${prefix}.${key}`);
+    return [];
+  });
 }
 
 function persistBrandImportFile(brandId: string, file: UploadedBrandFile): string {
@@ -1431,6 +1550,10 @@ function normalizePartialTestQuestionCandidateInput(input: TestQuestionCandidate
     throw new BadRequestException('测试问法至少需要一个目标平台');
   }
 
+  if (input.recommendationProbability !== undefined && (!Number.isFinite(input.recommendationProbability) || input.recommendationProbability < 0 || input.recommendationProbability > 1)) {
+    throw new BadRequestException('推荐概率必须在 0 到 1 之间');
+  }
+
   return {
     themeId: input.themeId?.trim(),
     question,
@@ -1438,6 +1561,13 @@ function normalizePartialTestQuestionCandidateInput(input: TestQuestionCandidate
     targetPlatforms,
     priority: input.priority,
     estimatedValue: input.estimatedValue?.trim(),
+    discoveryDimension: input.discoveryDimension,
+    businessValue: input.businessValue,
+    recommendationProbability: input.recommendationProbability,
+    userStage: input.userStage,
+    generationRationale: input.generationRationale?.trim(),
+    generationMethod: input.generationMethod,
+    mergedFrom: input.mergedFrom ? normalizeStringList(input.mergedFrom) : undefined,
     editable: input.editable,
     selected: input.selected
   };
@@ -1581,7 +1711,7 @@ function toTestPlanCreationResult(plan: TestPlan): TestPlanCreationResult {
 
 const optimizationUnitTypes: OptimizationUnitType[] = ['brand', 'category', 'scenario', 'location', 'competitor'];
 const optimizationUnitPriorities: OptimizationUnitPriority[] = ['high', 'medium', 'low'];
-const testThemeTypes: TestThemeType[] = ['brand', 'category', 'location', 'age_group', 'pain_point', 'offering', 'competitor', 'buying_decision'];
+const testThemeTypes: TestThemeType[] = ['brand', 'category', 'scenario', 'audience', 'pain_point', 'location', 'buying_decision', 'competitor_comparison', 'age_group', 'offering', 'competitor'];
 const testQuestionPurposes: TestQuestionPurpose[] = ['brand_mentioned', 'rank_first', 'value_prop_accuracy', 'competitor_presence', 'risk_expression'];
 const testPlanExecutionMethods: TestPlan['executionMethod'][] = ['api', 'browser', 'manual'];
 const knowledgeSourceStatuses: KnowledgeSource['status'][] = ['pending', 'processing', 'completed', 'failed'];

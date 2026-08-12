@@ -19,6 +19,8 @@ import type {
   AsyncJobUpdateInput,
   LLMTaskRun,
   LLMTaskRunInput,
+  MeasurementAttributionInput,
+  MeasurementAttributionRecord,
   AnalysisFinding,
   AnalysisFindingInput,
   AnalysisResult,
@@ -45,10 +47,12 @@ import type {
   BrowserConnectionStartInput,
   BrowserConnectionStatusInput,
   CitationDashboard,
+  CitationSource,
   Competitor,
   CompetitorCandidate,
   CompetitorCandidateConfirmationResult,
   CompetitorCandidateDecisionInput,
+  CompetitorCandidateEvidenceInput,
   CompetitorDashboard,
   CompetitorDiscoveryCandidatesQuery,
   CompetitorDiscoveryRun,
@@ -58,6 +62,7 @@ import type {
   ContentAssetFilter,
   ContentAssetInput,
   ContentAssetPageItem,
+  CreateTechnicalAssetInput,
   ContentCenterDashboard,
   ContentExportRecord,
   ContentGenerationCompletionInput,
@@ -82,6 +87,8 @@ import type {
   GrowthOptimizationWorkspace,
   KnowledgeSource,
   KnowledgeSourceInput,
+  KnowledgeChunk,
+  KnowledgeChunkInput,
   ManualTestAnswerBatchInput,
   ManualTestAnswerBatchResult,
   ManualResponseInput,
@@ -110,10 +117,12 @@ import type {
   PublishingExecutionStatusInput,
   PublishingModeInput,
   PublishingRecord,
+  PublishingRecordConfirmationInput,
   PublishingRecordInput,
   ReportDashboard,
   ReportInput,
   ReportRecord,
+  ReportScopePreview,
   RetestPlanInput,
   RetestResultInput,
   TaskBoardDashboard,
@@ -130,6 +139,7 @@ import type {
   TestPlanTemplateApplicationInput,
   TestTheme,
   TestThemeInput,
+  TechnicalAssetRecord,
   UserIntent,
   UserIntentInput,
   UserSummary,
@@ -193,6 +203,7 @@ export interface PermissionsRepositoryPort {
   listAccessibleBrands(userId: string): AccessibleBrand[];
   canAccessBrand(userId: string, brandId: BrandId): boolean;
   listAccessibleBrandDetails(userId: string): BrandDetail[];
+  findAccessibleBrandDetail?(userId: string, brandId: BrandId): MaybePromise<BrandDetail | null>;
   getBrandWorkspaceSnapshot(userId: string, brandId: BrandId): BrandWorkspaceSnapshot | null;
   createBrand(userId: string, input: BrandMutationInput): BrandDetail;
   updateBrand(userId: string, brandId: BrandId, input: Partial<BrandMutationInput>): BrandDetail | null;
@@ -204,6 +215,9 @@ export interface PermissionsRepositoryPort {
   listKnowledgeSources(userId: string, brandId: BrandId): KnowledgeSource[] | null;
   createKnowledgeSource(userId: string, brandId: BrandId, input: KnowledgeSourceInput): KnowledgeSource | null;
   updateKnowledgeSourceStatus(userId: string, brandId: BrandId, sourceId: string, status: KnowledgeSource['status'], errorMessage?: string): KnowledgeSource | null;
+  listKnowledgeChunks(userId: string, brandId: BrandId, sourceId?: string): MaybePromise<KnowledgeChunk[] | null>;
+  searchKnowledgeChunks(userId: string, brandId: BrandId, query: string, limit: number): MaybePromise<KnowledgeChunk[] | null>;
+  appendKnowledgeChunkVersion(userId: string, brandId: BrandId, sourceId: string, chunks: KnowledgeChunkInput[]): MaybePromise<KnowledgeChunk[] | null>;
   listBrandMediaAssets?(userId: string, brandId: BrandId): MaybePromise<BrandMediaAsset[] | null>;
   createBrandMediaAsset?(userId: string, brandId: BrandId, input: BrandMediaAssetInput): MaybePromise<BrandMediaAsset | null>;
   updateBrandMediaAsset?(userId: string, brandId: BrandId, assetId: string, input: BrandMediaAssetInput): MaybePromise<BrandMediaAsset | null>;
@@ -263,6 +277,8 @@ export interface PermissionsRepositoryPort {
   createBrandStandardAnswer?(userId: string, brandId: BrandId, input: BrandStandardAnswerInput): MaybePromise<BrandStandardAnswer | null>;
   updateBrandStandardAnswer?(userId: string, brandId: BrandId, answerId: string, input: BrandStandardAnswerUpdateInput): MaybePromise<BrandStandardAnswer | null>;
   listMonitoringRuns(userId: string, brandId: BrandId): MonitoringRunDetail[] | null;
+  getMeasurementAttribution?(userId: string, brandId: BrandId): MaybePromise<MeasurementAttributionRecord | null>;
+  saveMeasurementAttribution?(userId: string, brandId: BrandId, input: MeasurementAttributionInput): MaybePromise<MeasurementAttributionRecord | null>;
   getMonitoringRun(userId: string, brandId: BrandId, runId: string): MonitoringRunDetail | null;
   getAnalysisResult(userId: string, brandId: BrandId, runId: string): AnalysisResult | null;
   parseAnalysisResult(userId: string, brandId: BrandId, runId: string): AnalysisResult | null;
@@ -279,8 +295,13 @@ export interface PermissionsRepositoryPort {
   getCompetitorDashboard(userId: string, brandId: BrandId): MaybePromise<CompetitorDashboard | null>;
   createCompetitorDiscoveryRun(userId: string, brandId: BrandId, input?: CompetitorDiscoveryRunInput): MaybePromise<CompetitorDiscoveryRun | null>;
   listCompetitorDiscoveryCandidates(userId: string, brandId: BrandId, runId: string, query?: CompetitorDiscoveryCandidatesQuery): MaybePromise<CompetitorCandidate[] | null>;
+  listCompetitorCandidates(userId: string, brandId: BrandId): MaybePromise<CompetitorCandidate[] | null>;
+  syncCompetitorCandidateEvidence(userId: string, brandId: BrandId, evidence: CompetitorCandidateEvidenceInput[]): MaybePromise<CompetitorCandidate[] | null>;
   decideCompetitorCandidate(userId: string, brandId: BrandId, candidateId: string, input: CompetitorCandidateDecisionInput): MaybePromise<CompetitorCandidateConfirmationResult | null>;
-  getCitationDashboard(userId: string, brandId: BrandId): CitationDashboard | null;
+  getCitationDashboard(userId: string, brandId: BrandId): MaybePromise<CitationDashboard | null>;
+  getCitationSource?(userId: string, brandId: BrandId, citationId: string): MaybePromise<CitationSource | null>;
+  saveCitationAbsorptionEvidence?(userId: string, brandId: BrandId, citationId: string, evidence: import('@geo-platform/shared-types').CitationAbsorptionEvidence[]): MaybePromise<CitationSource | null>;
+  reviewCitationAbsorptionEvidence?(userId: string, brandId: BrandId, citationId: string, evidenceId: string): MaybePromise<CitationSource | null>;
   bindCitationContentAsset(userId: string, brandId: BrandId, citationId: string, input: ContentAssetInput): ContentAsset | null;
   createCitationEnhancementStrategy(userId: string, brandId: BrandId, citationId: string): ContentStrategy | null;
   getEvaluationDashboard(userId: string, brandId: BrandId): EvaluationDashboard | null;
@@ -291,6 +312,7 @@ export interface PermissionsRepositoryPort {
   getContentCenterDashboard(userId: string, brandId: BrandId): ContentCenterDashboard | null;
   listContentAssets(userId: string, brandId: BrandId, filter?: ContentAssetFilter): ContentAsset[] | null;
   createContentAsset(userId: string, brandId: BrandId, input: ContentAssetInput): ContentAsset | null;
+  createTechnicalContentAsset(userId: string, brandId: BrandId, input: CreateTechnicalAssetInput): MaybePromise<TechnicalAssetRecord | null>;
   updateContentAsset(userId: string, brandId: BrandId, assetId: string, input: ContentAssetInput): ContentAsset | null;
   listContentAssetPageItems?(userId: string, brandId: BrandId, filter?: ContentAssetFilter): MaybePromise<ContentAssetPageItem[] | null>;
   listContentStrategies(userId: string, brandId: BrandId, filter?: ContentStrategyFilter): ContentStrategy[] | null;
@@ -316,6 +338,7 @@ export interface PermissionsRepositoryPort {
   updatePublishingAccountStatus(userId: string, brandId: BrandId, accountId: string, input: Pick<PublishingAccountInput, 'authStatus' | 'errorMessage'>): PublishingAccount | null;
   updatePublishingAccountMode(userId: string, brandId: BrandId, accountId: string, input: PublishingModeInput): PublishingAccount | null;
   createPublishingRecord(userId: string, brandId: BrandId, input: PublishingRecordInput): PublishingRecord | null;
+  confirmPublishingRecord(userId: string, brandId: BrandId, recordId: string, input: PublishingRecordConfirmationInput): PublishingRecord | null;
   updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingExecutionStatusInput): PublishingRecord | null;
   listAnalysisFindings?(userId: string, brandId: BrandId): MaybePromise<AnalysisFinding[] | null>;
   createAnalysisFinding?(userId: string, brandId: BrandId, input: AnalysisFindingInput): MaybePromise<AnalysisFinding | null>;
@@ -325,8 +348,10 @@ export interface PermissionsRepositoryPort {
   getTaskBoard(userId: string, brandId: BrandId): TaskBoardDashboard | null;
   updateOptimizationTask(userId: string, brandId: BrandId, taskId: string, input: OptimizationTaskUpdateInput): OptimizationTask | null;
   planOptimizationTaskRetest(userId: string, brandId: BrandId, taskId: string, input: RetestPlanInput): OptimizationTask | null;
+  bindOptimizationTaskRetestRun(userId: string, brandId: BrandId, taskId: string, recordId: string, retestRunId: string): OptimizationTask | null;
   completeOptimizationTaskRetest(userId: string, brandId: BrandId, taskId: string, recordId: string, input: RetestResultInput): OptimizationTask | null;
   getReportDashboard(userId: string, brandId: BrandId): ReportDashboard | null;
+  previewReport(userId: string, brandId: BrandId, input: ReportInput): MaybePromise<ReportScopePreview[] | null>;
   createReport(userId: string, brandId: BrandId, input: ReportInput): ReportRecord | null;
   getReport(userId: string, brandId: BrandId, reportId: string): ReportRecord | null;
   getAdvisorDashboard(userId: string, brandId: BrandId): AdvisorDashboard | null;

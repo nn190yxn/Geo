@@ -1,6 +1,7 @@
 import { Button, Card, Empty, Space, Tag, Typography } from 'antd';
 import type { AnalysisFinding, AnalysisFindingSeverity, AnalysisFindingType, AnalysisRecommendedAction } from '@geo-platform/shared-types';
 import { getPlatformDisplay } from '../../../utils/displayLabels';
+import { SampleEvidencePanel } from '../../../components/SampleEvidencePanel';
 
 const findingTypeLabels: Record<AnalysisFindingType, string> = {
   competitor: '竞品差距',
@@ -53,6 +54,7 @@ export function AnalysisFindingCards({ findings, onAction, onOpenTask }: Analysi
                 ) : <Typography.Paragraph type="secondary">等待补充真实回复证据。</Typography.Paragraph>}
               </div>
               <Space wrap>
+                {finding.relatedRunIds?.length ? <SampleEvidencePanel runIds={finding.relatedRunIds} /> : null}
                 {finding.recommendedActions.map((action, index) => (
                   <Button key={`${action.actionType}-${action.targetId ?? index}`} size="small" onClick={() => onAction(finding, action)}>
                     {action.label}

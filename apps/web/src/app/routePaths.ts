@@ -18,6 +18,7 @@ export const firstVersionRoutePaths = [
   '/publishing',
   '/owned-media',
   '/media-platforms',
+  '/site-audit',
   '/model-settings',
   '/tasks',
   '/feedback',
@@ -51,7 +52,7 @@ export function userIntentsPath(context: Pick<WorkflowRouteContext, 'optimizatio
 }
 
 export function monitoringPath(
-  context: Pick<WorkflowRouteContext, 'question' | 'optimizationUnitId' | 'intentId' | 'promptId' | 'runId' | 'taskId' | 'platformCode' | 'mode'> = {},
+  context: Pick<WorkflowRouteContext, 'question' | 'optimizationUnitId' | 'intentId' | 'promptId' | 'runId' | 'planId' | 'taskId' | 'platformCode' | 'mode'> = {},
   section?: 'test-question-candidate-card' | 'manual-test-entry' | 'monitoring-runs-card'
 ) {
   return buildWorkflowPath('/monitoring', {
@@ -60,6 +61,7 @@ export function monitoringPath(
     intentId: context.intentId,
     promptId: context.promptId,
     runId: context.runId,
+    planId: context.planId,
     taskId: context.taskId,
     platformCode: context.platformCode,
     mode: context.mode
@@ -68,7 +70,7 @@ export function monitoringPath(
 
 export function brandMonitoringPath(
   brandId: string,
-  context: Pick<WorkflowRouteContext, 'question' | 'optimizationUnitId' | 'intentId' | 'promptId' | 'runId' | 'taskId' | 'platformCode' | 'mode'> = {},
+  context: Pick<WorkflowRouteContext, 'question' | 'optimizationUnitId' | 'intentId' | 'promptId' | 'runId' | 'planId' | 'taskId' | 'platformCode' | 'mode'> = {},
   section?: 'test-question-candidate-card' | 'manual-test-entry' | 'monitoring-runs-card'
 ) {
   const path = monitoringPath(context, section);

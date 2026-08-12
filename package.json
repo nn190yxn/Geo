@@ -22,8 +22,8 @@
     "db:prepare": "npm run prisma:generate && npm run prisma:seed"
   },
   "overrides": {
-    "brace-expansion": "1.1.17",
-    "fast-uri": "3.1.4",
+    "brace-expansion": "1.1.18",
+    "fast-uri": "3.1.5",
     "multer": "2.2.0"
   },
   "optionalDependencies": {

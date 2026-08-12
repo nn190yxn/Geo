@@ -168,6 +168,7 @@ function createPrompt(overrides: Partial<BrandPrompt> = {}): BrandPrompt {
     optimizationUnitId: 'unit-1',
     intentId: 'intent-1',
     text: '贵阳儿童体能课程推荐',
+    promptKind: 'discovery',
     category: 'category_recommendation',
     targetKeywords: ['儿童体能'],
     platformCodes: ['doubao', 'stepfun', 'qianwen'],

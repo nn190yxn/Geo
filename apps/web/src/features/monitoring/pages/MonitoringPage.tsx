@@ -4,12 +4,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
 import { hasRealMonitoringResponseSample, type MonitoringRunDetail, type MonitoringRunStatus, type PlatformConfig, type TestPlan } from '@geo-platform/shared-types';
 import { apiGet } from '../../../api/http';
+import { useBrandWriteCapability } from '../../../access-control/BrandCapabilityContext';
 import { mergeUnifiedFilterQuery, readUnifiedFilterQuery } from '../../../app/filterQuery';
 import { growthOptimizationPath, readWorkflowRouteContext } from '../../../app/routePaths';
 import { InsightDetailSection, InsightOverview, type InsightTone } from '../../../components/InsightOverview';
 import { MetricSummaryGrid } from '../../../components/MetricSummaryGrid';
 import { PlatformSwitch } from '../../../components/PlatformSwitch';
 import { ProductPage } from '../../../components/ProductPage';
+import { SampleEvidencePanel } from '../../../components/SampleEvidencePanel';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
 import { getPlatformDisplayName, type AIPlatformFilterValue } from '../../../utils/displayLabels';
 import { BusinessEmptyState, PageSkeleton, PartialDataNotice, RegionErrorState } from '../../../components/PageState';
@@ -17,12 +19,15 @@ import { getQueryGroupWorkspaceState } from '../../../components/WorkspaceState'
 import { AutomationOperatorCard } from '../../automation/components/AutomationOperatorCard';
 import { GeoMetricDashboardCard } from '../components/GeoMetricDashboardCard';
 import { ManualTestEntryCard } from '../components/ManualTestEntryCard';
+import { MeasurementDisciplinePanel } from '../components/MeasurementDisciplinePanel';
 import { buildMonitoringRecoveryItems, MonitoringRecoverySummary, type MonitoringRecoveryTarget } from '../components/MonitoringRecoverySummary';
 import { MonitoringRunsCard } from '../components/MonitoringRunsCard';
 import { PlatformConfigCard } from '../components/PlatformConfigCard';
 import { TestQuestionCandidateCard } from '../components/TestQuestionCandidateCard';
 
 export function MonitoringPage() {
+  const monitoringCapability = useBrandWriteCapability('monitoring');
+  const platformCapability = useBrandWriteCapability('platform_config');
   const activeBrandId = useBrandContextStore((state) => state.activeBrandId);
   const location = useLocation();
   const navigate = useNavigate();
@@ -121,11 +126,11 @@ export function MonitoringPage() {
     <ProductPage
       title="AI 回复监测"
       description="先判断品牌在真实 AI 回复中的推荐表现，再按平台、监测问题和原始回复逐层核对证据。"
-      primaryAction={<Button type="primary" onClick={scrollToQuestionCandidates}>开始监测</Button>}
+      primaryAction={<Button type="primary" disabled={!monitoringCapability.canWrite} title={monitoringCapability.reason} onClick={scrollToQuestionCandidates}>开始监测</Button>}
       secondaryActions={(
         <Space wrap>
-          <Button onClick={scrollToManualEntry}>手动录入</Button>
-          <Button onClick={() => openSection('tools', 'platform-config-card')}>平台配置</Button>
+          <Button disabled={!monitoringCapability.canWrite} title={monitoringCapability.reason} onClick={scrollToManualEntry}>手动录入</Button>
+          <Button disabled={!platformCapability.canWrite} title={platformCapability.reason} onClick={() => openSection('tools', 'platform-config-card')}>平台配置</Button>
         </Space>
       )}
       state={pageState}
@@ -167,8 +172,27 @@ export function MonitoringPage() {
         ) : undefined}
       />
       <MetricSummaryGrid items={overview.metrics} columns={4} loading={runsQuery.isLoading} ariaLabel="AI 回复监测关键指标" />
+      <MeasurementDisciplinePanel brandId={activeBrandId} canWrite={monitoringCapability.canWrite} />
+      <Space wrap>
+        <SampleEvidencePanel runIds={overview.runIds} buttonLabel="查看指标与趋势样本" buttonSize="middle" />
+        <Typography.Text type="secondary">指标与平台趋势均可回看当前范围内的原始回答和测量条件。</Typography.Text>
+      </Space>
       <PlatformSwitch value={platform} onChange={updatePlatform} ariaLabel="切换监测分析平台" />
       <MonitoringRecoverySummary items={recoveryItems} platforms={platforms} onAction={openRecoveryTarget} />
+      <InsightDetailSection
+        title="监测趋势"
+        description="按回答日期查看真实样本数量、品牌提及率和对应原始证据。"
+        resultCount={overview.trend.length}
+      >
+        <Table
+          rowKey="date"
+          size="small"
+          pagination={false}
+          dataSource={overview.trend}
+          locale={{ emptyText: '当前范围还没有可比较的监测趋势' }}
+          columns={monitoringTrendColumns}
+        />
+      </InsightDetailSection>
       <InsightDetailSection
         title="平台回复分布"
         description="当前分析范围内各平台的真实回复、品牌提及和待确认情况。"
@@ -190,7 +214,7 @@ export function MonitoringPage() {
           {
             key: 'questions',
             label: '监测主题与问题',
-            children: <TestQuestionCandidateCard brandId={activeBrandId} actionType="default" />
+            children: <TestQuestionCandidateCard brandId={activeBrandId} actionType="default" initialPlan={plans.find((plan) => plan.id === routeContext.planId)} />
           },
           {
             key: 'execution',
@@ -244,7 +268,7 @@ export function MonitoringPage() {
 
 type MonitoringSection = 'questions' | 'execution' | 'responses' | 'tools';
 
-type MonitoringOverviewRun = Pick<MonitoringRunDetail, 'platformCode' | 'response' | 'analysis'>;
+type MonitoringOverviewRun = Pick<MonitoringRunDetail, 'id' | 'platformCode' | 'response' | 'analysis'>;
 
 export type MonitoringOverview = ReturnType<typeof buildMonitoringOverview>;
 
@@ -262,11 +286,24 @@ export function buildMonitoringOverview(runs: MonitoringOverviewRun[], platform:
     const platformRuns = realRuns.filter((run) => run.platformCode === platformCode);
     return {
       platformCode,
+      runIds: platformRuns.map((run) => run.id),
       sampleCount: platformRuns.length,
       mentionRate: Math.round((platformRuns.filter((run) => run.analysis?.brandMentioned).length / platformRuns.length) * 100),
       reviewCount: platformRuns.filter((run) => run.analysis?.reviewRequired).length
     };
   });
+  const trend = Array.from(new Set(realRuns.map((run) => run.response?.respondedAt.slice(0, 10)).filter((date): date is string => Boolean(date))))
+    .sort()
+    .map((date) => {
+      const dateRuns = realRuns.filter((run) => run.response?.respondedAt.startsWith(date));
+      const dateMentionedCount = dateRuns.filter((run) => run.analysis?.brandMentioned).length;
+      return {
+        date,
+        runIds: dateRuns.map((run) => run.id),
+        sampleCount: dateRuns.length,
+        mentionRate: Math.round((dateMentionedCount / dateRuns.length) * 100)
+      };
+    });
 
   let title = '等待首批真实 AI 回复';
   let description = '选择监测主题和问题后开始监测，系统会按真实回复更新推荐表现。';
@@ -280,6 +317,7 @@ export function buildMonitoringOverview(runs: MonitoringOverviewRun[], platform:
   }
 
   return {
+    runIds: realRuns.map((run) => run.id),
     title,
     description,
     tone,
@@ -297,6 +335,7 @@ export function buildMonitoringOverview(runs: MonitoringOverviewRun[], platform:
       { key: 'top3', label: 'Top 3 推荐率', value: top3Rate, suffix: '%', description: `${top3Count} 条进入前三` },
       { key: 'citation', label: '引用命中率', value: citationRate, suffix: '%', description: `${citedCount} 条包含引用` }
     ],
+    trend,
     platformBreakdown
   };
 }
@@ -311,7 +350,15 @@ const platformBreakdownColumns = [
   { title: 'AI 平台', dataIndex: 'platformCode', render: (value: string) => getPlatformDisplayName(value) },
   { title: '真实回复', dataIndex: 'sampleCount' },
   { title: '品牌提及率', dataIndex: 'mentionRate', render: (value: number) => `${value}%` },
-  { title: '待确认', dataIndex: 'reviewCount', render: (value: number) => value > 0 ? <Tag color="orange">{value} 条</Tag> : <Tag color="green">已处理</Tag> }
+  { title: '待确认', dataIndex: 'reviewCount', render: (value: number) => value > 0 ? <Tag color="orange">{value} 条</Tag> : <Tag color="green">已处理</Tag> },
+  { title: '证据', dataIndex: 'runIds', render: (runIds: string[]) => <SampleEvidencePanel runIds={runIds} /> }
+];
+
+const monitoringTrendColumns = [
+  { title: '回答日期', dataIndex: 'date' },
+  { title: '真实回复', dataIndex: 'sampleCount' },
+  { title: '品牌提及率', dataIndex: 'mentionRate', render: (value: number) => `${value}%` },
+  { title: '证据', dataIndex: 'runIds', render: (runIds: string[]) => <SampleEvidencePanel runIds={runIds} buttonLabel="查看趋势样本" /> }
 ];
 
 function MonitoringPlanGuideCard({

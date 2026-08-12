@@ -36,7 +36,7 @@ describe('full-page route regression', () => {
   it('keeps every navigation route registered and backed by a shared page template', () => {
     const navigationPaths = flattenNavigationItems().map((item) => item.key);
 
-    expect(firstVersionRoutePaths).toHaveLength(24);
+    expect(firstVersionRoutePaths).toHaveLength(25);
     expect(firstVersionRoutes.map((route) => route.path)).toEqual(firstVersionRoutePaths);
     expect(navigationPaths).toEqual(expect.arrayContaining([...firstVersionRoutePaths]));
     expect(navigationPaths).toHaveLength(firstVersionRoutePaths.length);
@@ -52,7 +52,7 @@ describe('full-page route regression', () => {
     const search = '?question=%E5%93%81%E7%89%8C%E5%A6%82%E4%BD%95&optimizationUnitId=unit-1&intentId=intent-1&promptId=prompt-1&runId=run-1&generationTaskId=generation-1&publishingRecordId=record-1';
     const hash = '#workflow-section';
 
-    expect(Object.keys(workspaceRouteAliases)).toHaveLength(30);
+    expect(Object.keys(workspaceRouteAliases)).toHaveLength(31);
     Object.entries(workspaceRouteAliases).forEach(([alias, target]) => {
       expect(getWorkspaceRouteTarget(alias, search, hash), alias).toBe(`${target}${search}${hash}`);
     });

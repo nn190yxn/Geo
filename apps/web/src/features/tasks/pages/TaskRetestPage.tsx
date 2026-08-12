@@ -2,15 +2,18 @@ import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Statistic
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
-import type { OptimizationTask, OptimizationTaskInput, OptimizationTaskUpdateInput, PublishingRecord, RetestPlanInput, RetestRecord, RetestResultInput, SprintRetestTrendDashboard, SprintRetestTrendItem, TaskBoardDashboard, VisibilitySprint } from '@geo-platform/shared-types';
+import type { EffectEvidenceDashboard, OptimizationTask, OptimizationTaskInput, OptimizationTaskUpdateInput, PublishingRecord, RetestPlanInput, RetestRecord, RetestResultInput, SprintRetestTrendDashboard, SprintRetestTrendItem, TaskBoardDashboard, VisibilitySprint } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
+import { useBrandWriteCapability } from '../../../access-control/BrandCapabilityContext';
 import { mergeUnifiedFilterQuery, readUnifiedFilterQuery, type UnifiedFilterValue } from '../../../app/filterQuery';
 import { readWorkflowRouteContext, workflowStagePath, type WorkflowRouteContext } from '../../../app/routePaths';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
 import { EmptyState, PartialDataNotice, RegionErrorState } from '../../../components/PageState';
 import { ManagementListPage, ManagementRowActions } from '../../../components/ManagementListPage';
+import { SampleEvidencePanel } from '../../../components/SampleEvidencePanel';
 import { AccessibleDropdown } from '../../../components/AccessibleDropdown';
 import { MetricSummaryGrid } from '../../../components/MetricSummaryGrid';
+import { EffectEvidencePanel } from '../../../components/EffectEvidencePanel';
 import { UnifiedFilterBar } from '../../../components/UnifiedFilterBar';
 import { getQueryGroupWorkspaceState, type QueryWorkspaceResource, type WorkspaceViewState } from '../../../components/WorkspaceState';
 import { getOwnerDisplayName } from '../../../utils/displayLabels';
@@ -41,6 +44,15 @@ export const retestActionStatusLabels: Record<RetestActionStatus, string> = {
   pending_retest: '待复测',
   improved: '已改善',
   follow_up: '继续优化'
+};
+
+const evidenceStatusLabels: Record<NonNullable<RetestRecord['status']>, string> = {
+  planned: '等待启动',
+  collecting: '采集中',
+  analyzing: '分析中',
+  improved: '已改善',
+  unchanged: '持平',
+  regressed: '已退化'
 };
 
 const retestActionStatusColors: Record<RetestActionStatus, string> = {
@@ -95,9 +107,14 @@ export function getFilteredTaskRetestRows(rows: TaskRetestOperationRow[], filter
   });
 }
 
+export function prioritizeTaskRetestRows(rows: TaskRetestOperationRow[], taskId?: string): TaskRetestOperationRow[] {
+  if (!taskId) return rows;
+  return [...rows].sort((left, right) => Number(right.task.id === taskId) - Number(left.task.id === taskId));
+}
+
 export function getRetestActionStatus(task: OptimizationTask, record?: RetestRecord, trendItem?: SprintRetestTrendItem): RetestActionStatus {
-  if (trendItem?.status === 'improved' || record?.improved === true || record?.passed === true) return 'improved';
-  if (task.status === 'reopened' || trendItem?.status === 'needs_follow_up' || (Boolean(record?.completedAt) && (record?.improved === false || record?.passed === false))) return 'follow_up';
+  if (trendItem?.status === 'improved' || record?.status === 'improved' || record?.passed === true) return 'improved';
+  if (task.status === 'reopened' || trendItem?.status === 'needs_follow_up' || record?.status === 'unchanged' || record?.status === 'regressed') return 'follow_up';
   if (task.status === 'retest' || trendItem?.status === 'planned' || (record && !record.completedAt)) return 'pending_retest';
   return 'pending_action';
 }
@@ -105,7 +122,9 @@ export function getRetestActionStatus(task: OptimizationTask, record?: RetestRec
 export function getTaskRetestNextStep(task: OptimizationTask, status: RetestActionStatus, record?: RetestRecord): string {
   if (status === 'improved') return '确认改善结果并关闭任务';
   if (status === 'follow_up') return record?.nextSuggestion || '继续优化后安排下一轮监测';
-  if (status === 'pending_retest') return task.relatedPromptId ? '执行同题再次监测并录入结果' : '补充原监测问题后执行再次监测';
+  if (status === 'pending_retest' && record?.status === 'analyzing') return '完成再次监测分析并刷新证据验收';
+  if (status === 'pending_retest' && record?.status === 'collecting') return '采集真实 AI 回答后刷新证据验收';
+  if (status === 'pending_retest') return task.relatedPromptId ? '启动同题再次监测' : '补充原监测问题后执行再次监测';
   if (task.status === 'review') return '完成审核并安排再次监测';
   return '完成优化处理并安排再次监测';
 }
@@ -123,7 +142,7 @@ export function getTaskRetestMonitoringPath(task: OptimizationTask, context: Wor
     taskId: task.id,
     optimizationUnitId: task.optimizationUnitId ?? context.optimizationUnitId,
     promptId: task.relatedPromptId ?? context.promptId,
-    runId: task.sourceRunId ?? context.runId,
+    runId: task.retestRunId ?? task.sourceRunId ?? context.runId,
     platformCode: task.relatedPlatformCode ?? context.platformCode,
     mode: 'retest'
   });
@@ -143,7 +162,8 @@ export function getRetestMetricComparison(row: TaskRetestOperationRow): string[]
   return [
     `提及率 ${formatTrendMetricValue(before.mentionRate, 'rate')} → ${formatTrendMetricValue(after.mentionRate, 'rate')}`,
     `品牌排名 ${before.brandRank ?? '未进入排名'} → ${after.brandRank ?? '未进入排名'}`,
-    `表达准确率 ${formatTrendMetricValue(before.accuracyScore, 'rate')} → ${formatTrendMetricValue(after.accuracyScore, 'rate')}`
+    `表达准确率 ${formatTrendMetricValue(before.accuracyScore, 'rate')} → ${formatTrendMetricValue(after.accuracyScore, 'rate')}`,
+    `引用率 ${formatTrendMetricValue(before.citationRate, 'rate')} → ${formatTrendMetricValue(after.citationRate, 'rate')}`
   ];
 }
 
@@ -158,6 +178,8 @@ function getTaskRetestDateDisplay(value?: string): string {
 }
 
 export function TaskRetestPage() {
+  const taskCapability = useBrandWriteCapability('task');
+  const retestCapability = useBrandWriteCapability('retest');
   const [messageApi, contextHolder] = message.useMessage();
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -189,6 +211,11 @@ export function TaskRetestPage() {
     enabled: Boolean(currentSprint?.sprintId)
   });
   const retestTrend = retestTrendQuery.data?.success ? retestTrendQuery.data.data : null;
+  const effectEvidenceQuery = useQuery({
+    queryKey: ['effect-evidence', activeBrandId],
+    queryFn: () => apiGet<EffectEvidenceDashboard>(`/brands/${activeBrandId}/reports/effect-evidence`)
+  });
+  const effectEvidence = effectEvidenceQuery.data?.success ? effectEvidenceQuery.data.data : undefined;
   const supplementalResources: QueryWorkspaceResource[] = [
     { isLoading: currentSprintQuery.isLoading, response: currentSprintQuery.data }
   ];
@@ -202,10 +229,11 @@ export function TaskRetestPage() {
   const retryPageQueries = () => Promise.all([
     boardQuery.refetch(),
     currentSprintQuery.refetch(),
+    effectEvidenceQuery.refetch(),
     ...(currentSprint?.sprintId ? [retestTrendQuery.refetch()] : [])
   ]);
   const metricRows = currentSprint && retestTrend ? buildSprintTrendMetricRows(retestTrend.baselineMetricSummary, currentSprint.metricSummary) : [];
-  const taskRows = getTaskRetestOperationRows(board?.tasks ?? [], retestTrend?.items ?? []);
+  const taskRows = prioritizeTaskRetestRows(getTaskRetestOperationRows(board?.tasks ?? [], retestTrend?.items ?? []), routeContext.taskId);
   const filteredTaskRows = getFilteredTaskRetestRows(taskRows, filters);
   const actionStatusCounts = Object.keys(retestActionStatusLabels).reduce<Record<RetestActionStatus, number>>((counts, status) => {
     counts[status as RetestActionStatus] = taskRows.filter((row) => row.actionStatus === status).length;
@@ -268,6 +296,17 @@ export function TaskRetestPage() {
       }
     }
   });
+  const executeRetestMutation = useMutation({
+    mutationFn: ({ taskId, recordId }: { taskId: string; recordId: string }) => apiPost<OptimizationTask>(`/brands/${activeBrandId}/tasks/${taskId}/retest/${recordId}/execute`, {}),
+    onSuccess: (response) => {
+      if (response.success) {
+        void invalidate();
+        void messageApi.success('再次监测运行已创建，正在等待真实回答');
+      } else {
+        void messageApi.error(response.error.message);
+      }
+    }
+  });
   const resultMutation = useMutation({
     mutationFn: ({ taskId, recordId, values }: { taskId: string; recordId: string; values: RetestResultInput }) => apiPatch<OptimizationTask>(`/brands/${activeBrandId}/tasks/${taskId}/retest/${recordId}`, values),
     onSuccess: (response) => {
@@ -275,7 +314,8 @@ export function TaskRetestPage() {
         setResultTask(undefined);
         resultForm.resetFields();
         void invalidate();
-        void messageApi.success('再次监测结果已保存');
+        const record = response.data.retestRecords[0];
+        void messageApi.success(record?.completedAt ? '证据验收已完成' : '证据状态已刷新');
       } else {
         void messageApi.error(response.error.message);
       }
@@ -285,11 +325,12 @@ export function TaskRetestPage() {
   return (
     <Space direction="vertical" size={16} className="page-stack">
       {contextHolder}
+      <EffectEvidencePanel dashboard={effectEvidence} />
       <ManagementListPage<TaskRetestOperationRow>
         title="再次监测"
         description="按当前行动状态跟进发布后的同题监测，比较优化前后指标并确定下一步。"
         context={routeContext.publishingRecordId ? <Typography.Text type="secondary">已承接发布记录，可创建并安排对应的再次监测任务。</Typography.Text> : undefined}
-        primaryAction={taskRows.length > 0 ? <Button type="primary" onClick={() => setCreateOpen(true)}>新建任务</Button> : undefined}
+        primaryAction={taskRows.length > 0 ? <Button type="primary" disabled={!taskCapability.canWrite} title={taskCapability.reason} onClick={() => setCreateOpen(true)}>新建任务</Button> : undefined}
         summary={(
           <MetricSummaryGrid
             ariaLabel="再次监测行动状态"
@@ -330,6 +371,7 @@ export function TaskRetestPage() {
         tableAriaLabel="再次监测行动任务列表"
         tableProps={{
           rowKey: (row) => row.task.id,
+          rowClassName: (row) => row.task.id === routeContext.taskId ? 'ant-table-row-selected' : '',
           dataSource: filteredTaskRows,
           pagination: filteredTaskRows.length > 8 ? { pageSize: 8 } : false,
           locale: { emptyText: <EmptyState title="没有匹配的再次监测任务" description="当前筛选范围内的行动任务" reason="搜索词或行动状态未匹配现有任务。" nextStep="清空筛选后重新查看。" /> },
@@ -340,6 +382,7 @@ export function TaskRetestPage() {
                 <Space direction="vertical" size={2}>
                   <Typography.Text strong>{row.task.title}</Typography.Text>
                   <Typography.Text type="secondary">{row.task.relatedPromptId ? '已关联原监测问题' : '待关联原监测问题'}</Typography.Text>
+                  {getTaskEvidenceRunIds(row.task).length > 0 ? <SampleEvidencePanel runIds={getTaskEvidenceRunIds(row.task)} /> : null}
                 </Space>
               )
             },
@@ -376,7 +419,10 @@ export function TaskRetestPage() {
               title: '状态与下一步',
               render: (_, row) => (
                 <Space direction="vertical" size={2}>
-                  <Tag color={retestActionStatusColors[row.actionStatus]}>{retestActionStatusLabels[row.actionStatus]}</Tag>
+                  <Space size={4} wrap>
+                    <Tag color={retestActionStatusColors[row.actionStatus]}>{retestActionStatusLabels[row.actionStatus]}</Tag>
+                    {row.latestRetestRecord?.status ? <Tag>{evidenceStatusLabels[row.latestRetestRecord.status]}</Tag> : null}
+                  </Space>
                   <Typography.Text type="secondary">{row.nextStep}</Typography.Text>
                 </Space>
               )
@@ -385,17 +431,29 @@ export function TaskRetestPage() {
               title: '操作',
               render: (_, row) => {
                 const usesScheduleAction = row.actionStatus === 'pending_action' || row.actionStatus === 'follow_up';
-                const canExecute = Boolean(row.task.relatedPromptId);
+                const record = row.latestRetestRecord;
+                const canExecute = Boolean(row.task.relatedPromptId || record?.sourceRunId);
+                const shouldStartRun = row.actionStatus === 'pending_retest' && Boolean(record) && !record?.retestRunId;
                 return (
                   <ManagementRowActions
                     primaryActions={[
-                      <Button key="process" size="small" onClick={() => {
+                      <Button key="process" size="small" disabled={!taskCapability.canWrite} title={taskCapability.reason} onClick={() => {
                         setEditTask(row.task);
                         editForm.setFieldsValue(row.task);
                       }}>处理</Button>,
                       usesScheduleAction
-                        ? <Button key="schedule" size="small" onClick={() => setRetestTask(row.task)}>{row.actionStatus === 'follow_up' ? '安排下一轮' : '安排再次监测'}</Button>
-                        : <Button key="execute" size="small" disabled={!canExecute} onClick={() => navigate(getTaskRetestMonitoringPath(row.task, routeContext))}>{row.actionStatus === 'improved' ? '查看同题监测' : '执行再次监测'}</Button>
+                        ? <Button key="schedule" size="small" disabled={!retestCapability.canWrite} title={retestCapability.reason} onClick={() => setRetestTask(row.task)}>{row.actionStatus === 'follow_up' ? '安排下一轮' : '安排再次监测'}</Button>
+                        : <Button
+                            key="execute"
+                            size="small"
+                            disabled={!canExecute || !retestCapability.canWrite}
+                            loading={shouldStartRun && executeRetestMutation.isPending}
+                            title={retestCapability.reason}
+                            onClick={() => {
+                              if (shouldStartRun && record) executeRetestMutation.mutate({ taskId: row.task.id, recordId: record.id });
+                              else navigate(getTaskRetestMonitoringPath(row.task, routeContext));
+                            }}
+                          >{row.actionStatus === 'improved' ? '查看同题监测' : shouldStartRun ? '启动再次监测' : '查看采集进度'}</Button>
                     ]}
                     moreAction={(
                       <AccessibleDropdown
@@ -403,8 +461,8 @@ export function TaskRetestPage() {
                         trigger={['click']}
                         menu={{
                           items: [
-                            ...(usesScheduleAction ? [{ key: 'execute', label: '执行再次监测', disabled: !canExecute }] : [{ key: 'schedule', label: '安排再次监测' }]),
-                            { key: 'result', label: '录入再次监测结果', disabled: row.task.retestRecords.length === 0 }
+                            ...(usesScheduleAction ? [{ key: 'execute', label: '执行再次监测', disabled: !canExecute }] : [{ key: 'schedule', label: '安排再次监测', disabled: !retestCapability.canWrite }]),
+                            { key: 'result', label: '刷新证据验收', disabled: !retestCapability.canWrite || row.task.retestRecords.length === 0 }
                           ],
                           onClick: ({ key }) => {
                             if (key === 'schedule') setRetestTask(row.task);
@@ -469,7 +527,7 @@ export function TaskRetestPage() {
         )}
       </Card>
 
-      <Modal title="新建优化任务" open={createOpen} okText="保存" cancelText="取消" onCancel={() => setCreateOpen(false)} onOk={() => taskForm.submit()} confirmLoading={createMutation.isPending}>
+      <Modal title="新建优化任务" open={createOpen} okText="保存" cancelText="取消" okButtonProps={{ disabled: !taskCapability.canWrite, title: taskCapability.reason }} onCancel={() => setCreateOpen(false)} onOk={() => taskForm.submit()} confirmLoading={createMutation.isPending}>
         <Form form={taskForm} layout="vertical" initialValues={{ type: 'manual', priority: 'medium' }} onFinish={(values) => createMutation.mutate(values)}>
           <Form.Item name="title" label="任务标题" rules={[{ required: true, message: '请输入任务标题' }]}><Input /></Form.Item>
           <Form.Item name="type" label="任务类型"><Select options={taskTypeOptions} /></Form.Item>
@@ -483,7 +541,7 @@ export function TaskRetestPage() {
         </Form>
       </Modal>
 
-      <Modal title="处理任务" open={Boolean(editTask)} okText="保存" cancelText="取消" onCancel={() => setEditTask(undefined)} onOk={() => editForm.submit()} confirmLoading={updateMutation.isPending}>
+      <Modal title="处理任务" open={Boolean(editTask)} okText="保存" cancelText="取消" okButtonProps={{ disabled: !taskCapability.canWrite, title: taskCapability.reason }} onCancel={() => setEditTask(undefined)} onOk={() => editForm.submit()} confirmLoading={updateMutation.isPending}>
         <Form form={editForm} layout="vertical" onFinish={(values) => editTask && updateMutation.mutate({ taskId: editTask.id, values })}>
           <Form.Item name="status" label="任务状态"><Select options={statusOptions} /></Form.Item>
           <Form.Item name="reviewStatus" label="审核状态"><Select allowClear options={[{ value: 'pending', label: '待审核' }, { value: 'approved', label: '已通过' }, { value: 'rejected', label: '已驳回' }]} /></Form.Item>
@@ -494,28 +552,31 @@ export function TaskRetestPage() {
         </Form>
       </Modal>
 
-      <Modal title="安排再次监测" open={Boolean(retestTask)} okText="保存" cancelText="取消" onCancel={() => setRetestTask(undefined)} onOk={() => retestForm.submit()} confirmLoading={retestMutation.isPending}>
-        <Form form={retestForm} layout="vertical" initialValues={{ sourceRunId: retestTask?.sourceRunId, retestRunId: retestTask?.sourceRunId, targetScore: 80 }} onFinish={(values) => retestTask && retestMutation.mutate({ taskId: retestTask.id, values })}>
+      <Modal title="安排再次监测" open={Boolean(retestTask)} okText="保存" cancelText="取消" okButtonProps={{ disabled: !retestCapability.canWrite, title: retestCapability.reason }} onCancel={() => setRetestTask(undefined)} onOk={() => retestForm.submit()} confirmLoading={retestMutation.isPending}>
+        <Form form={retestForm} layout="vertical" initialValues={{ sourceRunId: retestTask?.sourceRunId, targetScore: 80 }} onFinish={(values) => retestTask && retestMutation.mutate({ taskId: retestTask.id, values })}>
           <Form.Item name="sourceRunId" label="原监测记录" rules={[{ required: true, message: '请输入原监测记录引用' }]}><Input /></Form.Item>
-          <Form.Item name="retestRunId" label="再次监测记录"><Input placeholder="默认使用原监测记录" /></Form.Item>
           <Form.Item name="plannedAt" label="计划再次监测时间"><Input placeholder="例如：2026-07-10 09:00" /></Form.Item>
           <Form.Item name="targetScore" label="目标分"><InputNumber min={0} max={100} style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="notes" label="监测说明"><Input.TextArea rows={3} /></Form.Item>
         </Form>
       </Modal>
 
-      <Modal title="录入再次监测结果" open={Boolean(resultTask)} okText="保存" cancelText="取消" onCancel={() => setResultTask(undefined)} onOk={() => resultForm.submit()} confirmLoading={resultMutation.isPending}>
+      <Modal title="刷新证据验收" open={Boolean(resultTask)} okText="刷新验收" cancelText="取消" okButtonProps={{ disabled: !retestCapability.canWrite, title: retestCapability.reason }} onCancel={() => setResultTask(undefined)} onOk={() => resultForm.submit()} confirmLoading={resultMutation.isPending}>
         <Form form={resultForm} layout="vertical" initialValues={{ targetScore: resultTask?.retestRecords[0]?.targetScore ?? 80 }} onFinish={(values) => {
           const recordId = resultTask?.retestRecords[0]?.id;
           if (resultTask && recordId) resultMutation.mutate({ taskId: resultTask.id, recordId, values });
         }}>
-          <Form.Item name="actualScore" label="实际分" rules={[{ required: true, message: '请输入实际分' }]}><InputNumber min={0} max={100} style={{ width: '100%' }} /></Form.Item>
+          <Typography.Paragraph type="secondary">实际分由基线与再次监测的真实回答分析自动计算，涵盖提及率、排名、表达准确率和引用率。</Typography.Paragraph>
           <Form.Item name="targetScore" label="目标分"><InputNumber min={0} max={100} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="notes" label="监测结论"><Input.TextArea rows={3} /></Form.Item>
+          <Form.Item name="notes" label="验收备注"><Input.TextArea rows={3} /></Form.Item>
         </Form>
       </Modal>
     </Space>
   );
+}
+
+export function getTaskEvidenceRunIds(task: OptimizationTask): string[] {
+  return [...new Set([task.sourceRunId, task.retestRunId, ...task.retestRecords.flatMap((record) => [record.sourceRunId, record.retestRunId])].filter((id): id is string => Boolean(id)))];
 }
 
 const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({ value, label }));

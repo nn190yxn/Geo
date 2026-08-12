@@ -2,7 +2,7 @@ import { Button, Form, Input, Modal, Statistic, Table, Tag, Typography, message 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
-import type { CitationDashboard, CitationSource, ContentAsset, ContentAssetInput, ContentStrategy } from '@geo-platform/shared-types';
+import type { CitationAbsorptionEvidence, CitationDashboard, CitationSource, ContentAsset, ContentAssetInput, ContentStrategy } from '@geo-platform/shared-types';
 import { apiGet, apiPost } from '../../../api/http';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
 import { getPlatformDisplayName } from '../../../utils/displayLabels';
@@ -74,6 +74,14 @@ export function CitationAnalysisPage() {
       }
     }
   });
+  const analyzeAbsorptionMutation = useMutation({
+    mutationFn: (citationId: string) => apiPost<CitationSource>(`/brands/${activeBrandId}/citations/${citationId}/absorption`, {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['citation-dashboard', activeBrandId] })
+  });
+  const reviewAbsorptionMutation = useMutation({
+    mutationFn: ({ citationId, evidenceId }: { citationId: string; evidenceId: string }) => apiPost<CitationSource>(`/brands/${activeBrandId}/citations/${citationId}/absorption/${encodeURIComponent(evidenceId)}/review`, {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['citation-dashboard', activeBrandId] })
+  });
 
   const openAssetModal = (citation: CitationSource) => {
     setSelectedCitation(citation);
@@ -94,7 +102,7 @@ export function CitationAnalysisPage() {
         title="信源分析"
         description="查看真实 AI 回复引用了哪些来源，并找出需要补充的品牌内容。"
         findings={getCitationAnalysisFindings(dashboard)}
-        actions={['绑定内容资产', '创建信源优化任务', '安排再次监测']}
+        actions={['分析答案吸收', '复核冲突证据', '创建信源优化任务']}
         loading={dashboardQuery.isLoading}
         state={dashboardQuery.isLoading ? 'loading' : dashboardQuery.data && !dashboardQuery.data.success ? 'error' : 'ready'}
         onRetry={() => void dashboardQuery.refetch()}
@@ -137,7 +145,7 @@ export function CitationAnalysisPage() {
               { title: '真实回复', dataIndex: 'sampleCount' },
               { title: '有引用回复', dataIndex: 'citedSampleCount' },
               { title: '引用率', dataIndex: 'citationRate', render: (value) => `${value}%` },
-              { title: '引用次数', dataIndex: 'citationCount' },
+               { title: '引用次数', dataIndex: 'citationCount' },
               { title: '内容资产绑定率', dataIndex: 'contentCitationRate', render: (value) => `${value}%` }
             ]}
           />
@@ -148,8 +156,8 @@ export function CitationAnalysisPage() {
             dataSource={dashboard?.sourceTypeBreakdown ?? []}
             pagination={false}
             columns={[
-              { title: '来源类型', render: (_, record) => sourceTypeLabels[record.sourceType] },
-              { title: '引用次数', dataIndex: 'citationCount' },
+               { title: '来源类型', render: (_, record) => sourceTypeLabels[record.sourceType] },
+               { title: '引用次数', dataIndex: 'citationCount' },
               { title: '占比', dataIndex: 'rate', render: (value) => `${value}%` }
             ]}
           />
@@ -164,9 +172,11 @@ export function CitationAnalysisPage() {
               { title: '来源平台', dataIndex: 'platformCode', render: (value: string) => getPlatformDisplayName(value) },
               { title: '来源地址', render: (_, record) => <Typography.Text copyable={Boolean(record.url.trim())} ellipsis>{getCitationSourceUrl(record)}</Typography.Text> },
               { title: '来源类型', render: (_, record) => <Tag>{sourceTypeLabels[record.sourceType]}</Tag> },
-              { title: '权威等级', render: (_, record) => <Tag color={record.authorityLevel === 'high' ? 'green' : undefined}>{authorityLabels[record.authorityLevel]}</Tag> },
-              { title: '引用次数', dataIndex: 'citationCount' },
-              { title: '关联监测问题', dataIndex: 'promptText' },
+               { title: '权威等级', render: (_, record) => <Tag color={record.authorityLevel === 'high' ? 'green' : undefined}>{authorityLabels[record.authorityLevel]}</Tag> },
+               { title: '引用次数', dataIndex: 'citationCount' },
+               { title: '答案吸收', render: (_, record) => <AbsorptionEvidence evidence={record.absorptionEvidence ?? []} onReview={(evidenceId) => reviewAbsorptionMutation.mutate({ citationId: record.id, evidenceId })} /> },
+               { title: '证据分析', render: (_, record) => <Button size="small" onClick={() => analyzeAbsorptionMutation.mutate(record.id)}>分析答案吸收</Button> },
+               { title: '关联监测问题', dataIndex: 'promptText' },
               {
                 title: '操作',
                 render: (_, record) => (
@@ -182,7 +192,10 @@ export function CitationAnalysisPage() {
           />
         )}
       >
-        <Statistic title="引用率" value={dashboard?.citationRate ?? 0} suffix="%" />
+         <Statistic title="引用率" value={dashboard?.citationRate ?? 0} suffix="%" />
+         <Statistic title="引用广度" value={dashboard?.citationBreadthRate ?? 0} suffix="%" />
+         <Statistic title="答案吸收深度" value={dashboard?.answerAbsorptionDepth ?? 0} suffix="%" />
+         <Statistic title="待人工复核" value={dashboard?.pendingReviewCount ?? 0} />
         <Statistic title="官网引用率" value={dashboard?.officialCitationRate ?? 0} suffix="%" />
         <Statistic title="权威来源占比" value={dashboard?.authoritySourceRate ?? 0} suffix="%" />
       </AnalysisWorkbench>
@@ -305,6 +318,11 @@ function CitationSourceActions({ source, context, onBind, onEnhance }: { source:
       ) : undefined}
     />
   );
+}
+
+function AbsorptionEvidence({ evidence, onReview }: { evidence: CitationAbsorptionEvidence[]; onReview: (evidenceId: string) => void }) {
+  if (!evidence.length) return <Typography.Text type="secondary">尚未分析</Typography.Text>;
+  return <div>{evidence.slice(0, 2).map((item) => <div key={item.id}><Tag color={item.outcome === 'supports' ? 'green' : item.outcome === 'conflicts' ? 'red' : undefined}>{item.outcome}</Tag><Typography.Text>{item.confidence}%</Typography.Text>{item.reviewStatus === 'pending_review' ? <Button type="link" size="small" onClick={() => onReview(item.id)}>人工复核</Button> : null}</div>)}</div>;
 }
 
 function toAssetPayload(values: AssetFormValues): ContentAssetInput {

@@ -13,12 +13,14 @@ import type {
 import { LLMOrchestrationService } from '../llm/llm-orchestration.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { applyAnalysisRuleGuard } from './llm-analysis-guard';
+import { ProductEventRecorderService } from '../product-events/product-event-recorder.service';
 
 @Controller('brands/:brandId/monitoring-runs')
 export class MonitoringController {
   constructor(
     private readonly permissionsService: PermissionsService,
-    private readonly llmService: LLMOrchestrationService
+    private readonly llmService: LLMOrchestrationService,
+    private readonly productEventRecorder?: ProductEventRecorderService
   ) {}
 
   @Get()
@@ -46,7 +48,6 @@ export class MonitoringController {
     if (!run) {
       throw new NotFoundException('监测记录不存在或当前用户无权访问');
     }
-
     return {
       success: true,
       data: run
@@ -83,6 +84,15 @@ export class MonitoringController {
     if (!run) {
       throw new NotFoundException('监测记录不存在或当前用户无权访问');
     }
+    await this.productEventRecorder?.record({
+      actorUserId: request.context.userId,
+      brandId,
+      eventType: 'first_monitoring_completed',
+      entityType: 'monitoring_run',
+      entityId: runId,
+      idempotencyKey: 'first-monitoring-completed',
+      metadata: { collectionMethod: body.collectionMethod ?? 'manual' }
+    });
 
     return {
       success: true,
@@ -188,10 +198,28 @@ function normalizeMonitoringRunInput(input: MonitoringRunInput): MonitoringRunIn
   if (!input.platformCode?.trim()) {
     throw new BadRequestException('请选择 AI 平台');
   }
+  if (input.collectionMethod && !monitoringCollectionMethods.includes(input.collectionMethod)) {
+    throw new BadRequestException('采集方式不合法');
+  }
+  if (input.evidenceLevel && !monitoringEvidenceLevels.includes(input.evidenceLevel)) {
+    throw new BadRequestException('证据等级不合法');
+  }
+  if (input.clientSurface && !monitoringClientSurfaces.includes(input.clientSurface)) {
+    throw new BadRequestException('访问端不合法');
+  }
 
   return {
     promptId: input.promptId.trim(),
-    platformCode: input.platformCode.trim()
+    platformCode: input.platformCode.trim(),
+    modelName: input.modelName?.trim(),
+    collectionMethod: input.collectionMethod,
+    clientSurface: input.clientSurface,
+    searchEnabled: input.searchEnabled ?? null,
+    market: input.market?.trim(),
+    language: input.language?.trim(),
+    evidenceLevel: input.evidenceLevel,
+    manualConfirmed: input.manualConfirmed ?? null,
+    baselineVersion: input.baselineVersion?.trim()
   };
 }
 
@@ -199,11 +227,22 @@ function normalizeManualResponseInput(input: ManualResponseInput): ManualRespons
   if (!input.rawText?.trim()) {
     throw new BadRequestException('原始回答不能为空');
   }
+  if (input.clientSurface && !monitoringClientSurfaces.includes(input.clientSurface)) {
+    throw new BadRequestException('访问端不合法');
+  }
 
   return {
     rawText: input.rawText.trim(),
     citations: input.citations ?? [],
-    modelName: input.modelName?.trim()
+    modelName: input.modelName?.trim(),
+    collectionMethod: 'manual',
+    clientSurface: input.clientSurface,
+    searchEnabled: input.searchEnabled ?? null,
+    market: input.market?.trim(),
+    language: input.language?.trim(),
+    evidenceLevel: 'manual_or_browser',
+    manualConfirmed: input.manualConfirmed ?? null,
+    baselineVersion: input.baselineVersion?.trim()
   };
 }
 
@@ -229,3 +268,6 @@ function normalizeAnalysisResultInput(input: AnalysisResultInput): AnalysisResul
 }
 
 const analysisSentiments: AnalysisSentiment[] = ['positive', 'neutral', 'negative', 'unknown'];
+const monitoringCollectionMethods = ['api', 'browser', 'manual', 'mock', 'unknown'] as const;
+const monitoringEvidenceLevels = ['manual_or_browser', 'reproducible_api', 'demo', 'unknown'] as const;
+const monitoringClientSurfaces = ['api', 'web', 'app', 'unknown'] as const;

@@ -55,7 +55,7 @@ function createParsedRun(repository: PermissionsRepository, promptId: string, ra
 }
 
 describe('optimization task retest repository', () => {
-  it('keeps source monitoring run and retest run links for monitoring issue tasks', () => {
+  it('plans without a retest run and binds a distinct run only after execution', () => {
     const repository = new PermissionsRepository();
     const { unit, prompt, run } = prepareMonitoringIssue(repository);
     const task = repository.createOptimizationTask('user_demo', 'brand_demo', {
@@ -70,7 +70,6 @@ describe('optimization task retest repository', () => {
     });
     const planned = repository.planOptimizationTaskRetest('user_demo', 'brand_demo', task?.id ?? '', {
       sourceRunId: run?.id,
-      retestRunId: run?.id,
       targetScore: 85,
       notes: '复测原始监测问题是否改善'
     });
@@ -79,16 +78,20 @@ describe('optimization task retest repository', () => {
       id: task?.id,
       status: 'retest',
       sourceRunId: run?.id,
-      retestRunId: run?.id
+      retestRunId: undefined
     });
     expect(planned?.retestRecords[0]).toMatchObject({
       sourceRunId: run?.id,
-      retestRunId: run?.id,
+      retestRunId: '',
       targetScore: 85
     });
+
+    const retestRun = repository.createMonitoringRun('user_demo', 'brand_demo', { promptId: prompt?.id ?? '', platformCode: 'manual_input' });
+    const bound = repository.bindOptimizationTaskRetestRun('user_demo', 'brand_demo', task?.id ?? '', planned?.retestRecords[0]?.id ?? '', retestRun?.id ?? '');
+    expect(bound?.retestRecords[0]).toMatchObject({ retestRunId: retestRun?.id, status: 'collecting' });
   });
 
-  it('reopens task and creates next suggestion when retest score is below target', () => {
+  it('keeps the task open when a manual score is supplied without real evidence', () => {
     const repository = new PermissionsRepository();
     const { unit, prompt, run } = prepareMonitoringIssue(repository);
     const task = repository.createOptimizationTask('user_demo', 'brand_demo', {
@@ -103,22 +106,24 @@ describe('optimization task retest repository', () => {
       sourceRunId: run?.id,
       targetScore: 90
     });
+    const retestRun = repository.createMonitoringRun('user_demo', 'brand_demo', { promptId: prompt?.id ?? '', platformCode: 'manual_input' });
+    repository.bindOptimizationTaskRetestRun('user_demo', 'brand_demo', task?.id ?? '', planned?.retestRecords[0]?.id ?? '', retestRun?.id ?? '');
     const completed = repository.completeOptimizationTaskRetest('user_demo', 'brand_demo', task?.id ?? '', planned?.retestRecords[0]?.id ?? '', {
-      actualScore: 60,
+      actualScore: 100,
       targetScore: 90,
-      notes: '复测仍低于目标'
+      notes: '等待真实回答'
     });
     const board = repository.getTaskBoard('user_demo', 'brand_demo');
 
-    expect(completed?.status).toBe('reopened');
+    expect(completed?.status).toBe('retest');
     expect(completed?.retestRecords[0]).toMatchObject({
-      actualScore: 60,
       targetScore: 90,
-      passed: false,
+      status: 'collecting',
+      evidenceGap: 'missing_real_response',
       sourceRunId: run?.id
     });
-    expect(completed?.processingNote).toContain('下一轮优化建议');
-    expect(board?.statusCounts.reopened).toBeGreaterThanOrEqual(1);
+    expect(completed?.retestRecords[0]?.actualScore).toBeUndefined();
+    expect(board?.statusCounts.retest).toBeGreaterThanOrEqual(1);
   });
 
   it('links growth plan retest metrics and next-round suggestions', () => {
@@ -147,19 +152,18 @@ describe('optimization task retest repository', () => {
     });
     const planned = repository.planOptimizationTaskRetest('user_demo', 'brand_demo', task?.id ?? '', {
       sourceRunId: sourceRun?.id,
-      retestRunId: retestRun?.id,
       targetScore: 90
     });
+    repository.bindOptimizationTaskRetestRun('user_demo', 'brand_demo', task?.id ?? '', planned?.retestRecords[0]?.id ?? '', retestRun?.id ?? '');
     const completed = repository.completeOptimizationTaskRetest('user_demo', 'brand_demo', task?.id ?? '', planned?.retestRecords[0]?.id ?? '', {
-      actualScore: 60,
       targetScore: 90
     });
     const workspace = repository.getGrowthOptimizationWorkspace('user_demo', 'brand_demo');
     const record = completed?.retestRecords[0];
 
-    expect(record?.beforeMetrics).toMatchObject({ mentionRate: 0, brandRank: null });
-    expect(record?.afterMetrics).toMatchObject({ mentionRate: 0, brandRank: null });
-    expect(record?.metricDelta).toMatchObject({ mentionRate: 0, rankImproved: false });
+    expect(record?.beforeMetrics).toMatchObject({ mentionRate: 0, brandRank: null, citationRate: expect.any(Number) });
+    expect(record?.afterMetrics).toMatchObject({ mentionRate: 0, brandRank: null, citationRate: expect.any(Number) });
+    expect(record?.metricDelta).toMatchObject({ mentionRate: 0, rankImproved: false, citationRate: expect.any(Number) });
     expect(record?.improved).toBe(false);
     expect(record?.nextSuggestion).toContain('继续补充品牌名称');
     expect(completed?.status).toBe('reopened');
@@ -194,7 +198,7 @@ describe('optimization task retest repository', () => {
     expect(updated?.status).toBe('retest');
     expect(updated?.retestRecords[0]).toMatchObject({
       sourceRunId: sourceRun?.id,
-      retestRunId: sourceRun?.id,
+      retestRunId: '',
       plannedAt: '2026-07-27T00:00:00.000Z'
     });
     expect(workspace?.plans.find((item) => item.id === plan?.id)?.status).toBe('ready_for_retest');

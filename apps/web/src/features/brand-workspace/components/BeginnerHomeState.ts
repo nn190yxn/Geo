@@ -1,5 +1,5 @@
-import type { BeginnerHomeDashboard, DashboardNextAction } from '@geo-platform/shared-types';
-import { brandGrowthOptimizationPath, brandMonitoringPath } from '../../../app/routePaths';
+import type { BrandActionItem, BeginnerHomeDashboard, DashboardNextAction } from '@geo-platform/shared-types';
+import { brandGrowthOptimizationPath, brandMonitoringPath, workflowStagePath } from '../../../app/routePaths';
 
 export type BeginnerJourneyStage = {
   key: 'profile' | 'monitoring-object' | 'real-response';
@@ -27,6 +27,10 @@ const actionRoutes: Record<DashboardNextAction['actionType'], string> = {
 
 export function getBeginnerActionRoute(action: DashboardNextAction): string {
   return actionRoutes[action.actionType];
+}
+
+export function getBrandActionPath(brandId: string, action: BrandActionItem): string {
+  return `/brands/${encodeURIComponent(brandId)}${workflowStagePath(action.targetPath, action.context)}`;
 }
 
 export function getBeginnerHomeQuestions(brandId: string): BeginnerHomeQuestion[] {

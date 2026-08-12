@@ -36,8 +36,9 @@ function buildDeveloperInstruction(taskType: LLMTaskType): string {
       ...sharedRules,
       '输出字段必须为 themes、candidates、missingProfileFields、generationNotes。',
       'themes 每项包含 type、name、businessExplanation、priority、estimatedValue、enabled、sourceProfileFields。',
-      'candidates 每项包含 themeId、question、purposes、targetPlatforms、priority、estimatedValue、editable、selected。',
-      '问题要像真实用户提问，覆盖品牌直问、品类推荐、地域推荐、人群年龄段、痛点、课程、竞品对比和购买决策。'
+      'candidates 每项包含 themeId、question、purposes、targetPlatforms、priority、estimatedValue、discoveryDimension、businessValue、recommendationProbability、userStage、generationRationale、generationMethod、mergedFrom、editable、selected。',
+      'recommendationProbability 使用 0 到 1；generationMethod 固定为 ai；mergedFrom 使用字符串数组。',
+      '问题要像真实用户提问，覆盖品牌、品类、场景、人群、痛点、地域、购买决策和竞品比较八个维度。'
     ].join('\n');
   }
 

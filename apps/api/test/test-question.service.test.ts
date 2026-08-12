@@ -30,6 +30,8 @@ describe('TestQuestionService', () => {
     expect(candidates.length).toBeLessThanOrEqual(8);
     expect(candidates.every((candidate) => candidate.purposes.length > 0)).toBe(true);
     expect(candidates.every((candidate) => candidate.targetPlatforms.length > 0)).toBe(true);
+    expect(candidates.every((candidate) => candidate.discoveryDimension && candidate.generationMethod === 'deterministic')).toBe(true);
+    expect(candidates.every((candidate) => typeof candidate.recommendationProbability === 'number')).toBe(true);
   });
 
   it('skips disabled themes and themes without required profile context', () => {
@@ -126,14 +128,16 @@ describe('TestQuestionService', () => {
       })
     );
     expect(result.source).toBe('llm');
-    expect(result.items).toEqual([
+    expect(result.items).toEqual(expect.arrayContaining([
       expect.objectContaining({
         question: '贵阳家长第一次了解追光小牛时，应该重点问哪些问题？',
         targetPlatforms: ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfun'],
+        generationMethod: 'ai',
         editable: true,
         selected: true
       })
-    ]);
+    ]));
+    expect(result.items.map((candidate) => candidate.question)).toContain('追光小牛是做什么的？适合哪些用户？');
   });
 
   it('falls back to rule templates when LLM generation fails', async () => {
@@ -145,6 +149,62 @@ describe('TestQuestionService', () => {
     expect(result.generationNotes).toEqual(['请先填写平台密钥（llm_credential_missing）']);
     expect(result.items).toHaveLength(4);
     expect(result.items.map((candidate) => candidate.question)).toContain('追光小牛是做什么的？适合哪些用户？');
+    expect(result.items.every((candidate) => candidate.generationMethod === 'deterministic' && candidate.editable)).toBe(true);
+  });
+
+  it('merges normalized duplicate AI questions into deterministic candidates', async () => {
+    const llmService = createLLMService({
+      status: 'succeeded',
+      message: 'AI 任务已完成',
+      output: {
+        themes: [],
+        missingProfileFields: [],
+        generationNotes: [],
+        candidates: [{
+          themeId: 'theme_brand',
+          question: ' 追光小牛是做什么的，适合哪些用户 ',
+          purposes: ['brand_mentioned'],
+          targetPlatforms: ['doubao'],
+          priority: 'high',
+          estimatedValue: 'AI 补充品牌认知。',
+          recommendationProbability: 0.9,
+          generationRationale: 'AI 根据品牌介绍补充。'
+        }]
+      }
+    });
+
+    const result = await new TestQuestionService(llmService).generateCandidatesWithLLM('user_1', 'brand_demo', createBrand(), createProfile(), createThemes());
+    const brandCandidates = result.items.filter((candidate) => candidate.discoveryDimension === 'brand');
+
+    expect(brandCandidates).toHaveLength(1);
+    expect(brandCandidates[0]).toMatchObject({
+      generationMethod: 'merged',
+      recommendationProbability: 0.9,
+      mergedFrom: ['AI 根据品牌介绍补充。']
+    });
+  });
+
+  it('generates one metadata-complete candidate for each discovery dimension', () => {
+    const brand = { ...createBrand(), name: '星河运动', aliases: [] };
+    const dimensions = ['brand', 'category', 'scenario', 'audience', 'pain_point', 'location', 'buying_decision', 'competitor_comparison'] as const;
+    const candidates = new TestQuestionService().generateCandidates(
+      brand,
+      createProfile(),
+      dimensions.map((dimension) => createTheme(dimension, `主题 ${dimension}`, 'high')),
+      ['儿童运动课程']
+    );
+
+    expect(candidates).toHaveLength(dimensions.length);
+    expect(new Set(candidates.map((candidate) => candidate.discoveryDimension))).toEqual(new Set(dimensions));
+    expect(candidates.every((candidate) => (
+      candidate.estimatedValue.length > 0
+      && typeof candidate.recommendationProbability === 'number'
+      && Boolean(candidate.userStage)
+      && candidate.targetPlatforms.length > 0
+      && Boolean(candidate.generationRationale)
+      && candidate.generationMethod === 'deterministic'
+      && candidate.editable
+    ))).toBe(true);
   });
 });
 

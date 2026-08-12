@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import type { ReportDashboard, ReportRecord } from '@geo-platform/shared-types';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
-import { getFilteredReports, getReportExportFilename, ReportCenterPage, ReportDetailArea } from './ReportCenterPage';
+import { getDefaultReportPeriod, getFilteredReports, getReportExportFilename, ReportCenterPage, ReportDetailArea } from './ReportCenterPage';
 
 const brandId = 'brand_demo';
 
@@ -45,6 +45,40 @@ describe('ReportCenterPage', () => {
     expect(markup).toContain('当前报告暂无关键数据缺口');
     expect(markup).toContain('# 本周品牌表现');
     expect(getReportExportFilename(report)).toBe('客户-交付-报告-2026-07-01-2026-07-07.md');
+  });
+
+  it('renders the frozen report scope and effect evidence', () => {
+    const report = createReport({
+      snapshot: {
+        ranking: [],
+        strongestPlatforms: [],
+        weakScenarios: [],
+        highPriorityIssues: [],
+        scopes: [createScope()],
+        methodologyVersion: 'period-report-v1',
+        effectEvidence: [{
+          brandId,
+          taskId: 'task-1',
+          taskTitle: '补强官网事实内容',
+          sourceRunId: 'run-before',
+          retestRunId: 'run-after',
+          contentAssetIds: ['asset-1'],
+          publishingRecords: [{ id: 'publish-1', platform: '微信公众号', publishedUrl: 'https://example.com/article', publishedAt: '2026-07-05T08:00:00.000Z' }],
+          baselineMetrics: { mentionRate: 0, brandRank: 4, accuracyScore: 60, citationRate: 0 },
+          afterMetrics: { mentionRate: 100, brandRank: 2, accuracyScore: 90, citationRate: 100 },
+          metricDelta: { mentionRate: 100, rankImproved: true, accuracyScore: 30, citationRate: 100 },
+          sampleSummary: { baselineValid: true, retestValid: true },
+          evidenceStatus: 'complete',
+          dataGaps: []
+        }]
+      }
+    });
+    const markup = renderToStaticMarkup(<ReportDetailArea report={report} onExport={() => undefined} />);
+
+    for (const text of ['统计范围与有效样本', '有效样本', '效果证据（1）', '补强官网事实内容', '表达准确率：60% 至 90%', '查看真实发布链接']) {
+      expect(markup).toContain(text);
+    }
+    expect(getDefaultReportPeriod(new Date('2026-03-01T12:00:00.000Z'))).toEqual({ periodStart: '2026-02-23', periodEnd: '2026-03-01' });
   });
 
   it('renders loading, list failure and detail partial-failure states', () => {
@@ -111,7 +145,24 @@ function createReport(overrides: Partial<ReportRecord> = {}): ReportRecord {
     dataGaps: [{ section: '引用来源', reason: '部分平台尚未返回引用链接' }],
     createdBy: 'user-1',
     createdAt: '2026-07-16T08:00:00.000Z',
-    snapshot: { ranking: [], strongestPlatforms: [], weakScenarios: [], highPriorityIssues: [] },
+    snapshot: { ranking: [], strongestPlatforms: [], weakScenarios: [], highPriorityIssues: [], scopes: [createScope()], effectEvidence: [], methodologyVersion: 'period-report-v1' },
     ...overrides
+  };
+}
+
+function createScope() {
+  return {
+    brandId,
+    periodStart: '2026-07-01',
+    periodEnd: '2026-07-07',
+    monitoringRunCount: 3,
+    validSampleCount: 2,
+    contentAssetCount: 1,
+    publishingRecordCount: 1,
+    taskChangeCount: 1,
+    completedRetestCount: 1,
+    dataGaps: [],
+    recordIds: { monitoringRunIds: ['run-1'], contentAssetIds: ['asset-1'], publishingRecordIds: ['publish-1'], taskIds: ['task-1'], retestRecordIds: ['retest-1'] },
+    sampleSummary: { monitoringRunCount: 3, validSampleCount: 2, validSampleRunIds: ['run-1'], firstSampleAt: '2026-07-01T08:00:00.000Z', lastSampleAt: '2026-07-06T08:00:00.000Z' }
   };
 }

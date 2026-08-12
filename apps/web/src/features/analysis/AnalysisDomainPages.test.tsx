@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
-import type { AnalysisDiagnosisDashboard, CitationDashboard, CitationSource, CompetitorComparisonItem, CompetitorDashboard, EvaluationDashboard, EvaluationIssue, GrowthOptimizationPlan, GrowthOptimizationWorkspace } from '@geo-platform/shared-types';
+import type { AnalysisDiagnosisDashboard, CitationDashboard, CitationSource, CompetitorComparisonItem, CompetitorDashboard, EvaluationDashboard, EvaluationIssue, GrowthOptimizationPlan, GrowthOptimizationWorkspace, OpportunityMap } from '@geo-platform/shared-types';
 import { useBrandContextStore } from '../../stores/brandContextStore';
 import { CitationAnalysisPage } from '../citations/pages/CitationAnalysisPage';
 import { CompetitorAnalysisPage } from '../competitors/pages/CompetitorAnalysisPage';
@@ -19,7 +19,7 @@ describe('analysis domain pages', () => {
     const markup = renderPage(<CompetitorAnalysisPage />, '/competitors?platform=kimi&runId=run-context', queryClient);
 
     assertInOrder(markup, ['>关键结论</span>', '>趋势与分布</h3>', '>证据明细</h3>', '>建议动作</h3>']);
-    for (const text of ['竞品分析', '竞品趋势', 'AI 平台矩阵', '高风险用户意图', '竞品 A', '生成对比内容', '创建竞品改进任务', '管理竞品资料']) {
+    for (const text of ['竞品分析', '竞品趋势', 'AI 平台矩阵', '问题机会', '竞品失守', '创建内容任务', '已确认竞品的前三可比平台', 'Kimi 80%', '高风险用户意图', '竞品 A', '生成对比内容', '创建竞品改进任务', '管理竞品资料']) {
       expect(markup).toContain(text);
     }
     expect(markup).not.toContain('豆包竞品');
@@ -74,10 +74,11 @@ describe('analysis domain pages', () => {
     const plan = createGrowthPlan();
     queryClient.setQueryData(['growth-optimization', brandId], success(createGrowthWorkspace(plan)));
     queryClient.setQueryData(['analysis-diagnosis-dashboard', brandId], success(createDiagnosisDashboard()));
+    queryClient.setQueryData(['opportunity-map', brandId], success(createOpportunityMap()));
     queryClient.setQueryData(['visibility-sprint-current', brandId], success(null));
     const markup = renderPage(<GrowthOptimizationPage />, '/growth-optimization?platform=kimi&runId=run-1', queryClient);
 
-    for (const text of ['优化建议', '统一诊断结论', '竞品差距', '优先问题', '原因证据', '推荐动作', '关联内容', '复测状态', '确认计划', '生成内容任务', '更新标准答案', '安排发布', '安排再次监测']) {
+    for (const text of ['优化建议', '统一诊断结论', '竞品差距', '竞品与渠道机会', '实际引用域名', '优先问题', '原因证据', '推荐动作', '关联内容', '复测状态', '确认计划', '生成内容任务', '更新标准答案', '安排发布', '安排再次监测']) {
       expect(markup).toContain(text);
     }
   });
@@ -128,6 +129,13 @@ function createClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
 }
 
+function createOpportunityMap(): OpportunityMap {
+  return {
+    brandId, measurementStatus: 'valid', sampleCount: 3, questionDimensions: [], diagnosticTypes: [], competitorThemes: [],
+    citedDomains: [], channelRecommendations: [], contentOpportunities: [], generationMethod: 'deterministic'
+  };
+}
+
 function renderPage(element: ReactElement, route: string, queryClient: QueryClient) {
   return renderToStaticMarkup(
     <MemoryRouter initialEntries={[route]}>
@@ -147,7 +155,12 @@ function assertInOrder(markup: string, labels: string[]) {
 }
 
 function createCompetitorDashboard(): CompetitorDashboard {
-  return { brandId, competitors: [], mentionRate: 45, suppressionRate: 50, averageRankGap: 1, highRiskIntents: [], comparisons: [createComparison(), createComparison({ runId: 'run-2', platformCode: 'doubao', promptText: '豆包竞品证据', competitorName: '豆包竞品' })] };
+  return {
+    brandId, competitors: [], mentionRate: 45, suppressionRate: 50, averageRankGap: 1, highRiskIntents: [],
+    comparisons: [createComparison(), createComparison({ runId: 'run-2', platformCode: 'doubao', promptText: '豆包竞品证据', competitorName: '豆包竞品' })], candidates: [],
+    questionOpportunities: [{ promptId: 'prompt-1', promptText: '儿童运动机构怎么选？', optimizationUnitId: 'unit-1', intentId: 'intent-1', type: 'competitor_loss', sampleCount: 2, brandMentionRate: 0, confirmedCompetitorNames: ['竞品 A'], evidenceRunIds: ['run-1'] }],
+    topPlatformsByCompetitor: [{ competitorName: '竞品 A', market: 'CN', platforms: [{ platformCode: 'kimi', mentionSampleCount: 4, comparableSampleCount: 5, mentionRate: 80 }] }]
+  };
 }
 
 function createComparison(overrides: Partial<CompetitorComparisonItem> = {}): CompetitorComparisonItem {

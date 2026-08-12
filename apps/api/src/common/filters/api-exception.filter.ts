@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
-import type { ApiResponse } from '@geo-platform/shared-types';
+import type { ApiResponse, BrandAuthorizationError } from '@geo-platform/shared-types';
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -20,6 +20,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
           ? exception.message
           : 'Internal server error';
     const responseCode = responseBody && 'code' in responseBody && typeof responseBody.code === 'string' ? responseBody.code : null;
+    const authorization = responseBody && 'authorization' in responseBody && typeof responseBody.authorization === 'object'
+      ? responseBody.authorization as BrandAuthorizationError
+      : undefined;
 
     const body: ApiResponse<null> = {
       success: false,
@@ -27,7 +30,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
       error: {
         code: responseCode ?? (status === HttpStatus.INTERNAL_SERVER_ERROR ? 'INTERNAL_ERROR' : 'REQUEST_ERROR'),
         message,
-        requestId: request.context?.requestId ?? null
+        requestId: request.context?.requestId ?? null,
+        authorization
       }
     };
 

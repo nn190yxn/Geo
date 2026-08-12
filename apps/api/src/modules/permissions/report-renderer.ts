@@ -28,20 +28,20 @@ export function buildReportTitle(brandName: string, type: ReportType, periodEnd:
 }
 
 export function buildSingleBrandDataGaps(snapshot: SingleBrandReportSnapshot): ReportDataGap[] {
-  const gaps: ReportDataGap[] = [];
+  const gaps: ReportDataGap[] = [...snapshot.scope.dataGaps];
   if (snapshot.metrics.current.insufficientSample || snapshot.metrics.current.sampleCount === 0) gaps.push({ section: 'GEO 指数', reason: '报告周期内监测样本不足' });
   if (snapshot.competitor.mentionRate === 0) gaps.push({ section: '竞品表现', reason: '报告周期内暂未识别到竞品提及样本' });
   if (snapshot.citation.totalCitations === 0) gaps.push({ section: '引用来源', reason: '报告周期内暂未收集到引用来源' });
   if (snapshot.content.uncoveredKeywords.length > 0) gaps.push({ section: '内容缺口', reason: `仍有 ${snapshot.content.uncoveredKeywords.length} 个关键词未覆盖` });
-  return gaps;
+  return deduplicateDataGaps(gaps);
 }
 
 export function buildMultiBrandDataGaps(snapshot: MultiBrandReportSnapshot): ReportDataGap[] {
-  const gaps: ReportDataGap[] = [];
+  const gaps: ReportDataGap[] = snapshot.scopes.flatMap((scope) => scope.dataGaps);
   if (snapshot.ranking.length === 0) gaps.push({ section: '品牌排名', reason: '当前用户暂无可访问品牌数据' });
   if (snapshot.ranking.some((brand) => brand.insufficientSample)) gaps.push({ section: '多品牌对比', reason: '部分品牌监测样本不足' });
   if (snapshot.highPriorityIssues.length === 0) gaps.push({ section: '高优先级问题', reason: '当前周期暂无高优先级待处理任务' });
-  return gaps;
+  return deduplicateDataGaps(gaps);
 }
 
 export function renderSingleBrandReport(
@@ -62,11 +62,21 @@ export function renderSingleBrandReport(
     `periodStart: ${periodStart}`,
     `periodEnd: ${periodEnd}`,
     `dataGapCount: ${dataGaps.length}`,
+    `methodologyVersion: ${snapshot.methodologyVersion}`,
     '```',
     '',
     `统计周期：${periodStart} 至 ${periodEnd}`,
     `报告对象：${snapshot.brand.name}`,
     customerDelivery ? '报告版本：客户交付版' : '报告版本：运营内部版',
+    '',
+    '## 统计范围与有效样本',
+    `- 监测运行：${snapshot.scope.monitoringRunCount}`,
+    `- 有效样本：${snapshot.scope.validSampleCount}`,
+    `- 内容资产：${snapshot.scope.contentAssetCount}`,
+    `- 发布记录：${snapshot.scope.publishingRecordCount}`,
+    `- 任务变化：${snapshot.scope.taskChangeCount}`,
+    `- 已完成再次监测：${snapshot.scope.completedRetestCount}`,
+    `- 样本时间：${snapshot.scope.sampleSummary.firstSampleAt ?? '待补充'} 至 ${snapshot.scope.sampleSummary.lastSampleAt ?? '待补充'}`,
     '',
     '## GEO 总指数',
     `- 总分：${snapshot.metrics.current.totalScore}/100`,
@@ -105,6 +115,9 @@ export function renderSingleBrandReport(
     '## 任务进度',
     ...Object.entries(snapshot.taskProgress).map(([status, count]) => `- ${status}：${count}`),
     '',
+    '## 效果证据',
+    ...renderEffectEvidenceLines(snapshot.effectEvidence),
+    '',
     '## 数据缺口',
     ...(dataGaps.length ? dataGaps.map((gap) => `- ${gap.section}：${gap.reason}`) : ['- 暂无关键数据缺口'])
   ].join('\n');
@@ -126,9 +139,13 @@ export function renderMultiBrandReport(
     `periodStart: ${periodStart}`,
     `periodEnd: ${periodEnd}`,
     `dataGapCount: ${dataGaps.length}`,
+    `methodologyVersion: ${snapshot.methodologyVersion}`,
     '```',
     '',
     `统计周期：${periodStart} 至 ${periodEnd}`,
+    '',
+    '## 统计范围与有效样本',
+    ...withFallback(snapshot.scopes.map((scope) => `- ${scope.brandId}：监测 ${scope.monitoringRunCount}，有效样本 ${scope.validSampleCount}，内容 ${scope.contentAssetCount}，发布 ${scope.publishingRecordCount}，任务变化 ${scope.taskChangeCount}，已完成再次监测 ${scope.completedRetestCount}`), '- 暂无品牌统计范围'),
     '',
     '## 品牌排名',
     ...withFallback(snapshot.ranking.map((brand, index) => `${index + 1}. ${brand.name}：${brand.totalScore}/100，环比 ${brand.periodChange}`), '- 暂无品牌排名数据'),
@@ -155,6 +172,9 @@ export function renderMultiBrandReport(
     '',
     '## 高优先级问题',
     ...(snapshot.highPriorityIssues.length ? snapshot.highPriorityIssues.map((item) => `- ${item.brandId}：${item.title}（${item.source}）`) : ['- 暂无高优先级问题']),
+    '',
+    '## 效果证据',
+    ...renderEffectEvidenceLines(snapshot.effectEvidence),
     '',
     '## 数据缺口',
     ...(dataGaps.length ? dataGaps.map((gap) => `- ${gap.section}：${gap.reason}`) : ['- 暂无关键数据缺口'])
@@ -206,4 +226,17 @@ function buildMultiBrandActionLines(snapshot: MultiBrandReportSnapshot): string[
 
 function withFallback(lines: string[], fallback: string): string[] {
   return lines.length ? lines : [fallback];
+}
+
+function renderEffectEvidenceLines(evidence: SingleBrandReportSnapshot['effectEvidence']): string[] {
+  return withFallback(evidence.flatMap((item) => [
+    `- ${item.taskTitle}：${item.evidenceStatus === 'complete' ? '证据完整' : '证据待补充'}`,
+    `  - 基线提及率 ${item.baselineMetrics?.mentionRate ?? '待补充'}%，再次监测提及率 ${item.afterMetrics?.mentionRate ?? '待补充'}%`,
+    `  - 内容资产 ${item.contentAssetIds.length} 项，发布记录 ${item.publishingRecords.length} 项`,
+    ...item.publishingRecords.map((record) => `  - ${record.platform}：${record.publishedUrl ?? '真实链接待补充'}`)
+  ]), '- 当前周期暂无已完成的再次监测证据');
+}
+
+function deduplicateDataGaps(gaps: ReportDataGap[]): ReportDataGap[] {
+  return gaps.filter((gap, index) => gaps.findIndex((candidate) => candidate.section === gap.section && candidate.reason === gap.reason) === index);
 }

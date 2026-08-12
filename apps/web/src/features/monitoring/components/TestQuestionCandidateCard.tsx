@@ -1,16 +1,18 @@
-import { useMemo, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BrowserConnectionSession, BrowserResponseCaptureResult, TestAssetGenerationResult, TestPlanCreationResult, TestPlanExecutionResult, TestPlanExecutionStep, TestQuestionCandidate, TestTheme } from '@geo-platform/shared-types';
+import type { BrowserConnectionSession, BrowserResponseCaptureResult, QuestionUserStage, TestAssetGenerationResult, TestPlan, TestPlanCreationResult, TestPlanExecutionResult, TestPlanExecutionStep, TestQuestionCandidate, TestTheme } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
 import { EmptyState, PageErrorAlert } from '../../../components/PageState';
 import { getPlatformDisplayName, getStatusDisplay } from '../../../utils/displayLabels';
-import { getConnectionSummaryLabel, getDefaultQuestionCandidates, getDurationLabel, getExecutionResultSummary, getPlatformPreview, getQuestionCandidateCountLabel, getThemeCandidateIds, priorityColors, priorityLabels, questionPurposeLabels, themeTypeLabels, toQuestionCandidateUpdateInput } from './testQuestionDisplay';
+import { discoveryDimensionLabels, generationMethodLabels, getConnectionSummaryLabel, getDefaultQuestionCandidates, getDurationLabel, getExecutionResultSummary, getPlatformPreview, getQuestionCandidateCountLabel, getThemeCandidateIds, parseQuestionSeedWords, priorityColors, priorityLabels, questionPurposeLabels, themeTypeLabels, toQuestionCandidateUpdateInput, userStageLabels } from './testQuestionDisplay';
 import { getBrowserLoginUrl } from './platformConfigDisplay';
+import { SearchDemandSnapshotPanel } from './SearchDemandSnapshotPanel';
 
 type Props = {
   brandId: string;
   actionType?: 'primary' | 'default';
+  initialPlan?: TestPlan;
 };
 
 type QuestionEditFormValues = {
@@ -19,9 +21,12 @@ type QuestionEditFormValues = {
   targetPlatformsText: string;
   priority: TestQuestionCandidate['priority'];
   estimatedValue: string;
+  recommendationProbability?: number;
+  userStage?: QuestionUserStage;
+  generationRationale?: string;
 };
 
-export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: Props) {
+export function TestQuestionCandidateCard({ brandId, actionType = 'primary', initialPlan }: Props) {
   const [messageApi, contextHolder] = message.useMessage();
   const [editForm] = Form.useForm<QuestionEditFormValues>();
   const queryClient = useQueryClient();
@@ -34,6 +39,7 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
   const [browserAnswer, setBrowserAnswer] = useState('');
   const [capturedRunIds, setCapturedRunIds] = useState<string[]>([]);
   const [generationNotice, setGenerationNotice] = useState<GenerationNotice | null>(null);
+  const [seedWordsText, setSeedWordsText] = useState('');
   const themesQuery = useQuery({
     queryKey: ['test-themes', brandId],
     queryFn: () => apiGet<TestTheme[]>(`/brands/${brandId}/test-themes`)
@@ -48,8 +54,21 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
   const visibleCandidates = showAllQuestions ? candidates : getDefaultQuestionCandidates(candidates, 8);
   const selectedCandidateIds = useMemo(() => candidates.filter((candidate) => candidate.selected).map((candidate) => candidate.id), [candidates]);
 
+  useEffect(() => {
+    if (!initialPlan) return;
+    setSavedPlan({
+      plan: initialPlan,
+      questionCount: initialPlan.questions.length,
+      platformCount: initialPlan.platformCodes.length,
+      targetPlatforms: initialPlan.platformCodes,
+      estimatedDurationMinutes: initialPlan.estimatedDurationMinutes,
+      connectionSummary: initialPlan.connectionSummary,
+      confirmationItems: initialPlan.confirmationItems
+    });
+  }, [initialPlan]);
+
   const generateThemesMutation = useMutation({
-    mutationFn: () => apiPost<TestAssetGenerationResult<TestTheme>>(`/brands/${brandId}/test-themes/generate`, {}),
+    mutationFn: () => apiPost<TestAssetGenerationResult<TestTheme>>(`/brands/${brandId}/test-themes/generate`, { seedWords: parseQuestionSeedWords(seedWordsText) }),
     onSuccess: (response) => {
       if (response.success) {
         void queryClient.invalidateQueries({ queryKey: ['test-themes', brandId] });
@@ -61,7 +80,7 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
     }
   });
   const generateCandidatesMutation = useMutation({
-    mutationFn: () => apiPost<TestAssetGenerationResult<TestQuestionCandidate>>(`/brands/${brandId}/test-question-candidates/generate`, {}),
+    mutationFn: () => apiPost<TestAssetGenerationResult<TestQuestionCandidate>>(`/brands/${brandId}/test-question-candidates/generate`, { seedWords: parseQuestionSeedWords(seedWordsText) }),
     onSuccess: (response) => {
       if (response.success) {
         setShowAllQuestions(false);
@@ -195,7 +214,10 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
       purposesText: candidate.purposes.join('、'),
       targetPlatformsText: candidate.targetPlatforms.map(getPlatformDisplayName).join('、'),
       priority: candidate.priority,
-      estimatedValue: candidate.estimatedValue
+      estimatedValue: candidate.estimatedValue,
+      recommendationProbability: candidate.recommendationProbability,
+      userStage: candidate.userStage,
+      generationRationale: candidate.generationRationale
     });
   };
 
@@ -238,6 +260,14 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
       <Space direction="vertical" size={16} className="page-stack">
         <PageErrorAlert response={themesQuery.data} />
         <PageErrorAlert response={candidatesQuery.data} />
+        <Input.TextArea
+          value={seedWordsText}
+          rows={2}
+          maxLength={400}
+          placeholder="可选：输入产品、场景或用户需求种子词，用逗号或换行分隔"
+          aria-label="问题拓展种子词"
+          onChange={(event) => setSeedWordsText(event.target.value)}
+        />
         <Alert
           type="info"
           showIcon
@@ -258,6 +288,7 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
             description={generationNotice.description}
           />
         ) : null}
+        <SearchDemandSnapshotPanel brandId={brandId} />
         {savedPlan ? (
           <Card size="small" title="首轮回复监测计划">
             <Space direction="vertical" size={12} className="page-stack">
@@ -349,9 +380,12 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
           columns={[
             { title: '监测问题', dataIndex: 'question' },
             { title: '所属优化方向', dataIndex: 'themeId', render: (value: string) => themeNameMap.get(value) ?? '-' },
+            { title: '拓展维度', dataIndex: 'discoveryDimension', render: (value: TestQuestionCandidate['discoveryDimension']) => value ? discoveryDimensionLabels[value] : '历史候选' },
             { title: '测试目的', dataIndex: 'purposes', render: (values: TestQuestionCandidate['purposes']) => <Space wrap>{values.map((value) => <Tag key={value}>{questionPurposeLabels[value]}</Tag>)}</Space> },
             { title: '目标平台', dataIndex: 'targetPlatforms', render: (values: string[]) => getPlatformPreview(values) },
-            { title: '价值', dataIndex: 'estimatedValue' },
+            { title: '业务价值', render: (_, record) => <Space direction="vertical" size={2}><Tag color={priorityColors[record.businessValue ?? record.priority]}>{priorityLabels[record.businessValue ?? record.priority]}</Tag><Typography.Text type="secondary">推荐概率 {Math.round((record.recommendationProbability ?? 0) * 100)}%</Typography.Text></Space> },
+            { title: '用户阶段', dataIndex: 'userStage', render: (value: TestQuestionCandidate['userStage']) => value ? userStageLabels[value] : '-' },
+            { title: '生成依据', render: (_, record) => <Space direction="vertical" size={2}><Typography.Text>{record.generationRationale || record.estimatedValue}</Typography.Text><Tag>{record.generationMethod ? generationMethodLabels[record.generationMethod] : '历史候选'}</Tag>{record.mergedFrom?.length ? <Typography.Text type="secondary">已合并 {record.mergedFrom.length} 个重复来源</Typography.Text> : null}</Space> },
             { title: '操作', render: (_, record) => <Button type="link" onClick={() => openEditCandidate(record)}>编辑</Button> }
           ]}
         />
@@ -370,6 +404,9 @@ export function TestQuestionCandidateCard({ brandId, actionType = 'primary' }: P
             <Form.Item name="targetPlatformsText" label="目标平台" rules={[{ required: true, message: '请输入目标平台' }]}><Input placeholder="豆包、Kimi、DeepSeek、通义千问、阶跃星辰" /></Form.Item>
             <Form.Item name="priority" label="推荐优先级" rules={[{ required: true, message: '请选择推荐优先级' }]}><Select options={[{ value: 'high', label: '高优先级' }, { value: 'medium', label: '中优先级' }, { value: 'low', label: '低优先级' }]} /></Form.Item>
             <Form.Item name="estimatedValue" label="预计测试价值" rules={[{ required: true, message: '请输入预计测试价值' }]}><Input.TextArea rows={2} /></Form.Item>
+            <Form.Item name="recommendationProbability" label="推荐概率"><InputNumber min={0} max={1} step={0.05} className="page-stack" /></Form.Item>
+            <Form.Item name="userStage" label="用户阶段"><Select allowClear options={Object.entries(userStageLabels).map(([value, label]) => ({ value, label }))} /></Form.Item>
+            <Form.Item name="generationRationale" label="生成依据"><Input.TextArea rows={2} /></Form.Item>
           </Form>
         </Modal>
       </Space>

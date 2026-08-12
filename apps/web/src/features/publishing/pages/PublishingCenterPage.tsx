@@ -1,9 +1,10 @@
-import { Alert, Button, Form, Input, Modal, Select, Space, Statistic, Tag, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Statistic, Tag, Typography, message } from 'antd';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
 import type { MediaPlatformRule, OwnedMediaAccount, PublishingAccount, PublishingAccountInput, PublishingDashboard, PublishingExecutionResult, PublishingMode, PublishingOperationDashboard, PublishingRecord, PublishingRecordInput, PublishingRecordPerformance, PublishingStatusInput, SprintRetestTrendItem } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
+import { useBrandWriteCapability } from '../../../access-control/BrandCapabilityContext';
 import { publishingPath, readWorkflowRouteContext, workflowStagePath, type WorkflowRouteContext } from '../../../app/routePaths';
 import type { UnifiedFilterValue } from '../../../app/filterQuery';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
@@ -70,6 +71,7 @@ export function getPublishingPlatformLabel(platform: PublishingDashboard['platfo
 }
 
 export function PublishingCenterPage() {
+  const publishingCapability = useBrandWriteCapability('publishing');
   const [messageApi, contextHolder] = message.useMessage();
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -79,6 +81,7 @@ export function PublishingCenterPage() {
   const activeBrandId = useBrandContextStore((state) => state.activeBrandId);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [recordModalOpen, setRecordModalOpen] = useState(false);
+  const [confirmingRecord, setConfirmingRecord] = useState<PublishingRecord>();
   const [publishingResultRecord, setPublishingResultRecord] = useState<PublishingRecord>();
   const [accessFilters, setAccessFilters] = useState<UnifiedFilterValue>({ search: '', platform: 'all', status: 'all' });
   const [ownedMediaPlatformFilter, setOwnedMediaPlatformFilter] = useState('all');
@@ -150,6 +153,23 @@ export function PublishingCenterPage() {
       }
     }
   });
+  const confirmRecordMutation = useMutation({
+    mutationFn: ({ recordId, values }: { recordId: string; values: PublishingRecordInput }) => apiPatch<PublishingRecord>(`/brands/${activeBrandId}/publishing/records/${recordId}/confirmation`, {
+      accountId: values.accountId,
+      ...values.confirmation
+    }),
+    onSuccess: (response) => {
+      if (response.success) {
+        setConfirmingRecord(undefined);
+        setRecordModalOpen(false);
+        recordForm.resetFields();
+        void invalidate();
+        void messageApi.success('发布确认已保存');
+      } else {
+        void messageApi.error(response.error.message);
+      }
+    }
+  });
   const updateRecordStatusMutation = useMutation({
     mutationFn: ({ recordId, input }: { recordId: string; input: PublishingStatusInput }) => apiPatch<PublishingRecord>(`/brands/${activeBrandId}/publishing/records/${recordId}/status`, input),
     onSuccess: (response) => {
@@ -183,7 +203,7 @@ export function PublishingCenterPage() {
   };
 
   const accountConnectionModal = (
-    <Modal title="接入发布账号" open={accountModalOpen} okText="保存发布账号" cancelText="取消" onCancel={() => setAccountModalOpen(false)} onOk={() => accountForm.submit()} confirmLoading={connectAccountMutation.isPending}>
+    <Modal title="接入发布账号" open={accountModalOpen} okText="保存发布账号" cancelText="取消" okButtonProps={{ disabled: !publishingCapability.canWrite, title: publishingCapability.reason }} onCancel={() => setAccountModalOpen(false)} onOk={() => accountForm.submit()} confirmLoading={connectAccountMutation.isPending}>
       <Form form={accountForm} layout="vertical" initialValues={{ platform: 'wechat', loginMode: 'oauth', publishingMode: 'assisted', authStatus: 'connected' }} onFinish={(values) => connectAccountMutation.mutate(values)}>
         <Form.Item name="platform" label="发布平台" rules={[{ required: true, message: '请选择发布平台' }]}><Select options={getPublishingAccountPlatformOptions(null, operationDashboard)} /></Form.Item>
         <Form.Item name="accountName" label="账号名称" rules={[{ required: true, message: '请输入账号名称' }]}><Input /></Form.Item>
@@ -195,17 +215,18 @@ export function PublishingCenterPage() {
     </Modal>
   );
   const publishingRecordModal = (
-    <Modal title="新建发布记录" open={recordModalOpen} okText="创建发布记录" cancelText="取消" onCancel={() => setRecordModalOpen(false)} onOk={() => recordForm.submit()} confirmLoading={createRecordMutation.isPending}>
-      <Form form={recordForm} layout="vertical" initialValues={{ targetPlatform: 'wechat', status: 'draft' }} onFinish={(values) => createRecordMutation.mutate(values)}>
+    <Modal title={confirmingRecord ? '完成发布确认' : '新建发布记录'} open={recordModalOpen} okText={confirmingRecord ? '保存发布确认' : '创建发布记录'} cancelText="取消" okButtonProps={{ disabled: !publishingCapability.canWrite, title: publishingCapability.reason }} onCancel={() => { setRecordModalOpen(false); setConfirmingRecord(undefined); }} onOk={() => recordForm.submit()} confirmLoading={createRecordMutation.isPending || confirmRecordMutation.isPending}>
+      <Form form={recordForm} layout="vertical" initialValues={{ targetPlatform: 'wechat', status: 'draft', confirmation: { materialRequirementsConfirmed: false } }} onFinish={(values) => confirmingRecord ? confirmRecordMutation.mutate({ recordId: confirmingRecord.id, values }) : createRecordMutation.mutate(values)}>
         <PublishingPreparationFields
           accounts={operationDashboard?.accounts ?? []}
           platformOptions={getPublishingAccountPlatformOptions(null, operationDashboard)}
+          existingVersionId={confirmingRecord?.versionId}
         />
       </Form>
     </Modal>
   );
   const publishingResultModal = (
-    <Modal title="记录真实发布结果" open={Boolean(publishingResultRecord)} okText="保存发布结果" cancelText="取消" onCancel={() => setPublishingResultRecord(undefined)} onOk={() => publishingResultForm.submit()} confirmLoading={updateRecordStatusMutation.isPending}>
+    <Modal title="记录真实发布结果" open={Boolean(publishingResultRecord)} okText="保存发布结果" cancelText="取消" okButtonProps={{ disabled: !publishingCapability.canWrite, title: publishingCapability.reason }} onCancel={() => setPublishingResultRecord(undefined)} onOk={() => publishingResultForm.submit()} confirmLoading={updateRecordStatusMutation.isPending}>
       <Form form={publishingResultForm} layout="vertical" initialValues={{ status: 'published' }} onFinish={(values) => publishingResultRecord && updateRecordStatusMutation.mutate({ recordId: publishingResultRecord.id, input: values })}>
         <PublishingResultFields />
       </Form>
@@ -229,6 +250,8 @@ export function PublishingCenterPage() {
             setOwnedMediaPlatformFilter('all');
           }}
           onConnect={() => setAccountModalOpen(true)}
+          canWrite={publishingCapability.canWrite}
+          permissionReason={publishingCapability.reason}
           onManage={(account) => {
             const action = getOwnedMediaAccountAction(account);
             if (action.kind === 'reauthorize') reauthorizeMutation.mutate(account.id);
@@ -274,11 +297,31 @@ export function PublishingCenterPage() {
           state={getPublishingAccessPageState(operationDashboardQuery.isLoading, Boolean(operationDashboardQuery.data && !operationDashboardQuery.data.success), publishingRows.length)}
           onFiltersChange={(filters, channel) => navigate({ pathname: location.pathname, search: getPublishingRecordFilterSearch(location.search, filters, channel), hash: location.hash }, { replace: true })}
           onCreate={() => setRecordModalOpen(true)}
+          canWrite={publishingCapability.canWrite}
+          permissionReason={publishingCapability.reason}
           onOpenOwnedMedia={() => navigate({ pathname: '/owned-media', search: location.search, hash: location.hash })}
           onOpenPlatformRules={() => navigate({ pathname: '/media-platforms', search: location.search, hash: location.hash })}
           onRecordResult={(record) => {
             setPublishingResultRecord(record);
             publishingResultForm.setFieldsValue({ status: 'published', publishedUrl: record.publishedUrl });
+          }}
+          onConfirm={(record) => {
+            setConfirmingRecord(record);
+            recordForm.setFieldsValue({
+              accountId: record.accountId,
+              versionId: record.versionId,
+              title: record.title,
+              body: record.body,
+              targetPlatform: record.platform,
+              status: record.status === 'draft' ? 'draft' : 'pending',
+              confirmation: {
+                publishingMode: record.publishingMode ?? 'manual',
+                contentVersionLabel: record.contentVersion,
+                materialRequirementsConfirmed: record.materialRequirementsConfirmed ?? false,
+                retestPlanAt: record.retestPlanAt ?? ''
+              }
+            });
+            setRecordModalOpen(true);
           }}
           onScheduleRetest={(record) => navigate(getPublishingRetestPath(record, routeContext))}
           onCopy={(record) => void copyRecordBody(record)}
@@ -302,9 +345,10 @@ export type PublishingOperationRow = PublishingRecord & {
   retestItem?: SprintRetestTrendItem;
 };
 
-export function PublishingPreparationFields({ accounts, platformOptions }: {
+export function PublishingPreparationFields({ accounts, platformOptions, existingVersionId }: {
   accounts: OwnedMediaAccount[];
   platformOptions: Array<{ value: string; label: string }>;
+  existingVersionId?: string;
 }) {
   const form = Form.useFormInstance<PublishingRecordInput>();
   const availableAccounts = accounts.filter((account) => account.authStatus === 'connected');
@@ -320,14 +364,17 @@ export function PublishingPreparationFields({ accounts, platformOptions }: {
           style={{ marginBottom: 16 }}
         />
       )}
-      <Typography.Paragraph type="secondary">进入发布准备前，请补齐发布账号、内容标题、内容正文和目标平台。</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">进入发布准备前，请确认发布账号、内容版本、发布方式、素材要求和再次监测计划。</Typography.Paragraph>
       <Form.Item name="accountId" label="发布账号" rules={[{ required: true, message: '请选择可用发布账号' }]}>
         <Select
           allowClear
           options={availableAccounts.map((account) => ({ value: account.id, label: `${account.accountName}（${account.platformName} · ${publishingModeLabels[account.publishingMode ?? 'manual']}）` }))}
           onChange={(accountId) => {
             const account = availableAccounts.find((item) => item.id === accountId);
-            if (account) form.setFieldValue('targetPlatform', account.platform);
+            if (account) {
+              form.setFieldValue('targetPlatform', account.platform);
+              form.setFieldValue(['confirmation', 'publishingMode'], account.publishingMode ?? 'manual');
+            }
           }}
         />
       </Form.Item>
@@ -335,6 +382,12 @@ export function PublishingPreparationFields({ accounts, platformOptions }: {
       <Form.Item name="body" label="内容正文" rules={[{ required: true, message: '请输入内容正文' }]}><Input.TextArea rows={5} /></Form.Item>
       <Form.Item name="targetPlatform" label="目标平台" rules={[{ required: true, message: '请选择目标平台' }]}><Select options={platformOptions} /></Form.Item>
       <Form.Item name="contentType" label="内容类型"><Input placeholder={`${getContentTypeDisplay('wechat_article')} / ${getContentTypeDisplay('media_article')}`} /></Form.Item>
+      {existingVersionId
+        ? <Form.Item label="内容版本"><Input value={existingVersionId} disabled /></Form.Item>
+        : <Form.Item name={['confirmation', 'contentVersionLabel']} label="内容版本" rules={[{ required: true, message: '请输入内容版本' }]}><Input placeholder="例如：官网文章 v1" /></Form.Item>}
+      <Form.Item name={['confirmation', 'publishingMode']} label="发布方式" rules={[{ required: true, message: '请选择发布方式' }]}><Select options={[{ value: 'manual', label: '人工发布' }, { value: 'assisted', label: '半自动发布' }, { value: 'automatic', label: '自动发布' }]} /></Form.Item>
+      <Form.Item name={['confirmation', 'materialRequirementsConfirmed']} valuePropName="checked" rules={[{ validator: (_, checked) => checked ? Promise.resolve() : Promise.reject(new Error('请确认素材要求')) }]}><Checkbox>已确认封面、图片、链接和渠道格式等素材要求</Checkbox></Form.Item>
+      <Form.Item name={['confirmation', 'retestPlanAt']} label="再次监测计划" rules={[{ required: true, message: '请设置再次监测时间' }]}><Input type="datetime-local" /></Form.Item>
       <Form.Item name="status" label="发布状态"><Select options={[{ value: 'draft', label: '草稿' }, { value: 'pending', label: '待人工发布' }]} /></Form.Item>
     </>
   );
@@ -351,6 +404,8 @@ export function PublishingResultFields() {
 }
 
 export type PublishingRecordsWorkspacePageProps = {
+  canWrite?: boolean;
+  permissionReason?: string;
   rows: PublishingOperationRow[];
   totalCount: number;
   filters: UnifiedFilterValue<PublishingRecord['status']>;
@@ -364,6 +419,7 @@ export type PublishingRecordsWorkspacePageProps = {
   onOpenOwnedMedia: () => void;
   onOpenPlatformRules: () => void;
   onRecordResult: (record: PublishingRecord) => void;
+  onConfirm: (record: PublishingRecord) => void;
   onScheduleRetest: (record: PublishingRecord) => void;
   onCopy: (record: PublishingRecord) => void;
   onSetPending: (record: PublishingRecord) => void;
@@ -372,13 +428,13 @@ export type PublishingRecordsWorkspacePageProps = {
   onRetry: () => void;
 };
 
-export function PublishingRecordsWorkspacePage({ rows, totalCount, filters, channelFilter, channels, highlightedRecordId, state, updating, onFiltersChange, onCreate, onOpenOwnedMedia, onOpenPlatformRules, onRecordResult, onScheduleRetest, onCopy, onSetPending, onSetFailed, onExecute, onRetry }: PublishingRecordsWorkspacePageProps) {
+export function PublishingRecordsWorkspacePage({ canWrite = true, permissionReason, rows, totalCount, filters, channelFilter, channels, highlightedRecordId, state, updating, onFiltersChange, onCreate, onOpenOwnedMedia, onOpenPlatformRules, onRecordResult, onConfirm, onScheduleRetest, onCopy, onSetPending, onSetFailed, onExecute, onRetry }: PublishingRecordsWorkspacePageProps) {
   return (
     <ManagementListPage<PublishingOperationRow>
       title="发布记录"
       description="统一检查待发布内容、目标媒体、账号状态和真实发布结果，并在发布后衔接再次监测。"
       context={highlightedRecordId ? <Alert type="info" showIcon message="已定位内容生成流程交接的发布记录" /> : undefined}
-      primaryAction={totalCount > 0 ? <Button type="primary" onClick={onCreate}>新建发布记录</Button> : undefined}
+      primaryAction={totalCount > 0 ? <Button type="primary" disabled={!canWrite} title={permissionReason} onClick={onCreate}>新建发布记录</Button> : undefined}
       secondaryActions={<Space wrap><Button onClick={onOpenOwnedMedia}>管理媒体账号</Button><Button onClick={onOpenPlatformRules}>查看平台规则</Button></Space>}
       filters={(
         <UnifiedFilterBar
@@ -471,10 +527,12 @@ export function PublishingRecordsWorkspacePage({ rows, totalCount, filters, chan
             render: (_, record) => (
               <ManagementRowActions
                 primaryActions={[
-                  record.publishingMode && record.publishingMode !== 'manual' && !['queued', 'publishing', 'published'].includes(record.status) && onExecute
-                    ? <Button key="execute" type="primary" size="small" loading={updating} onClick={() => onExecute(record)}>立即发布</Button>
-                    : <Button key="result" size="small" loading={updating} onClick={() => onRecordResult(record)}>{record.publishedUrl ? '更新发布结果' : '记录发布结果'}</Button>,
-                  <Button key="retest" size="small" onClick={() => onScheduleRetest(record)}>安排再次监测</Button>
+                  !record.confirmedAt
+                    ? <Button key="confirm" type="primary" size="small" disabled={!canWrite} title={permissionReason} onClick={() => onConfirm(record)}>完成发布确认</Button>
+                    : record.publishingMode && record.publishingMode !== 'manual' && !['queued', 'publishing', 'published'].includes(record.status) && onExecute
+                    ? <Button key="execute" type="primary" size="small" disabled={!canWrite} title={permissionReason} loading={updating} onClick={() => onExecute(record)}>立即发布</Button>
+                    : <Button key="result" size="small" disabled={!canWrite} title={permissionReason} loading={updating} onClick={() => onRecordResult(record)}>{record.publishedUrl ? '更新发布结果' : '记录发布结果'}</Button>,
+                  <Button key="retest" size="small" disabled={!canWrite} title={permissionReason} onClick={() => onScheduleRetest(record)}>安排再次监测</Button>
                 ]}
                 moreAction={(
                   <AccessibleDropdown
@@ -483,8 +541,8 @@ export function PublishingRecordsWorkspacePage({ rows, totalCount, filters, chan
                     menu={{
                       items: [
                         { key: 'copy', label: '复制正文' },
-                        { key: 'pending', label: '设为待人工发布', disabled: record.status === 'pending' },
-                        { key: 'failed', label: '标记发布失败', danger: true, disabled: record.status === 'failed' }
+                        { key: 'pending', label: '设为待人工发布', disabled: !canWrite || record.status === 'pending' },
+                        { key: 'failed', label: '标记发布失败', danger: true, disabled: !canWrite || record.status === 'failed' }
                       ],
                       onClick: ({ key }) => {
                         if (key === 'copy') onCopy(record);
@@ -506,6 +564,8 @@ export function PublishingRecordsWorkspacePage({ rows, totalCount, filters, chan
 }
 
 export type OwnedMediaAccessPageProps = {
+  canWrite?: boolean;
+  permissionReason?: string;
   accounts: OwnedMediaAccount[];
   totalCount: number;
   filters: UnifiedFilterValue;
@@ -521,7 +581,7 @@ export type OwnedMediaAccessPageProps = {
   onRetry: () => void;
 };
 
-export function OwnedMediaAccessPage({ accounts, totalCount, filters, platformFilter, state, managing, onFiltersChange, onPlatformFilterChange, onClearFilters, onConnect, onManage, onModeChange, onRetry }: OwnedMediaAccessPageProps) {
+export function OwnedMediaAccessPage({ canWrite = true, permissionReason, accounts, totalCount, filters, platformFilter, state, managing, onFiltersChange, onPlatformFilterChange, onClearFilters, onConnect, onManage, onModeChange, onRetry }: OwnedMediaAccessPageProps) {
   const connectedCount = accounts.filter((account) => account.authStatus === 'connected').length;
   const issueCount = accounts.filter((account) => account.authStatus !== 'connected').length;
   const platformOptions = [...new Map([
@@ -534,7 +594,7 @@ export function OwnedMediaAccessPage({ accounts, totalCount, filters, platformFi
     <ManagementListPage<OwnedMediaAccount>
       title="自有媒体"
       description="统一接入和维护品牌自有媒体账号，确保内容发布前账号授权状态清晰可执行。"
-      primaryAction={totalCount > 0 ? <Button type="primary" onClick={onConnect}>接入账号</Button> : undefined}
+      primaryAction={totalCount > 0 ? <Button type="primary" disabled={!canWrite} title={permissionReason} onClick={onConnect}>接入账号</Button> : undefined}
       summary={(
         <Space size={32} wrap>
           <Statistic title="已接入账号" value={totalCount} />
@@ -581,7 +641,7 @@ export function OwnedMediaAccessPage({ accounts, totalCount, filters, platformFi
           {
             title: '发布模式',
             render: (_, record) => onModeChange
-              ? <Select aria-label={`${record.accountName}发布模式`} size="small" value={record.publishingMode ?? 'manual'} options={publishingModeOptions} onChange={(value) => onModeChange(record, value)} />
+              ? <Select aria-label={`${record.accountName}发布模式`} disabled={!canWrite} title={permissionReason} size="small" value={record.publishingMode ?? 'manual'} options={publishingModeOptions} onChange={(value) => onModeChange(record, value)} />
               : publishingModeLabels[record.publishingMode ?? 'manual']
           },
           { title: '授权状态', render: (_, record) => <Tag color={getOwnedMediaAuthStatusColor(record.authStatus)}>{authStatusLabels[record.authStatus]}</Tag> },
@@ -592,7 +652,7 @@ export function OwnedMediaAccessPage({ accounts, totalCount, filters, platformFi
             title: '操作',
             render: (_, record) => {
               const action = getOwnedMediaAccountAction(record);
-              return <ManagementRowActions primaryActions={[<Button key={action.kind} size="small" type={action.kind === 'reauthorize' ? 'primary' : 'default'} loading={managing && action.kind === 'reauthorize'} onClick={() => onManage(record)}>{action.label}</Button>]} />;
+              return <ManagementRowActions primaryActions={[<Button key={action.kind} size="small" type={action.kind === 'reauthorize' ? 'primary' : 'default'} disabled={!canWrite} title={permissionReason} loading={managing && action.kind === 'reauthorize'} onClick={() => onManage(record)}>{action.label}</Button>]} />;
             }
           }
         ]

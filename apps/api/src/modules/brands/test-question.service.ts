@@ -5,12 +5,15 @@ import type {
   BrandProfile,
   QuestionGenerationInput,
   QuestionGenerationOutput,
+  QuestionDiscoveryDimension,
+  QuestionUserStage,
   TestAssetGenerationResult,
   TestQuestionCandidateInput,
   TestQuestionPurpose,
   TestTheme
 } from '@geo-platform/shared-types';
 import { LLMOrchestrationService } from '../llm/llm-orchestration.service';
+import { classifyPromptKind } from '../monitoring/prompt-measurement';
 
 const defaultTargetPlatforms: BeginnerFriendlyPlatform[] = ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfun'];
 const firstRoundQuestionLimit = 8;
@@ -19,10 +22,10 @@ const firstRoundQuestionLimit = 8;
 export class TestQuestionService {
   constructor(@Optional() private readonly llmService?: LLMOrchestrationService) {}
 
-  generateCandidates(brand: BrandDetail, profile: BrandProfile, themes: TestTheme[]): TestQuestionCandidateInput[] {
-    return limitFirstRoundQuestions(themes
+  generateCandidates(brand: BrandDetail, profile: BrandProfile, themes: TestTheme[], seedWords: string[] = []): TestQuestionCandidateInput[] {
+    return classifyCandidates(limitFirstRoundQuestions(themes
       .filter((theme) => theme.enabled)
-      .flatMap((theme) => buildQuestionsForTheme(brand, profile, theme)));
+      .flatMap((theme) => buildQuestionsForTheme(brand, profile, theme, seedWords))), brand);
   }
 
   async generateCandidatesWithLLM(
@@ -30,9 +33,10 @@ export class TestQuestionService {
     brandId: string,
     brand: BrandDetail,
     profile: BrandProfile,
-    themes: TestTheme[]
+    themes: TestTheme[],
+    seedWords: string[] = []
   ): Promise<TestAssetGenerationResult<TestQuestionCandidateInput>> {
-    const fallback = this.generateCandidates(brand, profile, themes);
+    const fallback = this.generateCandidates(brand, profile, themes, seedWords);
 
     if (!this.llmService) {
       return fallbackResult(fallback, profile);
@@ -44,6 +48,7 @@ export class TestQuestionService {
         brandDetail: brand,
         brandProfile: profile,
         themes: themes.filter((theme) => theme.enabled),
+        seedWords,
         targetPlatforms: defaultTargetPlatforms,
         scenarioCount: themes.filter((theme) => theme.enabled).length,
         questionCountPerTheme: 1,
@@ -56,24 +61,45 @@ export class TestQuestionService {
     }
 
     const enabledThemeIds = new Set(themes.filter((theme) => theme.enabled).map((theme) => theme.id));
-    const candidates = limitFirstRoundQuestions(response.output.candidates
+    const themeById = new Map(themes.map((theme) => [theme.id, theme]));
+    const aiCandidates = response.output.candidates
       .filter((candidate) => enabledThemeIds.has(candidate.themeId))
       .map((candidate) => ({
         ...candidate,
         targetPlatforms: candidate.targetPlatforms.length ? candidate.targetPlatforms : defaultTargetPlatforms,
+        discoveryDimension: candidate.discoveryDimension ?? toDiscoveryDimension(themeById.get(candidate.themeId)?.type),
+        businessValue: candidate.businessValue ?? candidate.priority,
+        recommendationProbability: normalizeProbability(candidate.recommendationProbability, candidate.priority),
+        userStage: candidate.userStage ?? inferUserStage(candidate.discoveryDimension ?? toDiscoveryDimension(themeById.get(candidate.themeId)?.type)),
+        generationRationale: candidate.generationRationale?.trim() || `AI 基于品牌资料和“${themeById.get(candidate.themeId)?.name ?? '业务主题'}”补充。`,
+        generationMethod: 'ai' as const,
+        mergedFrom: candidate.mergedFrom ?? [],
         editable: candidate.editable ?? true,
         selected: candidate.selected ?? candidate.priority === 'high'
-      })));
+      }));
+    const candidates = classifyCandidates(mergeQuestionCandidates(fallback, aiCandidates), brand);
 
-    return candidates.length
-      ? { items: candidates, missingProfileFields: response.output.missingProfileFields, generationNotes: response.output.generationNotes, source: 'llm' }
-      : fallbackResult(fallback, profile);
+    return { items: candidates, missingProfileFields: response.output.missingProfileFields, generationNotes: response.output.generationNotes, source: 'llm' };
   }
 }
 
+function classifyCandidates(candidates: TestQuestionCandidateInput[], brand: BrandDetail): TestQuestionCandidateInput[] {
+  return candidates.map((candidate) => ({
+    ...candidate,
+    promptKind: classifyPromptKind(candidate.question, brand)
+  }));
+}
+
 function limitFirstRoundQuestions(candidates: TestQuestionCandidateInput[]): TestQuestionCandidateInput[] {
+  const questions = new Set<string>();
   return [...candidates]
     .sort((left, right) => priorityRank(right.priority) - priorityRank(left.priority))
+    .filter((candidate) => {
+      const questionKey = normalizeQuestionText(candidate.question);
+      if (questions.has(questionKey)) return false;
+      questions.add(questionKey);
+      return true;
+    })
     .slice(0, firstRoundQuestionLimit);
 }
 
@@ -92,13 +118,14 @@ function fallbackResult(items: TestQuestionCandidateInput[], profile: BrandProfi
   };
 }
 
-function buildQuestionsForTheme(brand: BrandDetail, profile: BrandProfile, theme: TestTheme): TestQuestionCandidateInput[] {
+function buildQuestionsForTheme(brand: BrandDetail, profile: BrandProfile, theme: TestTheme, seedWords: string[]): TestQuestionCandidateInput[] {
   const brandName = brand.name.trim();
   const city = brand.targetCities[0]?.trim();
   const offering = profile.offerings[0]?.trim() ?? brand.businessScope.trim();
   const competitor = profile.competitors[0]?.trim();
   const audience = brand.targetAudience.trim() || profile.targetCustomers[0]?.trim();
   const valueProp = profile.valueProps[0]?.trim();
+  const seedWord = seedWords.find(hasText)?.trim();
   const questionInputs: QuestionSeed[] = [];
 
   if (isSupercalfBrand(brand)) {
@@ -117,11 +144,19 @@ function buildQuestionsForTheme(brand: BrandDetail, profile: BrandProfile, theme
     });
   }
 
-  if (theme.type === 'category' && hasText(offering)) {
+  if (theme.type === 'category' && hasText(seedWord || offering)) {
     questionInputs.push({
-      question: `${city ? `${city} ` : ''}有哪些值得推荐的${offering}品牌？`,
+      question: `${city ? `${city} ` : ''}有哪些值得推荐的${seedWord || offering}品牌？`,
       purposes: ['brand_mentioned', 'rank_first', 'competitor_presence'],
       estimatedValue: '验证非品牌词推荐场景中品牌是否出现以及排名位置。'
+    });
+  }
+
+  if ((theme.type === 'scenario' || theme.type === 'offering') && hasText(seedWord || offering)) {
+    questionInputs.push({
+      question: `${seedWord || offering}适合哪些使用场景？有哪些品牌值得了解？`,
+      purposes: ['brand_mentioned', 'value_prop_accuracy', 'competitor_presence'],
+      estimatedValue: '验证具体使用场景中的推荐机会和品牌解释准确性。'
     });
   }
 
@@ -133,7 +168,7 @@ function buildQuestionsForTheme(brand: BrandDetail, profile: BrandProfile, theme
     });
   }
 
-  if (theme.type === 'age_group' && audience && hasText(offering)) {
+  if ((theme.type === 'audience' || theme.type === 'age_group') && audience && hasText(offering)) {
     questionInputs.push({
       question: `${audience}选择${offering}要看哪些品牌？`,
       purposes: ['brand_mentioned', 'rank_first', 'value_prop_accuracy'],
@@ -149,15 +184,7 @@ function buildQuestionsForTheme(brand: BrandDetail, profile: BrandProfile, theme
     });
   }
 
-  if (theme.type === 'offering' && hasText(offering)) {
-    questionInputs.push({
-      question: `${offering}怎么选？${brandName}适合什么情况？`,
-      purposes: ['brand_mentioned', 'value_prop_accuracy', 'risk_expression'],
-      estimatedValue: '验证具体课程或产品词下的解释准确性和合规表达。'
-    });
-  }
-
-  if (theme.type === 'competitor' && competitor) {
+  if ((theme.type === 'competitor_comparison' || theme.type === 'competitor') && competitor) {
     questionInputs.push({
       question: `${brandName}和${competitor}相比，哪个更适合${audience || '目标用户'}？`,
       purposes: ['brand_mentioned', 'rank_first', 'competitor_presence', 'value_prop_accuracy'],
@@ -177,6 +204,7 @@ function buildQuestionsForTheme(brand: BrandDetail, profile: BrandProfile, theme
 }
 
 function toCandidateInputs(theme: TestTheme, questionInputs: QuestionSeed[]): TestQuestionCandidateInput[] {
+  const discoveryDimension = toDiscoveryDimension(theme.type);
   return questionInputs.map((input) => ({
     themeId: theme.id,
     question: input.question,
@@ -184,6 +212,13 @@ function toCandidateInputs(theme: TestTheme, questionInputs: QuestionSeed[]): Te
     targetPlatforms: defaultTargetPlatforms,
     priority: theme.priority,
     estimatedValue: input.estimatedValue,
+    discoveryDimension,
+    businessValue: theme.priority,
+    recommendationProbability: normalizeProbability(undefined, theme.priority),
+    userStage: inferUserStage(discoveryDimension),
+    generationRationale: `基于“${theme.name}”优化方向和品牌资料确定性生成。`,
+    generationMethod: 'deterministic',
+    mergedFrom: [],
     editable: true,
     selected: theme.priority === 'high'
   }));
@@ -194,6 +229,60 @@ type QuestionSeed = {
   purposes: TestQuestionPurpose[];
   estimatedValue: string;
 };
+
+function mergeQuestionCandidates(deterministic: TestQuestionCandidateInput[], aiCandidates: TestQuestionCandidateInput[]): TestQuestionCandidateInput[] {
+  const merged: TestQuestionCandidateInput[] = deterministic.map((candidate) => ({ ...candidate, mergedFrom: [...(candidate.mergedFrom ?? [])] }));
+  const byQuestion = new Map(merged.map((candidate, index) => [normalizeQuestionText(candidate.question), index]));
+
+  aiCandidates.forEach((candidate) => {
+    const key = normalizeQuestionText(candidate.question);
+    const existingIndex = byQuestion.get(key);
+    if (existingIndex === undefined) {
+      byQuestion.set(key, merged.length);
+      merged.push(candidate);
+      return;
+    }
+
+    const existing = merged[existingIndex];
+    merged[existingIndex] = {
+      ...existing,
+      targetPlatforms: [...new Set([...existing.targetPlatforms, ...candidate.targetPlatforms])],
+      businessValue: priorityRank(candidate.businessValue ?? candidate.priority) > priorityRank(existing.businessValue ?? existing.priority)
+        ? candidate.businessValue ?? candidate.priority
+        : existing.businessValue ?? existing.priority,
+      recommendationProbability: Math.max(existing.recommendationProbability ?? 0, candidate.recommendationProbability ?? 0),
+      generationMethod: 'merged',
+      mergedFrom: [...new Set([...(existing.mergedFrom ?? []), candidate.generationRationale ?? 'AI 补充候选'])]
+    };
+  });
+
+  return merged;
+}
+
+export function normalizeQuestionText(question: string): string {
+  return question.trim().toLocaleLowerCase().replace(/[\s，。！？、,.!?；;：:“”"'（）()【】\[\]]+/g, '');
+}
+
+function toDiscoveryDimension(type: TestTheme['type'] | undefined): QuestionDiscoveryDimension {
+  if (type === 'age_group') return 'audience';
+  if (type === 'offering') return 'scenario';
+  if (type === 'competitor') return 'competitor_comparison';
+  if (type === 'brand' || type === 'category' || type === 'scenario' || type === 'audience' || type === 'pain_point' || type === 'location' || type === 'buying_decision' || type === 'competitor_comparison') return type;
+  return 'category';
+}
+
+function inferUserStage(dimension: QuestionDiscoveryDimension): QuestionUserStage {
+  if (dimension === 'brand' || dimension === 'category' || dimension === 'pain_point') return 'awareness';
+  if (dimension === 'buying_decision' || dimension === 'competitor_comparison') return 'decision';
+  return 'consideration';
+}
+
+function normalizeProbability(value: number | undefined, priority: TestQuestionCandidateInput['priority']): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.min(1, Math.max(0, value));
+  if (priority === 'high') return 0.82;
+  if (priority === 'medium') return 0.65;
+  return 0.45;
+}
 
 function buildSupercalfQuestions(theme: TestTheme): QuestionSeed[] {
   const seeds: Record<string, QuestionSeed> = {

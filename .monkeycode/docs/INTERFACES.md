@@ -67,6 +67,31 @@ type RequestContext = {
 
 ## 当前 API
 
+### Provider 与额度治理
+
+```http
+GET /api/v1/brands/:brandId/providers
+POST /api/v1/brands/:brandId/providers
+```
+
+Provider 摘要只返回组织归属、用途、模型、健康状态、优先级、故障转移顺序和凭据状态。POST 请求保存组织级 BYOK 配置，凭据只接受服务端引用。
+
+LLM 任务执行前由服务端按用户、组织和全局预算执行额度预占。成功调用按实际 token 用量结算并追加账本事件；配置缺失、Provider 不支持或调用失败时释放预占。额度不足响应包含稳定原因、请求量、可公开剩余额度和恢复动作。
+
+异步任务以 `AsyncJob` 持久化任务类型、实体标识、幂等键、当前步骤、进度、重试次数、错误类别和最终结果摘要。相同品牌与幂等键的重复入队返回原任务；终态任务保持结果并拒绝后续状态覆盖。
+
+```http
+GET /api/v1/brands/:brandId/runtime-operations
+POST /api/v1/brands/:brandId/runtime-operations/jobs/:jobId/retry
+POST /api/v1/brands/:brandId/runtime-operations/jobs/:jobId/cancel
+```
+
+运行中心只返回当前品牌可访问的 Provider、任务、额度、发布账号和依赖状态。重试操作将失败任务置回队列；取消操作将任务置为 `cancelled` 并保留已有执行信息。
+
+### 周期交付边界
+
+周期编排依次执行站点审计、监测、任务验收、报告与交付包步骤，失败步骤保存业务原因并可从当前步骤恢复。交付包固定引用报告快照，格式 manifest 覆盖 HTML、PDF、Markdown 和 CSV 成功文件。客户读取授权绑定品牌与有效期；多品牌比较需要一致的统计周期、方法口径版本与基线版本。
+
 ### 健康检查
 
 ```http
@@ -134,13 +159,206 @@ x-user-id: user_demo
       "brandId": "brand_demo",
       "name": "示例品牌",
       "status": "active",
-      "role": "owner"
+      "role": "operator",
+      "capabilities": {
+        "role": "operator",
+        "applicationPath": "/brands?permissionRequest=1",
+        "resources": [
+          {
+            "resource": "monitoring",
+            "canRead": true,
+            "canWrite": true,
+            "minimumReadRole": "viewer",
+            "minimumWriteRole": "operator"
+          },
+          {
+            "resource": "brand",
+            "canRead": true,
+            "canWrite": false,
+            "minimumReadRole": "viewer",
+            "minimumWriteRole": "admin"
+          }
+        ]
+      }
     }
   ]
 }
 ```
 
+`capabilities.resources` 由服务端资源权限矩阵生成。前端使用同一摘要控制监测、内容、发布、任务、再次监测和报告写操作；品牌主体、成员和平台配置写操作要求 `admin` 或 `owner`。摘要完整资源集合包含 `brand_workspace`、`brand`、`brand_profile`、`membership`、`platform_config`、`monitoring`、`content`、`publishing`、`task`、`retest`、`analysis`、`report` 和 `organization`。
+
+资源权限不足时返回 HTTP 403，并在统一错误对象中提供申请上下文：
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "BRAND_RESOURCE_FORBIDDEN",
+    "message": "当前角色缺少platform_config操作权限，请申请admin角色。",
+    "requestId": "request_1",
+    "authorization": {
+      "resource": "platform_config",
+      "currentRole": "viewer",
+      "requiredRole": "admin",
+      "applicationPath": "/brands?permissionRequest=platform_config"
+    }
+  }
+}
+```
+
 ### 品牌详情列表
+
+### 官网快速接入会话
+
+快速接入会话按品牌唯一保存，步骤固定为 `website`、`facts`、`questions` 和 `readiness`。viewer 及以上角色可恢复会话，operator 及以上角色可创建和保存步骤。
+
+```http
+POST /api/v1/brands/:brandId/quick-start-session
+GET /api/v1/brands/:brandId/quick-start-session
+PATCH /api/v1/brands/:brandId/quick-start-session/steps/:step
+```
+
+创建请求可省略正文，或指定初始步骤：
+
+```json
+{
+  "currentStep": "website"
+}
+```
+
+按步骤保存请求必须携带当前 `version`。服务端保存成功后递增版本；版本过期时返回 HTTP 409，客户端应重新读取会话后再编辑。
+
+```json
+{
+  "version": 1,
+  "data": {
+    "brandName": "示例品牌",
+    "websiteUrl": "https://example.com/",
+    "targetMarkets": ["上海"]
+  }
+}
+```
+
+会话返回当前步骤、完成状态、四步草稿、版本和时间字段。`facts.candidates` 中每项均包含稳定 `id`、`field`、`originalValue`、可选 `editedValue`、`confidence`、`status` 和 `source`；来源包含知识来源标识、URL、页面标题及摘录。关键事实全部确认或编辑后，服务端生成 `brand`、`category`、`location`、`buying_decision`、`competitor_comparison` 和 `pain_point` 六类默认问题。问题项携带 `category`、可编辑 `question`、`enabled` 和 `targetPlatforms`。
+
+保存问题步骤后，服务端根据已启用问题和品牌平台配置生成 `readiness`：`targetPlatforms`、`connectionSummary`、`estimatedSampleCount`、`estimatedDurationMinutes`、`executionMethod` 和 `nextStep` 均由服务端计算。准备步骤只接受 `{ "completed": true }`；服务端要求至少启用一个问题，创建现有 `TestPlan` 后写回 `testPlanId` 并完成会话。客户端可将该标识作为 `/monitoring?planId=...` 的上下文，直接恢复首轮计划。
+
+官网步骤只对用户提交的公开 HTTP(S) 首页执行浅层发现，最多跟随三次同源重定向，并限制响应时间、大小和内容类型。发现失败时会话继续保存，`crawlStatus` 和知识来源失败状态用于引导人工确认。
+
+`website.sourcePagePlan` 保存深度抓取前的来源范围。每个 `items` 元素包含稳定 `id`、`url`、`title`、`sourceRole`、`selectionReason`、`included`、`processingStatus` 和可选 `errorMessage`；`sourceRole` 支持 `home | product | about | faq | case | contact | policy | other`，处理状态支持 `planned | processing | completed | failed`。首次保存官网时由服务端根据同源首页链接生成计划；缺少可识别链接时补充确定性候选。再次保存官网步骤时可提交 `sourcePagePlan.items` 调整范围，服务端先移除 fragment、尾斜杠、`utm_*`、`fbclid` 和 `gclid`，排序保留的查询参数，再校验同源、去重、1 至 30 项及至少一个纳入页面，并写回 `confirmedAt`。范围确认期间只保留首页知识来源，不访问候选页面或生成候选页知识片段。
+
+### 站点审计 Adapter 契约
+
+`SiteAuditAdapter.audit(websiteUrl)` 返回 `SiteAuditResult`。该 Adapter 保持后端内部边界，由品牌级站点审计 HTTP API 调用。
+
+```ts
+type SiteAuditCheckStatus = 'pass' | 'warning' | 'fail' | 'unavailable';
+type SiteAuditCheckKey =
+  | 'robots_txt'
+  | 'sitemap_xml'
+  | 'llms_txt'
+  | 'noindex'
+  | 'ai_bot_access'
+  | 'structured_data'
+  | 'extractable_content';
+
+type SiteAuditEvidence = {
+  targetUrl: string;
+  checkedAt: string;
+  httpStatus?: number;
+  contentType?: string;
+  excerpt?: string;
+  errorCode?: string;
+};
+
+type SiteAuditCheck = {
+  key: SiteAuditCheckKey;
+  status: SiteAuditCheckStatus;
+  summary: string;
+  evidence: SiteAuditEvidence;
+};
+
+type SiteAuditResult = {
+  websiteUrl: string;
+  auditedAt: string;
+  checks: SiteAuditCheck[];
+};
+```
+
+固定检查顺序为 robots.txt、sitemap.xml、llms.txt、noindex、AI Bot 访问、结构化数据和可抽取内容。robots.txt 需要包含有效 `User-agent` 指令，sitemap.xml 需要包含完整 `urlset` 或 `sitemapindex` 根结构，llms.txt 需要包含 Markdown 一级标题，JSON-LD 需要可解析；异常文档返回 `warning`。目标资源访问失败时对应检查返回 `unavailable` 并携带稳定 `SITE_AUDIT_*` 错误码，其他并行检查继续返回已完成结果；安全边界拒绝非 HTTP(S)、URL 凭据、非公开地址、跨源重定向、超过三次重定向、超过 1 MiB 响应和超过 10 秒的整体执行。
+
+`SiteAuditService.audit(websiteUrl)` 在原始结果上增加 `findings` 和 `recommendedTasks`。每个 finding 包含原检查、`low | medium | high | critical` 影响级别、影响说明、修复说明、人工任务模板，以及以下验收规则：
+
+```ts
+type SiteAuditCheckerType = 'structure' | 'text' | 'link' | 'response_header';
+
+type SiteAuditCheckerRule = {
+  id: string;
+  checkKey: SiteAuditCheckKey;
+  checkerType: SiteAuditCheckerType;
+  targetUrl: string;
+  expectedStatus: 'pass';
+  description: string;
+};
+```
+
+`AcceptanceRuleService.execute(websiteUrl, rule, history?)` 每次执行都会重新调用站点审计 Adapter。返回状态为 `passed | failed | unavailable`，同时返回本次 `checkedAt`、真实 `evidence` 和追加本次记录后的 `history`。缺少目标检查时保存 `SITE_AUDIT_CHECK_MISSING`；实时检查证据 URL 与规则目标不一致时保存 `SITE_AUDIT_TARGET_MISMATCH` 并返回 `unavailable`。请求携带已创建修复任务的 `taskId` 时，控制器把该真实结果交给 `AcceptanceHistoryService` 持久化，并在响应的 `taskAcceptance` 中返回任务验收摘要。
+
+`DiagnosticScorePolicyService.scoreAndSave(brandId, audit)` 将站点检查转换为版本化诊断评分并持久化。共享契约如下：
+
+```ts
+type DiagnosticScoreDimension = 'schema' | 'meta' | 'content' | 'citation';
+
+type DiagnosticDimensionScore = {
+  dimension: DiagnosticScoreDimension;
+  rawChecks: SiteAuditCheck[];
+  score: number | null;
+  configuredWeight: number;
+  normalizedWeight: number;
+  weightedScore: number;
+};
+
+type DiagnosticScoreSnapshot = {
+  id: string;
+  brandId: BrandId;
+  websiteUrl: string;
+  rawChecks: SiteAuditCheck[];
+  dimensionScores: DiagnosticDimensionScore[];
+  normalizedWeights: Record<DiagnosticScoreDimension, number>;
+  policy: DiagnosticScorePolicy;
+  ruleVersion: string;
+  totalScore: number;
+  createdAt: string;
+};
+```
+
+默认 `site-diagnostic-v1` 将 `structured_data` 计入 schema，将 robots.txt、sitemap.xml、noindex 与 AI Bot 访问计入 meta，将 llms.txt 与可抽取内容计入 content；citation 当前保存为空的未测维度。`unavailable` 检查排除在维度平均值之外，完全未测维度的归一权重为 0，其余配置权重重新归一。快照同时保存完整 `DiagnosticScorePolicy`，`reproduce(brandId, snapshotId)` 使用该冻结策略和原始检查复现历史分数。
+
+`TechnicalAssetService.generate(userId, brandId, input)` 是后端内部技术资产生成契约。`input.targetPage` 必须为已确认官网的同源 HTTP(S) 页面；`assetTypes` 可选择以下类型，省略时生成全部六类：
+
+```ts
+type TechnicalAssetType =
+  | 'llms_txt'
+  | 'organization_jsonld'
+  | 'faqpage_jsonld'
+  | 'article_jsonld'
+  | 'faq_content_block'
+  | 'deployment_instructions';
+```
+
+服务只读取 QuickStart 中状态为 `confirmed` 或 `edited` 的非空事实，编辑事实使用 `editedValue`，`pending`、`rejected` 和被编辑替换的旧值均排除在六类正文和来源快照之外。品牌名称、官网和介绍为生成门禁；每个结果返回 `ContentAsset` 和 `TechnicalAssetVersion`，内容资产保存目标页面、完整来源事实快照、`pending` 审核状态和 `draft` 发布状态，版本记录保存确定性生成正文及版本号。llms.txt 的目标固定为官网根路径 `/llms.txt`，其余资产使用提交的同源目标页面。
+
+站点审计工作台使用以下品牌嵌套路由：
+
+```http
+POST /api/v1/brands/:brandId/site-audit
+GET /api/v1/brands/:brandId/site-audit/diagnoses/:diagnosisId
+POST /api/v1/brands/:brandId/site-audit/technical-assets
+POST /api/v1/brands/:brandId/site-audit/checks/:checkKey/recheck
+```
+
+首次审计提交 `{ "websiteUrl": "https://example.com" }` 并返回带 `diagnosticScore` 的 `SiteAuditScoredAssessment`，评分快照在响应前完成品牌隔离持久化。诊断读取端点按品牌和快照 ID 使用冻结策略复现历史结果。技术资产端点接受 `GenerateTechnicalAssetsInput`。单项复查提交 `websiteUrl`、与路径 `checkKey` 一致的 `rule`、可选客户端展示历史 `history` 和可选关联修复任务 `taskId`，返回追加真实证据后的 `SiteAuditAcceptanceResult`；路径与规则不一致时返回 400，关联任务不存在时返回 404。三个写入端点分别要求 monitoring、content 和 retest 的 operator 权限。
 
 ```http
 GET /api/v1/brands/details
@@ -443,24 +661,28 @@ POST /api/v1/brands/:brandId/content-assets
 页面聚合共享 DTO：
 
 - `BeginnerHomeDashboard`：品牌资料完整度、监测对象数量、真实回复状态、内容任务状态、发布统计、分析风险、结果摘要、当前 Sprint 摘要和下一步动作。`resultSummary` 包含 `recommendationRate`、`averageRank`、`citationHitRate`、`pendingIssueCount`、`sampleSize` 和 `rankedSampleSize`
+- `BrandActionDashboard`：复用 `BeginnerHomeDashboard` 并返回当前阶段、唯一主行动、最多三项待办、最近有效样本、本周期效果、失败数据源和聚合时间。每项行动包含分类、业务原因、目标路径、工作流上下文、预期业务价值、可选截止时间及阻断恢复信息
 - `MonitoringObjectDashboard`：按优化单元关联用户意图、监测问题、平台推荐度、平均排名、引用率、内容任务和复测状态
 - `ContentOperationDashboard`：内容任务、内容模板、品牌素材、内容资产、发布准备、渠道发布统计和再次监测状态
 - `PublishingOperationDashboard`：自有媒体账号、平台规则、发布记录、AI 引用、发布后表现、渠道统计和待复测事项
 - `AnalysisDiagnosisDashboard`：竞品、评价、信源、事实四类 finding 分组，以及按动作类型、标签和目标 ID 去重的可执行建议
 
-`apps/api/src/modules/dashboards/dashboard.mapper.ts` 提供五个对应的 `buildXxxDashboard` 纯映射函数。映射输入只接收底层模块已读取的数据，输出集合统一按目标 `brandId` 过滤；`realResponseRuns` 参数要求调用方只传入真实 AI 回复、浏览器辅助结果或手动录入的真实回复。首页推荐度按具有有效品牌排名的真实回复占比计算，平均排名只使用非空有效排名，引用率按回复引用或正向引用分命中计算，待处理问题统计 `reviewRequired` 分析结果。memory 和 Prisma repository 已接入底层聚合契约，BFF HTTP 接口复用同一组 mapper。
+`apps/api/src/modules/dashboards/dashboard.mapper.ts` 提供六个对应的 `buildXxxDashboard` 纯映射函数。映射输入只接收底层模块已读取的数据，输出集合统一按目标 `brandId` 过滤；`realResponseRuns` 参数要求调用方只传入真实 AI 回复、浏览器辅助结果或手动录入的真实回复。行动主页候选按数据阻断、人工确认、执行状态、到期时间、预期业务价值和稳定 ID 排序；资料缺失、待确认、待监测、内容生成、发布、再次监测与结果复盘共享同一行动结构。首页推荐度按具有有效品牌排名的真实回复占比计算，平均排名只使用非空有效排名，引用率按回复引用或正向引用分命中计算，待处理问题统计 `reviewRequired` 分析结果。memory 和 Prisma repository 已接入底层聚合契约，BFF HTTP 接口复用同一组 mapper。
 
 页面 BFF HTTP API 已接入：
 
 ```http
 GET /api/v1/brands/:brandId/dashboards/home
+GET /api/v1/brands/:brandId/dashboards/actions
 GET /api/v1/brands/:brandId/dashboards/monitoring-objects
 GET /api/v1/brands/:brandId/dashboards/content-operation
 GET /api/v1/brands/:brandId/dashboards/publishing-operation
 GET /api/v1/brands/:brandId/dashboards/analysis-diagnosis
 ```
 
-五个接口均返回统一 `ApiResponse<T>`，并要求请求携带与路径品牌一致的 `x-brand-id`。中间件执行品牌访问校验，`DashboardsService` 再次检查用户可访问品牌。底层子数据缺失时返回空数组或省略对应可选看板，保证页面可以展示业务空态；聚合异常返回 `DASHBOARD_TEMPORARILY_UNAVAILABLE` 和“页面数据暂时无法加载，请稍后重试”。首页真实回复统计和监测对象平台数据会排除 `mock_ai`，标准答案与内容草稿继续保持独立对象，不进入真实 AI 回复统计。
+六个接口均返回统一 `ApiResponse<T>`，并要求请求携带与路径品牌一致的 `x-brand-id`。中间件执行品牌访问校验，`DashboardsService` 再次检查用户可访问品牌。`actions` 接口并行聚合品牌资料、优化单元、监测运行、内容工作台、发布看板、任务看板、待确认事项、当前 Sprint、报告看板、发布统计、引用看板和分析 finding；部分来源失败时返回成功数据及按名称排序的 `sourceFailures`，六个核心来源全部失败时返回 HTTP 503、`DASHBOARD_TEMPORARILY_UNAVAILABLE` 和“页面数据暂时无法加载，请稍后重试”。其余接口在底层子数据缺失时返回空数组或省略对应可选看板。首页真实回复统计和监测对象平台数据会排除 `mock_ai`，标准答案与内容草稿继续保持独立对象，不进入真实 AI 回复统计。
+
+行动主页前端使用 `primaryAction` 作为唯一首屏主操作，只显示 `todos` 的前三项；`latestValidSample` 提供最近有效问题与采样时间，`periodEffect` 优先读取最新单品牌冻结报告的周期、有效样本及效果证据，缺少报告时根据当前 Sprint 返回积累中或暂无数据状态。行动 `context` 通过统一工作流路由传递品牌、优化单元、用户意图、问题、Prompt、监测运行、任务、内容任务、版本和发布记录；任务页收到 `taskId` 后将对应任务置顶并高亮。
 
 增长优化前端同时读取 `growth-optimization` 工作台与 `analysis-diagnosis` BFF。`AnalysisDiagnosisDashboard.findingGroups` 按竞品、评价、信源和事实四类返回 finding；每条 finding 使用 `severity`、`evidence`、`userIntent`、`platformCode`、`recommendedActions` 和可选 `relatedTaskId` 生成统一结论卡。`AnalysisRecommendedAction.actionType` 映射到任务、内容生成、品牌资料或再次监测现有路由，路由 query 继续携带优化单元、平台、来源运行和关联任务上下文。
 
@@ -1019,6 +1241,14 @@ type PlatformRewriteVersion = {
 
 `POST /api/v1/brands/:brandId/test-themes/generate` 和 `POST /api/v1/brands/:brandId/test-question-candidates/generate` 返回 `TestAssetGenerationResult<T>`：
 
+两个接口均接受可选种子词，请求边界会去除空值与重复值，并最多保留 20 个：
+
+```json
+{
+  "seedWords": ["儿童体能", "贵阳本地推荐"]
+}
+```
+
 ```json
 {
   "items": [],
@@ -1028,7 +1258,21 @@ type PlatformRewriteVersion = {
 }
 ```
 
-`items` 是已写入的 `TestTheme[]` 或 `TestQuestionCandidate[]`。`source` 为 `llm` 表示使用大模型生成，为 `fallback` 表示使用基础模板生成。`missingProfileFields` 会返回品牌资料缺失项，`generationNotes` 会返回生成说明，前端会在监测问题卡片中保留这些提示，方便内测用户补资料或理解基础模板 fallback。
+`items` 是已写入的 `TestTheme[]` 或 `TestQuestionCandidate[]`。主题和候选从 `brand | category | scenario | audience | pain_point | location | buying_decision | competitor_comparison` 八个维度拓展；历史 `age_group | offering | competitor` 继续兼容。问题候选新增以下可选字段：
+
+```ts
+type TestQuestionCandidateDiscoveryMetadata = {
+  discoveryDimension?: QuestionDiscoveryDimension;
+  businessValue?: 'high' | 'medium' | 'low';
+  recommendationProbability?: number;
+  userStage?: 'awareness' | 'consideration' | 'decision';
+  generationRationale?: string;
+  generationMethod?: 'deterministic' | 'ai' | 'merged';
+  mergedFrom?: string[];
+};
+```
+
+服务先建立确定性候选，再增量合并 AI 候选；问题文本去除空白和中英文标点后相同的候选会合并目标平台、业务价值、推荐概率和来源。同一维度允许保留多个不同问题，首轮最多返回 8 个高价值候选。AI 调用失败、未配置或输出无效时，`source` 为 `fallback`，每条候选的 `generationMethod` 为 `deterministic`，且 `editable` 保持为 `true`。`source` 为 `llm` 表示批次包含有效 AI 补充；单条候选仍通过 `generationMethod` 区分规则、AI 或合并来源。`missingProfileFields` 返回品牌资料缺失项，`generationNotes` 返回生成说明。
 
 ### 回答解读解析
 
@@ -1371,10 +1615,42 @@ GET /api/v1/brands/:brandId/tasks
 POST /api/v1/brands/:brandId/tasks
 PATCH /api/v1/brands/:brandId/tasks/:taskId
 POST /api/v1/brands/:brandId/tasks/:taskId/retest
+POST /api/v1/brands/:brandId/tasks/:taskId/retest/:recordId/execute
 PATCH /api/v1/brands/:brandId/tasks/:taskId/retest/:recordId
+GET /api/v1/brands/:brandId/tasks/:taskId/acceptance
 ```
 
 任务看板返回 `TaskBoardDashboard`，包含当前品牌的 `tasks` 和按 `todo`、`doing`、`review`、`retest`、`done`、`reopened` 聚合的 `statusCounts`。
+
+复测证据达到可判定状态后，`TasksController` 将实际分、目标分、来源运行、复测运行、执行状态、证据缺口和改善结论交给 `AcceptanceHistoryService`。站点审计 checker 使用同一服务记录二值进度。验收共享契约如下：
+
+```ts
+type TaskAcceptanceStatus = 'passed' | 'failed' | 'unavailable';
+
+type TaskAcceptanceSnapshot = {
+  id: string;
+  brandId: BrandId;
+  taskId: string;
+  checkerId: string;
+  status: TaskAcceptanceStatus;
+  progressValue: number;
+  targetValue: number;
+  evidence: Record<string, unknown>;
+  checkedAt: string;
+  createdAt: string;
+};
+
+type TaskAcceptanceHistory = {
+  brandId: BrandId;
+  taskId: string;
+  firstProgress: TaskAcceptanceSnapshot;
+  currentProgress: TaskAcceptanceSnapshot;
+  targetValue: number;
+  evidenceHistory: TaskAcceptanceSnapshot[];
+};
+```
+
+`GET /tasks/:taskId/acceptance` 按当前用户和品牌校验任务访问权限，按 `checkedAt`、`createdAt` 升序返回只追加历史。首次记录固定为 `firstProgress`，最新记录固定为 `currentProgress`，`targetValue` 取最新验收目标。checker 通过时任务状态更新为 `done`；历史存在通过记录后再次失败时更新为 `reopened`，历史通过记录继续保留；不可判定结果只进入证据历史。
 
 前端 `/tasks` 将底层任务状态与最新 `RetestRecord`、可用的 `SprintRetestTrendItem` 聚合为四类行动状态：尚未进入复测的任务为“待处理”，已有复测计划或底层状态为 `retest` 的任务为“待复测”，`passed` 或 `improved` 为真以及趋势状态为 `improved` 的任务为“已改善”，已重开、复测未通过或趋势要求继续跟进的任务为“继续优化”。列表优先使用 Sprint 趋势项中的 `publishingRecord`、`beforeMetrics` 和 `afterMetrics`，缺少趋势项时使用任务自身最新复测记录。筛选使用 `q` 和四类行动 `status`，写回 URL 时保留发布记录及其他工作流上下文。执行同题再次监测通过 `workflowStagePath('/monitoring', ...)` 传递任务、优化单元、用户意图、Prompt、监测运行、优化计划、内容任务、版本、发布记录和平台上下文，并定位 `monitoring-runs-card`。
 
@@ -1410,24 +1686,34 @@ PATCH /api/v1/brands/:brandId/tasks/:taskId/retest/:recordId
 ```json
 {
   "sourceRunId": "run_demo",
-  "retestRunId": "run_retest_demo",
   "plannedAt": "2026-07-10T00:00:00.000Z",
   "targetScore": 85,
   "notes": "复测原始监测问题是否改善"
 }
 ```
 
-录入复测结果：
+计划创建后，`RetestRecord.status` 为 `planned`，`retestRunId` 保持为空。`RetestPlanInput.retestRunId` 只用于旧调用类型兼容，控制器与仓储均忽略该字段。
+
+启动再次监测：
+
+```http
+POST /api/v1/brands/brand_demo/tasks/task_demo/retest/retest_demo/execute
+```
+
+执行接口读取基线运行的 Prompt 和目标平台并创建新的 `MonitoringRun`，随后回写 `retestRunId`。新运行必须与 `sourceRunId` 不同且属于同一品牌；重复执行已有 `retestRunId` 的记录会被拒绝。
+
+刷新证据验收并补充目标值或备注：
 
 ```json
 {
-  "actualScore": 72,
   "targetScore": 85,
-  "notes": "复测仍低于目标"
+  "notes": "根据真实监测证据刷新验收结果"
 }
 ```
 
-从监测问题创建的任务会保存 `sourceRunId`。任务进入待复测时会创建 `RetestRecord` 并绑定 `retestRunId`；复测实际分低于目标分时，任务状态变为 `reopened`，并生成下一轮 `correction` 内容策略。增长优化任务的复测记录还会返回 `beforeMetrics`、`afterMetrics`、`metricDelta`、`improved` 和 `nextSuggestion`，用于展示优化前后推荐率、品牌排名和表达准确性变化。
+`RetestResultInput.actualScore` 已废弃，服务端不会读取人工实际分。证据验收使用共享真实样本边界：再次监测运行必须包含非 `mock_ai` 且原始文本非空的回答，基线和再次监测运行均必须完成分析。状态按证据推进为 `planned`、`collecting`、`analyzing`、`improved`、`unchanged` 或 `regressed`；历史 `sourceRunId === retestRunId` 的记录返回 `evidenceGap: historical_same_run`，缺基线、真实回答或分析时分别返回 `missing_source_run`、`missing_real_response` 或 `missing_analysis`。
+
+证据完整后，服务端从两次分析派生 `beforeMetrics`、`afterMetrics` 和 `metricDelta`，指标固定为提及率 `mentionRate`、品牌排名 `brandRank`、表达准确率 `accuracyScore` 和引用率 `citationRate`。`actualScore` 为四项标准化得分的等权平均，未进入排名时排名得分为 0。只有状态为 `improved` 且 `actualScore >= targetScore` 时任务通过并关闭；持平、退化或未达到目标时任务变为 `reopened`，并根据指标缺口生成 `nextSuggestion`。
 
 ### 用户场景与监测问题
 
@@ -1559,7 +1845,15 @@ x-brand-id: brand_demo
 ```json
 {
   "promptId": "prompt_001",
-  "platformCode": "mock_ai"
+  "platformCode": "deepseek",
+  "modelName": "deepseek-chat",
+  "collectionMethod": "api",
+  "searchEnabled": false,
+  "market": "CN",
+  "language": "zh-CN",
+  "evidenceLevel": "reproducible_api",
+  "manualConfirmed": null,
+  "baselineVersion": "baseline-1"
 }
 ```
 
@@ -1569,7 +1863,12 @@ x-brand-id: brand_demo
 {
   "rawText": "原始 AI 回答内容",
   "modelName": "manual",
-  "citations": ["https://example.com"]
+  "citations": ["https://example.com"],
+  "searchEnabled": null,
+  "market": "CN",
+  "language": "zh-CN",
+  "manualConfirmed": true,
+  "baselineVersion": "baseline-1"
 }
 ```
 
@@ -1604,7 +1903,165 @@ POST /api/v1/brands/:brandId/monitoring-runs/:runId/analysis/parse
 }
 ```
 
-监测运行创建和详情响应直接返回扁平 `MonitoringRunDetail` 对象，不包裹在 `{ "run": ... }` 内。响应包含 `brandId`、`optimizationUnitId`、`intentId`、`promptId`、`platformCode`、`status`、`promptText`、可选 `response` 和可选 `analysis`。`mock` 平台会自动生成原始回答并将运行标记为 `completed`；`manual` 和 `semi_auto` 平台会标记为 `review_required` 等待人工录入；`openai` 平台通过真实 Adapter 执行请求并归一化为 `RunPromptResult`；缺失 Adapter、缺失平台密钥或 provider 错误会记录失败原因和 `retryStatus`。前端监测运行表格展示异步任务状态、重试状态，并在重试耗尽时提示人工录入兜底入口。监测结果解释列会对已解析结果展示“有没有出现”“排第几”“说得准不准”“竞品表现”“需要补什么内容”和“下一步”；对失败、待人工、已有回答待解析和等待结果状态展示原因、影响和下一步操作。解析结果记录品牌提及、推荐顺序、情绪倾向、信息准确性、引用来源、竞品提及、平台评价、推荐理由、排名原因、优势表达完整度、表达偏差和人工复核状态。解析规则会读取品牌名称、别名、品牌档案、竞品列表、推荐表达、禁用表达和引用来源；追光小牛样例会检查是否排第一、`ACE 成长体系`、`贵阳 5 家校区` 和 `世界冠军邓书弟` 等关键信号。业务化解释通过 `platformEvaluation` 输出“有没有出现”和整体判断，通过 `rankingReason` 输出“排第几”“竞品表现”“被压制原因候选项”和“内容补强建议”，通过 `expressionCompleteness` 输出“说得准不准”和“需要补什么内容”。当回答命中禁用表达、高风险承诺、排名无法判断或情绪无法判断时，`reviewRequired` 为 `true`，响应解析状态为 `review_required`；`expressionDeviation` 会输出“需要你确认”和建议改法，例如将“保证长高”改为“在科学运动和规律训练基础上，帮助孩子改善体态、促进身体发育”。前端点击“需要确认”会打开复核弹窗，顶部按风险表达、无法判断排名、无法判断情绪展示确认项和建议动作；用户可编辑“有没有出现”“排第几”“说得准不准”“表达偏差”“竞品提及”等分析字段，并关闭 `reviewRequired` 后保存确认。
+监测运行创建和详情响应直接返回扁平 `MonitoringRunDetail` 对象，不包裹在 `{ "run": ... }` 内。响应包含 `brandId`、`optimizationUnitId`、`intentId`、`promptId`、`promptKind`、`status`、`promptText`、可选 `response` 和可选 `analysis`。`promptKind` 支持 `discovery | brand_probe`；运行及回答均包含 `MeasurementScope`，其中 `clientSurface` 支持 `api | web | app | unknown`，`collectionMethod` 支持 `api | browser | manual | mock | unknown`，`evidenceLevel` 支持 `manual_or_browser | reproducible_api | demo | unknown`。`searchEnabled` 与 `manualConfirmed` 使用 `boolean | null`，其中 `null` 明确表示未知。运行层冻结问题类型与计划条件，回答层冻结实际访问端和采集条件；API worker 固定写入 API 访问端，浏览器采集默认写入 Web 访问端，无法识别时写入 `unknown`。手工 HTTP 入口始终归类为 `manual_or_browser`。服务端按品牌规范名、别名和官网域名确定性识别品牌探测题；候选问题或 Prompt 文本更新时重新分类，显式 `promptKind` 可保留用户复核结果。
+
+### 原始样本证据
+
+```http
+GET /api/v1/brands/:brandId/analysis-diagnosis/sample-evidence?runIds=run_1,run_2
+x-brand-id: brand_demo
+```
+
+`runIds` 可省略；省略时返回当前品牌最多 100 条范围内可回放的真实回答。服务端重新执行品牌访问校验，并只从当前品牌的 `MonitoringRunDetail` 解析样本。响应中的 `measurementStatus` 为 `unmeasured | insufficient | valid`，分别对应零条、一至两条、至少三条有效原始回答。`missingRunIds` 同时包含已失效引用和当前尚无非空真实回答的运行。
+
+```json
+{
+  "success": true,
+  "data": {
+    "brandId": "brand_demo",
+    "measurementStatus": "insufficient",
+    "requestedRunIds": ["run_1"],
+    "missingRunIds": [],
+    "items": [
+      {
+        "runId": "run_1",
+        "promptId": "prompt_1",
+        "promptKind": "discovery",
+        "question": "哪个儿童运动品牌值得推荐？",
+        "platformCode": "doubao",
+        "modelName": "model-name",
+        "collectedAt": "2026-08-03T01:00:00.000Z",
+        "rawAnswer": "原始 AI 回答",
+        "citations": ["https://example.com/source"],
+        "analysis": {},
+        "measurementScope": {
+          "platformCode": "doubao",
+          "modelName": "model-name",
+          "collectionMethod": "browser",
+          "clientSurface": "web",
+          "searchEnabled": true,
+          "market": "CN",
+          "language": "zh-CN",
+          "evidenceLevel": "manual_or_browser",
+          "manualConfirmed": true,
+          "baselineVersion": "baseline-1"
+        }
+      }
+    ]
+  }
+}
+```
+
+样本证据返回运行冻结的 `promptKind`，并优先返回 `AIResponse` 冻结的实际访问端、采集条件和 `respondedAt`。`SampleEvidencePanel` 展示问题类型、API/Web/App 访问端和完整测量条件，并在指标摘要、回答日期趋势点、平台分布、分析 finding 和再次监测任务中按需调用该接口。
+
+### 可比基线与观察归因
+
+```http
+GET /api/v1/brands/:brandId/analysis-diagnosis/measurement-discipline
+POST /api/v1/brands/:brandId/analysis-diagnosis/measurement-attribution
+```
+
+测量纪律接口只聚合具有非空真实回答和分析结果的运行，使用回答级平台、模型、访问端、采集方式、联网状态、市场和语言判断可比性。响应新增 `promptBreakdown`：`discovery` 只返回 `mention_rate`、`first_rate` 和 `top3_rate`；`brandProbe` 独立返回 `recognition_rate`、`fact_accuracy` 和 `owned_domain_citation_rate`；`series` 按问题类型与完整测量条件输出互相隔离的指标序列及运行证据。官网引用仅在引用 URL 主机等于官网主机或属于其子域时计入。
+
+同一响应包含 `compositeMetric`、`platformComparisons` 和 `metricTrends`。`compositeMetric` 返回各子指标配置权重、仅针对已测项的归一权重和复合值；`platformComparisons` 在同市场至少存在两个有效且结果有差异的平台时返回强弱平台，其余场景标记 `insufficient_sample` 并给出原因；`metricTrends` 按完整 `MeasurementScope` 与基线隔离快照，单次变化为 `single_period_observation`，连续两次同向变化为 `upward_trend` 或 `downward_trend`，未测快照会重置连续计数。所有结果携带 `runIds` 供原始样本回放。
+
+任务复测在实际指标尚未生成时向验收历史写入 `pending_measurement`，前端可将其展示为“待补测”；该状态只追加证据，不关闭或重开任务。
+
+归因写入请求保存 `baselineWindowStart`、`baselineWindowEnd`、`observationWindowStart`、`observationWindowEnd`、`controlQuestions`、`externalEvents` 和可选 `conclusion`。外部事件类别支持 `campaign | model_update | platform_rule | other`。服务端校验窗口日期及先后顺序、去重对照问题，并将 `conclusionType` 固定保存为 `observational_correlation`；每次写入追加一条记录，测量纪律接口返回当前品牌最新记录。
+
+### 竞品主题与真实信源机会地图
+
+```http
+GET /api/v1/brands/:brandId/analysis-diagnosis/opportunity-map
+x-brand-id: brand_demo
+```
+
+接口只消费 `hasRealMonitoringResponseSample` 判定为有效的当前品牌真实回复，排除 `mock_ai` 和空回答。响应状态使用 `unmeasured | insufficient | valid`；零条为未测，一至两条为样本不足，至少三条为有效样本。
+
+```json
+{
+  "success": true,
+  "data": {
+    "brandId": "brand_demo",
+    "measurementStatus": "valid",
+    "sampleCount": 3,
+    "questionDimensions": [
+      { "dimension": "brand", "questionCount": 1 }
+    ],
+    "diagnosticTypes": [
+      { "type": "brand_absent", "opportunityCount": 1 }
+    ],
+    "competitorThemes": [
+      {
+        "competitorName": "竞品A",
+        "theme": "课程与师资信源更完整",
+        "evidenceCount": 2,
+        "platformDistribution": [{ "platformCode": "doubao", "sampleCount": 2 }],
+        "questionExamples": ["儿童运动机构怎么选？"],
+        "runIds": ["run_1", "run_2"]
+      }
+    ],
+    "citedDomains": [
+      {
+        "domain": "example.com",
+        "sourceType": "official_site",
+        "citationCount": 2,
+        "runCount": 2,
+        "platformDistribution": [{ "platformCode": "doubao", "sampleCount": 2 }],
+        "positions": [{ "runId": "run_1", "question": "儿童运动机构怎么选？", "platformCode": "doubao", "citationIndex": 1, "label": "回答引用列表第 1 位", "url": "https://example.com/faq" }],
+        "contentAssetCovered": true
+      }
+    ],
+    "channelRecommendations": [],
+    "contentOpportunities": [],
+    "generationMethod": "deterministic"
+  }
+}
+```
+
+`OpportunityDiagnosticType` 固定为 `brand_absent | competitor_dominant | content_gap | fact_inconsistent`，响应中的 `contentOpportunities` 按该顺序排列，同类机会再按 `high | medium | low` 排列。重复问题会合并证据和 `runIds`。`competitorThemes` 和 `competitor_dominant` 只聚合正式竞品、样本确认候选或用户确认候选；待确认和排除候选的原始提及继续保留在样本分析中供复核。引用域名按引用次数排序，`positions` 使用原始 `AIResponse.citations` 数组顺序生成“回答引用列表第 N 位”摘要；当前数据模型不提供正文字符级引用位置。
+
+渠道依据 `OpportunityChannelBasis` 支持 `brand_sample | industry_sample | industry_reference`。已被当前内容资产覆盖的真实引用域名标记为当前品牌样本依据，其余实际引用域名标记为行业真实样本依据；实际域名不足三个时，响应补充最多三个 `industry_reference`，其 `evidenceCount` 固定为 0，并在 `rationale` 中提示后续真实样本验证。前端 `OpportunityMapPanel` 在优化建议页展示样本状态、竞品主题、平台分布、真实引用位置、渠道依据和四类内容机会。
+
+### 渠道建设蓝图与 30/60/90 路线图
+
+```http
+GET /api/v1/brands/:brandId/analysis-diagnosis/channel-roadmap
+x-brand-id: brand_demo
+```
+
+响应使用 `ChannelRoadmap` 契约，包含品牌、样本状态、样本数、生成时间和确定性路线图项。每个 `ChannelRoadmapItem` 展示 `channelCode`、渠道名称、可选目标域名、内容形态、建议数量、发布节奏、负责角色、优先级、推荐依据、执行窗口和覆盖状态。
+
+```json
+{
+  "success": true,
+  "data": {
+    "brandId": "brand_demo",
+    "measurementStatus": "valid",
+    "sampleCount": 3,
+    "items": [
+      {
+        "id": "roadmap-domain-example.com",
+        "channelCode": "example.com",
+        "channelName": "品牌官网",
+        "domain": "example.com",
+        "contentFormats": ["官网 FAQ", "产品页"],
+        "recommendedQuantity": 4,
+        "cadence": "每月更新 2-4 次",
+        "ownerRole": "品牌内容负责人",
+        "priority": "high",
+        "evidence": ["真实回答引用该域名", "2 次真实样本引用"],
+        "window": "0_30_days",
+        "coverageStatus": "sample_covered"
+      }
+    ],
+    "generatedAt": "2026-08-04T00:00:00.000Z",
+    "generationMethod": "deterministic"
+  }
+}
+```
+
+`ChannelRoadmapWindow` 固定为 `0_30_days | 30_60_days | 60_90_days`，分别承接高、中、低优先级动作。`ChannelRoadmapCoverageStatus` 固定为 `sample_covered | planned`；只有有效真实样本实际引用目标域名时才返回 `sample_covered`。域名匹配先规范化 URL 或 hostname、大小写、`www.` 和尾点，再按精确域名或父子域名边界匹配，类似 `brand.example.com.evil.test` 的后缀拼接不会视为覆盖。服务优先使用持久化媒体平台规则的内容形态和推荐频率，其余渠道使用来源类型默认规则，并用现有渠道内容资产抵扣建议新增数量。前端 `ChannelRoadmapBoard` 在优化建议页按三个窗口展示完整动作字段。
 
 ### 竞品分析
 
@@ -1616,6 +2073,7 @@ GET /api/v1/brands/:brandId/competitors/analysis
 POST /api/v1/brands/:brandId/competitors/discovery-runs
 GET /api/v1/brands/:brandId/competitors/discovery-runs/:runId/candidates?filter=all
 PATCH /api/v1/brands/:brandId/competitors/candidates/:candidateId/decision
+POST /api/v1/brands/:brandId/competitors/opportunities/:promptId/content-task
 x-brand-id: brand_demo
 ```
 
@@ -1634,14 +2092,56 @@ x-brand-id: brand_demo
 }
 ```
 
-竞品分析响应返回 `CompetitorDashboard`，包含竞品档案列表、竞品提及率、竞品压制率、平均排名差、高风险意图和对比明细。对比明细按同 Prompt、同平台、同用户意图和同优化单元聚合，记录品牌排名、竞品排名、排名差、压制状态、推荐理由、引用来源及 `capturedAt` 真实监测采集时间。前端使用 `capturedAt` 按日期生成竞品趋势，并按 `runId` 去重计算当前范围的品牌平均推荐排名、压制风险和 AI 平台矩阵；竞品提及率继续使用后端基于全部真实监测样本计算的整体口径。连续压制达到竞品规则阈值时，后端会生成高优先级 `competitor_response` 内容策略。
+竞品分析响应返回 `CompetitorDashboard`，包含竞品档案列表、候选列表、竞品提及率、竞品压制率、平均排名差、高风险意图、对比明细、问题机会和各竞品按市场分组的 Top 3 平台。对比明细按同 Prompt、同平台、同用户意图和同优化单元聚合，记录品牌排名、竞品排名、排名差、压制状态、推荐理由、引用来源及 `capturedAt` 真实监测采集时间。前端使用 `capturedAt` 按日期生成竞品趋势，并按 `runId` 去重计算当前范围的品牌平均推荐排名、压制风险和 AI 平台矩阵；竞品提及率继续使用后端基于全部真实监测样本计算的整体口径。连续压制达到竞品规则阈值时，后端会生成高优先级 `competitor_response` 内容策略。
 
 竞品发现支持创建发现任务、查询候选和保存人工决策。创建发现任务可传 `city`、`campusRadiusKm`、`keywords`、`sourceProvider` 和 `forceRefresh`；`sourceProvider` 第一版默认 `amap`，服务端只返回配置状态，不返回地图 API Key。发现任务响应包含 `providerStatus`、`providerMessage` 和 `cacheHit`，用于提示高德地图配置状态、配额或故障兜底，以及是否复用缓存候选。未配置真实地图服务时，系统使用内测候选源生成贵阳本地儿童运动线下候选，候选包含来源平台、POI ID、名称、地址、城市、类目、最近校区距离、命中关键词、匹配分、建议标签、匹配理由、置信度和确认状态。候选保存决策时传入 `label`，可选值为 `direct_competitor`、`indirect_competitor`、`local_alternative`、`national_benchmark` 和 `excluded`；确认后的候选会写入竞品档案，排除候选只保留排除原因并写入审计记录。
+
+候选证据生命周期使用 `candidate | sample_confirmed | user_confirmed | excluded`。Dashboard 读取时会用真实、非演示回答中的候选名称、正式竞品名称和别名命中幂等补齐 `evidenceSampleIds`，首次命中将候选提升为 `sample_confirmed`；人工确认将其提升为 `user_confirmed`，排除后停止进入证据匹配。统一确认集合按 NFKC、去首尾空白和大小写无关规则匹配正式名称与别名。分析机会、竞品 dashboard、内容策略建议、内容任务和报告竞品摘要只消费样本确认、用户确认或已建档竞品。
+
+`questionOpportunities` 按 Prompt 聚合真实样本。品牌提及率为 0 且存在已确认竞品时返回 `competitor_loss`；品牌被提及且已确认竞品均未出现时返回 `brand_exclusive`。每项返回问题、样本量、品牌提及率、已确认竞品名称和证据运行 ID。`topPlatformsByCompetitor` 按竞品与市场计算各平台的 `mentionSampleCount / comparableSampleCount` 和提及率，只保留提及率最高的三个平台。内容任务接口接受可选 `targetPlatform`，创建 `competitor_response` 策略和 `competitor_comparison` 任务，并在引用资料中冻结机会类型、Prompt 和监测运行证据。
+
+### 搜索需求快照
+
+```http
+GET /api/v1/brands/:brandId/demand-snapshots
+POST /api/v1/brands/:brandId/demand-snapshots
+POST /api/v1/brands/:brandId/demand-snapshots/:snapshotId/candidates/:candidateId/confirm
+x-brand-id: brand_demo
+```
+
+百度或 Google 搜索补全采集请求：
+
+```json
+{
+  "seedTerm": "儿童体能",
+  "source": "baidu",
+  "market": "中国"
+}
+```
+
+人工候选录入请求：
+
+```json
+{
+  "seedTerm": "儿童体能",
+  "source": "manual",
+  "market": "贵阳",
+  "candidateQuestions": ["儿童体能训练有哪些项目", "贵阳儿童体能课怎么选"]
+}
+```
+
+列表和采集接口返回 `SearchDemandSnapshot[]` 或单个 `SearchDemandSnapshot`。快照保存词根、来源、市场、采集时间、上一可比快照和候选问句；候选保存规范化问句、`candidate | confirmed` 状态及 `risingObservation`。服务仅比较同品牌、同规范化词根、同来源和大小写无关同市场的上一快照，首次采集不标记上升，后续新增问句标记为需求上升观察。历史快照保持只追加。
+
+确认接口返回 `SearchDemandCandidateConfirmationResult`，包含更新后的快照、已确认候选和 `TestQuestionPoolItem`。确认操作按规范化问句幂等复用监测主题、问题候选和稳定监测问题库记录，并写入 `search_autocomplete` 或 `manual_import` 来源记录。viewer 可读取快照，operator 及以上角色可采集和确认；服务层同时执行品牌访问校验。
+
+百度 Adapter 固定访问 `https://suggestion.baidu.com/su`，Google Adapter 固定访问 `https://suggestqueries.google.com/complete/search`。外部响应限制为 5 秒和 256 KiB，来源超时、HTTP 错误或响应超限统一返回 `SEARCH_DEMAND_SOURCE_FAILED`；失败采集不会创建快照或改变历史记录，前端保留人工录入路径。
 
 ### 引用分析
 
 ```http
 GET /api/v1/brands/:brandId/citations
+POST /api/v1/brands/:brandId/citations/:citationId/absorption
+POST /api/v1/brands/:brandId/citations/:citationId/absorption/:evidenceId/review
 POST /api/v1/brands/:brandId/citations/:citationId/content-asset
 POST /api/v1/brands/:brandId/citations/:citationId/enhancement-strategy
 x-brand-id: brand_demo
@@ -1660,7 +2160,7 @@ x-brand-id: brand_demo
 }
 ```
 
-引用分析响应返回 `CitationDashboard`。`sampleCount` 表示符合真实回复边界的样本数，`citedSampleCount` 表示其中原始回答包含引用的样本数，`citationRate` 为两者计算得到的真实回复引用率；`totalCitations` 表示识别出的引用次数。`contentCitationRate` 保留内容资产绑定率语义，即已绑定内容资产的引用次数占总引用次数比例。响应同时包含官网引用率、权威来源占比、来源类型分布、每日真实样本数与引用率趋势、引用来源明细和已绑定内容资产列表。引用来源只保留真实回复关联记录，按 `official_site`、`media`、`social`、`encyclopedia`、`third_party` 分类，并记录 `high`、`medium`、`low`、`unknown` 权威等级；前端对空来源标题和空地址分别显示“未识别来源”和“来源地址待补充”。创建引用增强策略会生成 `authority_citation` 类型内容策略，用于后续内容运营闭环。
+引用分析响应返回 `CitationDashboard`。`sampleCount` 表示符合真实回复边界的样本数，`citedSampleCount` 表示其中原始回答包含引用的样本数，`citationRate` 为两者计算得到的真实回复引用率；`totalCitations` 表示识别出的引用次数。`contentCitationRate` 保留内容资产绑定率语义，即已绑定内容资产的引用次数占总引用次数比例。响应同时包含 `citationBreadthRate`、`answerAbsorptionDepth`、`pendingReviewCount`、官网引用率、权威来源占比、来源类型分布、每日真实样本数与引用率趋势、引用来源明细和已绑定内容资产列表。`POST /absorption` 在受控的公开 HTTP(S) 请求边界内分析回答句和来源片段，返回并保存 `supports`、`partial`、`conflicts` 或 `unavailable` 证据及置信度；低置信、冲突和不可访问证据进入 `pending_review`，复核端点将其标记为 `reviewed`。引用来源只保留真实回复关联记录，按 `official_site`、`media`、`social`、`encyclopedia`、`third_party` 分类，并记录 `high`、`medium`、`low`、`unknown` 权威等级；前端对空来源标题和空地址分别显示“未识别来源”和“来源地址待补充”。创建引用增强策略会生成 `authority_citation` 类型内容策略，用于后续内容运营闭环。
 
 ### 评价分析
 
@@ -1694,6 +2194,8 @@ x-brand-id: brand_demo
 ```http
 GET /api/v1/brands/:brandId/reports
 POST /api/v1/brands/:brandId/reports
+POST /api/v1/brands/:brandId/reports/preview
+GET /api/v1/brands/:brandId/reports/effect-evidence
 GET /api/v1/brands/:brandId/reports/:reportId
 x-brand-id: brand_demo
 ```
@@ -1709,11 +2211,17 @@ x-brand-id: brand_demo
 }
 ```
 
-`type` 支持 `weekly`、`monthly`、`multi_brand` 和 `customer_delivery`。响应返回 `ReportRecord`，包含报告名称、类型、统计周期、生成状态、创建人、Markdown 内容、数据缺口和聚合快照。Markdown 内容开头包含 YAML metadata，记录 `reportType`、品牌标识或品牌数量、统计周期和数据缺口数量。
+`type` 支持 `weekly`、`monthly`、`multi_brand` 和 `customer_delivery`。`periodStart` 与 `periodEnd` 使用 `YYYY-MM-DD` 日历日期，服务端按 UTC 半开区间 `[periodStart 00:00:00Z, periodEnd + 1 日 00:00:00Z)` 统计，开始日与结束日均计入自然日范围。非法日期或开始日晚于结束日返回 `400`。
+
+范围预览使用与生成报告相同的请求体，返回 `ReportScopePreview[]`。单品牌报告返回一个元素，多品牌报告按当前用户可访问品牌返回多个元素。每个元素包含 `monitoringRunCount`、`validSampleCount`、`contentAssetCount`、`publishingRecordCount`、`taskChangeCount`、`completedRetestCount`、`dataGaps`、分类记录 ID 和有效样本起止时间；有效样本必须具有真实 AI 回复和分析结果。
+
+生成响应返回 `ReportRecord`，包含报告名称、类型、统计周期、生成状态、创建人、Markdown 内容、数据缺口和聚合快照。单品牌快照包含 `scope`，多品牌快照包含 `scopes`；两类快照均包含 `effectEvidence` 和 `methodologyVersion`。效果证据记录优化任务、基线运行、再次监测运行、前后指标、指标差值、关联内容资产、发布渠道、真实发布链接、证据完整状态和证据缺口。当前口径版本为 `period-report-v1`，生成后快照保持冻结。Markdown 内容开头包含 YAML metadata，记录 `reportType`、品牌标识或品牌数量、统计周期和数据缺口数量。
+
+`GET /reports/effect-evidence` 返回当前品牌的 `EffectEvidenceDashboard`。服务优先使用最新报告的冻结周期，尚无报告时覆盖当前 UTC 自然月截至请求日；响应包含 `periodStart`、`periodEnd`、`periodSource`、聚合后的 `evidence` 和去重后的 `dataGaps`。该端点复用报告快照的统计口径，只读取当前用户有权访问品牌的监测、任务、内容和发布记录。
 
 单品牌报告聚合 GEO 指数、指标解释、平台表现、优化单元表现、竞品表现、引用来源、评价分析、内容缺口、问题归因、行动建议、任务进度和数据缺口。多品牌报告聚合品牌排名、品牌对比、强势平台、薄弱场景、风险提示、交付进度、下一步动作和高优先级问题。客户交付报告使用同一聚合快照生成客户交付版 Markdown 结构。
 
-报告中心前端使用品牌级列表接口填充统一管理列表，并在选择报告或存在最新报告时调用单份详情接口刷新阅读内容。列表支持报告名称、类型、生成状态和创建日期组合筛选；品牌列和详情统一显示“当前品牌”，公开可见文本不展示 `brandId` 或报告 ID。详情区域展示报告元信息、数据缺口和 Markdown 正文。导出动作在浏览器端使用当前 `ReportRecord.content` 生成 `.md` 文件，不新增服务端导出接口或持久化记录。
+报告中心前端使用品牌级列表接口填充统一管理列表，并在选择报告或存在最新报告时调用单份详情接口刷新阅读内容。生成表单默认最近七个 UTC 自然日，提交前调用范围预览接口展示数据类型计数、有效样本和缺口。列表支持报告名称、类型、生成状态和创建日期组合筛选；品牌列和详情统一显示“当前品牌”，公开可见文本不展示 `brandId`、报告 ID 或运行 ID。详情区域展示报告元信息、冻结范围、效果证据、数据缺口和 Markdown 正文。首页、优化分析和任务复测页调用效果证据聚合接口，并与报告详情复用 `EffectEvidencePanel` 保持同一指标、真实链接和缺口表达。导出动作在浏览器端使用当前 `ReportRecord.content` 生成 `.md` 文件，不新增服务端导出接口或持久化记录。
 
 ### 顾问服务
 
@@ -2041,3 +2549,40 @@ type ManagementPrimaryActions =
 `CreationWorkspace` 始终保留配置区，只切换结果区状态。`AssetLibrary` 始终保留分类导航和完整度摘要，只切换编辑区状态。`ManagementListPage` 在加载状态保留 Table 最终结构，在空态使用 `emptyState` 作为 Table 空内容，在错误状态隐藏表格并保留页面级上下文。
 
 `ManagementRowActions` 接受最多两个 `primaryActions`，低频操作通过 `moreAction` 提供。三个模板均提供区域 aria 标签、状态播报和移动端内容顺序配置。
+
+## 内容发布准备检查
+
+品牌级内容发布准备接口：
+
+```http
+POST /api/v1/brands/:brandId/content-assets/:assetId/readiness
+```
+
+请求体通过 `ContentReadinessInput` 提交待检查正文、可选 `contentType` 和目标渠道。响应使用带 `ruleVersion` 的 `ContentReadinessResult`，包含整体 `ready`、`needs_review` 或 `blocked` 状态、结构与渠道检查项、品牌事实和数字的来源映射、风险段落以及可定位的修正入口。`2026-08-content-quality-v1` 会对竞品对比检查同口径维度、自身局限和核验日期，对榜单推荐检查评选方法、数据来源和利益关系披露，并对出现 FAQ 结构的内容检查每个答案首句是否直接给出结论；失败项使用 `section=content-rules&rule=...` 定位修正位置。服务只将 Quick Start 中已确认或已编辑的品牌事实作为可信依据；缺少来源或仍待确认的高风险表达进入风险列表。Markdown 列表序号和 URL 内结构性数字不计入事实数字。
+
+## 发布确认与结果
+
+发布记录创建和确认接口：
+
+```http
+POST /api/v1/brands/:brandId/publishing/records
+PATCH /api/v1/brands/:brandId/publishing/records/:recordId/confirmation
+PATCH /api/v1/brands/:brandId/publishing/records/:recordId/status
+POST /api/v1/brands/:brandId/publishing/records/:recordId/execute
+```
+
+`PublishingConfirmationInput` 包含发布方式、可选人工内容版本标签、素材要求确认和再次监测时间；已有内容生成版本时使用 `versionId` 作为冻结版本。`pending` 记录、自动发布和带确认快照的新记录在创建时校验目标账号、授权状态、平台、发布方式、内容版本、素材要求和复测时间。未确认草稿可通过 confirmation 接口补齐账号和快照。人工回填 `published` 与 Adapter 执行均要求完整确认；结果保存 `publishedUrl`、`publishedAt`、`externalPlatformId`、发布状态和冻结版本。周期效果证据中的发布记录同时返回 `versionId` 与 `contentVersion`。
+
+## 品牌知识片段版本
+
+品牌资料片段查询和 Quick Start 已确认事实同步接口：
+
+```http
+GET /api/v1/brands/:brandId/knowledge-chunks?sourceId=:sourceId
+POST /api/v1/brands/:brandId/knowledge-chunks/sync
+POST /api/v1/brands/:brandId/knowledge/search
+```
+
+片段查询返回当前用户可访问品牌的全部来源版本，可通过 `sourceId` 限定单一来源。每个 `KnowledgeChunk` 包含品牌、来源、来源版本、片段序号、来源 URL、正文、SHA-256 内容哈希、`pending | approved | rejected` 审核状态和更新时间。同步接口只消费 Quick Start 中 `confirmed` 或 `edited` 的非空事实，按事实原始来源聚合并写入 `approved` 版本；相同内容和审核状态返回已有最新版本。Markdown、DOCX 或文本型 PDF 的品牌资料在导入确认后使用同一版本服务写入知识片段。
+
+知识查询请求使用 `KnowledgeQueryInput`，包含查询文本、可选结果上限、`manual_query | content_generation | fact_analysis` 用途、业务资源 ID 和可选 `embeddingCostPolicy`：`organization`、`platform_quota` 或 `full_text`。响应 `KnowledgeQueryResult` 返回确定性答案、引用片段、来源地址、来源版本、更新时间、审核状态、可信标记、实际 `retrievalMode`、最终费用归属策略、`fallbackReasons` 和调用留痕 ID。高级 vector/graph 结果不足或不可用时，服务使用全文和每个来源最新版本的结构化结果补齐；模式可为 `vector`、`graph`、`hybrid`、`full_text`、`structured` 或 `none`。只使用 `approved` 片段形成答案；仅命中 `pending` 片段时返回 `unconfirmed_evidence`，无匹配依据时返回 `no_matching_evidence`，两类资料缺口均携带资料上传和事实确认路径。查询、内容生成和内容发布准备检查使用同一服务，并在 `AuditLog` 中保存实际使用的片段 ID、来源引用、降级原因和费用归属策略。

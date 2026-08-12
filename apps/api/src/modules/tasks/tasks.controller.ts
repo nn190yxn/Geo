@@ -8,13 +8,22 @@ import type {
   OptimizationTaskUpdateInput,
   RetestPlanInput,
   RetestResultInput,
+  TaskAcceptanceHistory,
   TaskBoardDashboard
 } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
+import { RetestEvidenceService } from './retest-evidence.service';
+import { AcceptanceHistoryService } from './acceptance-history.service';
+import { ProductEventRecorderService } from '../product-events/product-event-recorder.service';
 
 @Controller('brands/:brandId/tasks')
 export class TasksController {
-  constructor(private readonly permissionsService: PermissionsService) {}
+  constructor(
+    private readonly permissionsService: PermissionsService,
+    private readonly retestEvidenceService: RetestEvidenceService,
+    private readonly acceptanceHistoryService: AcceptanceHistoryService,
+    private readonly productEventRecorder: ProductEventRecorderService
+  ) {}
 
   @Get()
   async getTaskBoard(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<TaskBoardDashboard>> {
@@ -52,8 +61,37 @@ export class TasksController {
     @Param('recordId') recordId: string,
     @Body() input: RetestResultInput
   ): Promise<ApiResponse<OptimizationTask>> {
-    const task = await this.permissionsService.completeOptimizationTaskRetest(request.context.userId, brandId, taskId, recordId, normalizeRetestResultInput(input));
+    let task = await this.permissionsService.completeOptimizationTaskRetest(request.context.userId, brandId, taskId, recordId, normalizeRetestResultInput(input));
     if (!task) throw new NotFoundException('再次监测记录不存在或当前用户无权访问');
+    const record = task.retestRecords.find((item) => item.id === recordId);
+    if (record) {
+      const acceptance = await this.acceptanceHistoryService.recordRetest(request.context.userId, brandId, task, record);
+      if (acceptance) task = acceptance.task;
+    }
+    await this.productEventRecorder.record({ actorUserId: request.context.userId, brandId, eventType: 'retest_completed', entityType: 'retest_record', entityId: recordId, idempotencyKey: `retest-completed:${recordId}`, metadata: { status: task.status } });
+    return { success: true, data: task };
+  }
+
+  @Get(':taskId/acceptance')
+  async getAcceptanceHistory(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Param('taskId') taskId: string
+  ): Promise<ApiResponse<TaskAcceptanceHistory>> {
+    const history = await this.acceptanceHistoryService.get(request.context.userId, brandId, taskId);
+    if (!history) throw new NotFoundException('验收历史不存在或当前用户无权访问');
+    return { success: true, data: history };
+  }
+
+  @Post(':taskId/retest/:recordId/execute')
+  async executeRetest(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Param('taskId') taskId: string,
+    @Param('recordId') recordId: string
+  ): Promise<ApiResponse<OptimizationTask>> {
+    const task = await this.retestEvidenceService.execute(request.context.userId, brandId, taskId, recordId);
+    if (!task) throw new NotFoundException('再次监测无法执行，请检查基线运行、监测问题和平台配置');
     return { success: true, data: task };
   }
 }
@@ -89,7 +127,6 @@ function normalizeTaskUpdateInput(input: OptimizationTaskUpdateInput): Optimizat
 function normalizeRetestPlanInput(input: RetestPlanInput): RetestPlanInput {
   return {
     sourceRunId: input.sourceRunId?.trim(),
-    retestRunId: input.retestRunId?.trim(),
     plannedAt: input.plannedAt?.trim(),
     targetScore: input.targetScore,
     notes: input.notes?.trim()
@@ -97,9 +134,7 @@ function normalizeRetestPlanInput(input: RetestPlanInput): RetestPlanInput {
 }
 
 function normalizeRetestResultInput(input: RetestResultInput): RetestResultInput {
-  if (input.actualScore === undefined) throw new BadRequestException('复测实际分不能为空');
   return {
-    actualScore: input.actualScore,
     targetScore: input.targetScore,
     notes: input.notes?.trim()
   };

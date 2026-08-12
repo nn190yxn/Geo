@@ -9,14 +9,14 @@ describe('TestThemeService', () => {
     const themes = service.generateThemes(createBrand(), createProfile());
 
     expect(themes.map((theme) => theme.type)).toEqual(
-      expect.arrayContaining(['brand', 'category', 'location', 'age_group', 'pain_point', 'offering', 'competitor', 'buying_decision'])
+      expect.arrayContaining(['brand', 'category', 'scenario', 'audience', 'pain_point', 'location', 'buying_decision', 'competitor_comparison'])
     );
     expect(themes.find((theme) => theme.type === 'location')).toMatchObject({
       name: '贵阳本地推荐',
       priority: 'high',
       sourceProfileFields: expect.arrayContaining(['targetCities'])
     });
-    expect(themes.find((theme) => theme.type === 'competitor')?.businessExplanation).toContain('竞品对比');
+    expect(themes.find((theme) => theme.type === 'competitor_comparison')?.businessExplanation).toContain('竞品对比');
   });
 
   it('skips themes that need missing profile data', () => {
@@ -37,7 +37,7 @@ describe('TestThemeService', () => {
 
     expect(themes.map((theme) => theme.type)).toContain('brand');
     expect(themes.map((theme) => theme.type)).not.toContain('location');
-    expect(themes.map((theme) => theme.type)).not.toContain('competitor');
+    expect(themes.map((theme) => theme.type)).not.toContain('competitor_comparison');
     expect(themes.map((theme) => theme.type)).not.toContain('buying_decision');
   });
 
@@ -120,13 +120,10 @@ describe('TestThemeService', () => {
       })
     );
     expect(result.source).toBe('llm');
-    expect(result.items).toEqual([
-      expect.objectContaining({
-        name: '贵阳儿童运动推荐',
-        enabled: true,
-        sourceProfileFields: []
-      })
-    ]);
+    expect(result.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: '追光小牛品牌认知' }),
+      expect.objectContaining({ name: '贵阳儿童运动推荐', enabled: true, sourceProfileFields: [] })
+    ]));
   });
 
   it('falls back to rule themes when LLM generation fails', async () => {

@@ -21,6 +21,7 @@ const TaskRetestPage = lazy(() => import('../features/tasks/pages/TaskRetestPage
 const InnerTestFeedbackPage = lazy(() => import('../features/feedback/pages/InnerTestFeedbackPage').then((module) => ({ default: module.InnerTestFeedbackPage })));
 const ReportCenterPage = lazy(() => import('../features/reports/pages/ReportCenterPage').then((module) => ({ default: module.ReportCenterPage })));
 const AdvisorWorkspacePage = lazy(() => import('../features/advisor/pages/AdvisorWorkspacePage').then((module) => ({ default: module.AdvisorWorkspacePage })));
+const SiteAuditWorkbench = lazy(() => import('../features/site-audit/pages/SiteAuditWorkbench').then((module) => ({ default: module.SiteAuditWorkbench })));
 
 export const firstVersionRoutes: AppRoute[] = [
   { path: '/brands', Component: BrandWorkspacePage },
@@ -42,6 +43,7 @@ export const firstVersionRoutes: AppRoute[] = [
   { path: '/publishing', Component: PublishingCenterPage },
   { path: '/owned-media', Component: PublishingCenterPage },
   { path: '/media-platforms', Component: PublishingCenterPage },
+  { path: '/site-audit', Component: SiteAuditWorkbench },
   { path: '/model-settings', Component: ModelSettingsPage },
   { path: '/tasks', Component: TaskRetestPage },
   { path: '/feedback', Component: InnerTestFeedbackPage },

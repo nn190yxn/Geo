@@ -25,3 +25,21 @@
 - Instructions:
   - GEO 管理平台后续开发统一在 `https://github.com/nn190yxn/Geo` 仓库进行。
   - Alex 仓库中的历史 `geo-platform/` 目录仅作为迁移来源和历史对照。
+
+## 持续任务执行约定
+
+- Date: 2026-08-03
+- Category: 工作流协作
+- Instructions:
+  - 已明确授权的项目任务按任务清单持续实施，依次完成代码、测试、文档同步和质量门禁，直到整个任务清单收口。
+  - 遇到需要新增权限、外部凭据或会改变产品范围的实质阻塞时再请求用户决策。
+
+## 依赖验证排障
+
+- Date: 2026-08-09
+- Category: 排障与调试
+- Context: 执行 GEO 管理平台仓库级 `npm run verify` 时发现
+- Instructions:
+  - `npm run verify` 首步会执行 `npm audit`，依赖审计失败时会阻断后续 Prisma、类型检查、测试和构建步骤。
+  - 当前审计报告包含 2 个 high severity 依赖告警；处理前需要单独评估依赖升级影响，不自动执行 `npm audit fix`。
+  - 2026-08-09 的再次执行还出现 npm registry TLS 连接中断；网络恢复后重试 `npm run verify` 以完成完整门禁。

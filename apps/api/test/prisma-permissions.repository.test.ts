@@ -117,6 +117,18 @@ function createPrismaMock() {
   ];
 
   return {
+    auditLog: {
+      create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: `audit_${Date.now()}`, ...data, createdAt: data.createdAt ?? now })),
+      findMany: vi.fn().mockResolvedValue([])
+    },
+    testTheme: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: `theme_${Date.now()}`, ...data, createdAt: now, updatedAt: now }))
+    },
+    testQuestionCandidate: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: `question_${Date.now()}`, ...data, createdAt: now, updatedAt: now }))
+    },
     user: {
       findUnique: vi.fn().mockResolvedValue({
         id: 'user_demo',
@@ -296,7 +308,7 @@ function createPrismaMock() {
           (!where.name || candidate.name === where.name) &&
           (!where.address || candidate.address === where.address);
       }) ?? null)),
-      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(competitorCandidates.filter((candidate) => candidate.brandId === where.brandId && candidate.runId === where.runId))),
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(competitorCandidates.filter((candidate) => candidate.brandId === where.brandId && (!where.runId || candidate.runId === where.runId)))),
       create: vi.fn().mockImplementation(({ data }) => {
         const candidate = { ...data, createdAt: now, updatedAt: now };
         competitorCandidates.unshift(candidate);
@@ -324,7 +336,18 @@ function createPrismaMock() {
       })
     },
     citationSource: {
-      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(citationSources.filter((source) => source.brandId === where.brandId)))
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(citationSources.filter((source) => source.brandId === where.brandId))),
+      findFirst: vi.fn().mockImplementation(({ where }) => Promise.resolve(citationSources.find((source) => source.brandId === where.brandId && (!where.id || source.id === where.id) && (!where.responseId || source.responseId === where.responseId) && (!where.url || source.url === where.url)) ?? null)),
+      create: vi.fn().mockImplementation(({ data }) => {
+        const source = { id: `citation_${citationSources.length + 1}`, ...data, absorptionEvidence: data.absorptionEvidence ?? [], createdAt: now };
+        citationSources.unshift(source);
+        return Promise.resolve(source);
+      }),
+      update: vi.fn().mockImplementation(({ where, data }) => {
+        const index = citationSources.findIndex((source) => source.id === where.id);
+        citationSources[index] = { ...citationSources[index], ...data };
+        return Promise.resolve(citationSources[index]);
+      })
     },
     monitoringRun: {
       count: vi.fn().mockImplementation(({ where }) => Promise.resolve(where.optimizationUnitId ? monitoringRuns.filter((run) => run.optimizationUnitId === where.optimizationUnitId).length : 7)),
@@ -542,6 +565,7 @@ function createPrismaMock() {
       })
     },
     aIResponse: {
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(aiResponses.filter((response) => response.brandId === where.brandId))),
       findFirst: vi.fn().mockImplementation(({ where }) => Promise.resolve(aiResponses.find((response) => response.runId === where.runId) ?? null)),
       create: vi.fn().mockImplementation(({ data }) => {
         const response = { id: `response_${aiResponses.length + 1}`, ...data, createdAt: now };
@@ -1025,6 +1049,22 @@ describe('PrismaPermissionsRepository', () => {
     }
   });
 
+  it('persists sample and user confirmation states for Prisma competitor candidates', async () => {
+    const prisma = createPrismaMock();
+    const repository = new PrismaPermissionsRepository(prisma as never);
+    const run = await repository.createCompetitorDiscoveryRun('user_demo', 'brand_prisma', { city: '贵阳' });
+    const candidate = (await repository.listCompetitorDiscoveryCandidates('user_demo', 'brand_prisma', run?.runId ?? ''))?.[0];
+
+    const synced = await repository.syncCompetitorCandidateEvidence('user_demo', 'brand_prisma', [{
+      competitorName: candidate?.name ?? '', runId: 'monitoring_1', capturedAt: '2026-08-03T01:00:00.000Z'
+    }]);
+    const sampleConfirmed = synced?.find((item) => item.candidateId === candidate?.candidateId);
+    const confirmed = await repository.decideCompetitorCandidate('user_demo', 'brand_prisma', candidate?.candidateId ?? '', { label: 'direct_competitor' });
+
+    expect(sampleConfirmed).toMatchObject({ lifecycleStatus: 'sample_confirmed', evidenceSampleIds: ['monitoring_1'], sampleConfirmedAt: '2026-08-03T01:00:00.000Z' });
+    expect(confirmed?.candidate).toMatchObject({ lifecycleStatus: 'user_confirmed', confirmedAt: expect.any(String) });
+  });
+
   it('persists monitoring runs, manual responses and analysis updates', async () => {
     const prisma = createPrismaMock();
     const repository = new PrismaPermissionsRepository(prisma as never);
@@ -1054,8 +1094,26 @@ describe('PrismaPermissionsRepository', () => {
       mode: 'manual'
     });
 
-    const run = await repository.createMonitoringRun('user_demo', 'brand_prisma', { promptId: prompt.id, platformCode: 'manual_input' });
-    expect(run).toMatchObject({ status: 'review_required', promptText: prompt.text });
+    const run = await repository.createMonitoringRun('user_demo', 'brand_prisma', {
+      promptId: prompt.id,
+      platformCode: 'manual_input',
+      searchEnabled: false,
+      market: 'CN-GZ',
+      language: 'zh-CN',
+      baselineVersion: 'baseline-1'
+    });
+    expect(run).toMatchObject({
+      status: 'review_required',
+      promptText: prompt.text,
+      modelName: 'unknown',
+      collectionMethod: 'manual',
+      searchEnabled: false,
+      market: 'CN-GZ',
+      language: 'zh-CN',
+      evidenceLevel: 'manual_or_browser',
+      manualConfirmed: null,
+      baselineVersion: 'baseline-1'
+    });
     await expect(repository.listAsyncJobs('user_demo', 'brand_prisma', 'succeeded')).resolves.toContainEqual(
       expect.objectContaining({ jobType: 'monitoring', entityId: run?.id })
     );
@@ -1063,9 +1121,26 @@ describe('PrismaPermissionsRepository', () => {
     const completed = await repository.addManualResponse('user_demo', 'brand_prisma', run?.id ?? '', {
       rawText: 'Prisma Brand is recommended by operators.',
       citations: [' https://example.com '],
-      modelName: 'manual'
+      modelName: 'manual',
+      searchEnabled: true,
+      manualConfirmed: true
     });
-    expect(completed).toMatchObject({ status: 'completed', response: { citations: ['https://example.com'] } });
+    expect(completed).toMatchObject({
+      status: 'completed',
+      response: {
+        platformCode: 'manual_input',
+        modelName: 'manual',
+        collectionMethod: 'manual',
+        searchEnabled: true,
+        market: 'CN-GZ',
+        language: 'zh-CN',
+        evidenceLevel: 'manual_or_browser',
+        manualConfirmed: true,
+        baselineVersion: expect.stringMatching(/^baseline-/),
+        citations: ['https://example.com']
+      }
+    });
+    expect(completed?.response?.baselineVersion).not.toBe(run?.baselineVersion);
 
     const parsed = await repository.parseAnalysisResult('user_demo', 'brand_prisma', run?.id ?? '');
     expect(parsed).toMatchObject({ responseId: completed?.response?.id, runId: run?.id });
@@ -1073,6 +1148,90 @@ describe('PrismaPermissionsRepository', () => {
     await expect(repository.updateAnalysisResult('user_demo', 'brand_prisma', run?.id ?? '', { accuracyScore: 101, sentiment: 'positive' })).resolves.toMatchObject({
       accuracyScore: 100,
       sentiment: 'positive'
+    });
+  });
+
+  it('derives reusable citation sources and persists absorption evidence by brand', async () => {
+    const prisma = createPrismaMock();
+    const repository = new PrismaPermissionsRepository(prisma as never);
+    const prompt = await prisma.brandPrompt.create({
+      data: { brandId: 'brand_prisma', optimizationUnitId: 'unit_prisma', intentId: 'intent_citation', templateId: 'template_citation', text: 'Which provider is recommended?', promptKind: 'discovery', category: 'brand_awareness', targetKeywords: [], platformCodes: ['deepseek'], monitoringFrequency: 'weekly', enabled: true }
+    });
+    const run = await prisma.monitoringRun.create({
+      data: { brandId: 'brand_prisma', optimizationUnitId: 'unit_prisma', intentId: 'intent_citation', promptId: prompt.id, promptKind: 'discovery', testPlanId: null, platformCode: 'deepseek', modelName: 'deepseek-chat', collectionMethod: 'api', clientSurface: 'api', searchEnabled: true, market: 'CN', language: 'zh-CN', evidenceLevel: 'api_reproducible', manualConfirmed: null, baselineVersion: 'baseline-1', status: 'completed', startedAt: now, completedAt: now, errorMessage: null, retryStatus: 'not_retried' }
+    });
+    await prisma.contentAsset.create({
+      data: { brandId: 'brand_prisma', title: 'Official guide', type: 'official_page', platform: 'website', url: 'https://example.com/guide', targetKeywords: [], sourceFacts: [], reviewStatus: 'approved', status: 'published' }
+    });
+    await prisma.aIResponse.create({
+      data: { brandId: 'brand_prisma', runId: run.id, rawText: 'The official guide supports this recommendation.', citations: ['https://example.com/guide', ' https://example.com/guide#section '], platformCode: 'deepseek', modelName: 'deepseek-chat', collectionMethod: 'api', clientSurface: 'api', searchEnabled: true, market: 'CN', language: 'zh-CN', evidenceLevel: 'api_reproducible', manualConfirmed: null, baselineVersion: 'baseline-1', respondedAt: now, parseStatus: 'parsed' }
+    });
+
+    const dashboard = await repository.getCitationDashboard('user_demo', 'brand_prisma');
+    const source = dashboard?.sources[0];
+    expect(dashboard).toMatchObject({ sampleCount: 1, citedSampleCount: 1, totalCitations: 2 });
+    expect(source).toMatchObject({ runId: run.id, promptId: prompt.id, promptText: 'Which provider is recommended?', contentAssetId: 'asset_1', sourceType: 'official_site', citationCount: 2 });
+
+    const evidence = [{ id: 'evidence_1', answerSentence: 'The official guide supports this recommendation.', answerSentenceIndex: 0, sourceFragment: 'The official guide supports this recommendation.', sourceStartOffset: 0, sourceEndOffset: 48, outcome: 'supports' as const, supportScope: 100, confidence: 100, reviewStatus: 'pending_review' as const }];
+    await expect(repository.saveCitationAbsorptionEvidence('user_demo', 'brand_prisma', source?.id ?? '', evidence)).resolves.toMatchObject({ absorptionEvidence: evidence });
+    await expect(repository.reviewCitationAbsorptionEvidence('user_demo', 'brand_prisma', source?.id ?? '', 'evidence_1')).resolves.toMatchObject({ absorptionEvidence: [expect.objectContaining({ reviewStatus: 'reviewed', reviewedBy: 'user_demo' })] });
+    const foreignSource = await prisma.citationSource.create({ data: { brandId: 'brand_other', responseId: 'response_other', title: 'Foreign source', url: 'https://other.example.com', sourceType: 'third_party', authorityLevel: 'low', citationCount: 1 } });
+    await expect(repository.saveCitationAbsorptionEvidence('user_demo', 'brand_prisma', foreignSource.id, evidence)).resolves.toBeNull();
+  });
+
+  it('maps historical monitoring rows to explicit unknown measurement conditions', async () => {
+    const prisma = createPrismaMock();
+    await prisma.monitoringRun.create({
+      data: {
+        brandId: 'brand_prisma',
+        optimizationUnitId: 'unit_prisma',
+        intentId: 'intent_historical',
+        promptId: 'prompt_historical',
+        testPlanId: null,
+        platformCode: 'deepseek',
+        status: 'completed',
+        startedAt: now,
+        completedAt: now,
+        errorMessage: null,
+        retryStatus: 'not_retried'
+      }
+    });
+    const storedRun = (await prisma.monitoringRun.findMany({ where: { brandId: 'brand_prisma' } }))[0];
+    await prisma.aIResponse.create({
+      data: {
+        runId: storedRun.id,
+        brandId: 'brand_prisma',
+        rawText: 'historical answer',
+        citations: [],
+        respondedAt: now,
+        parseStatus: 'parsed'
+      }
+    });
+
+    const repository = new PrismaPermissionsRepository(prisma as never);
+    const run = await repository.getMonitoringRun('user_demo', 'brand_prisma', storedRun.id);
+
+    expect(run).toMatchObject({
+      platformCode: 'deepseek',
+      modelName: 'unknown',
+      collectionMethod: 'unknown',
+      searchEnabled: null,
+      market: 'unknown',
+      language: 'unknown',
+      evidenceLevel: 'unknown',
+      manualConfirmed: null,
+      baselineVersion: 'unknown'
+    });
+    expect(run?.response).toMatchObject({
+      platformCode: 'unknown',
+      modelName: 'unknown',
+      collectionMethod: 'unknown',
+      searchEnabled: null,
+      market: 'unknown',
+      language: 'unknown',
+      evidenceLevel: 'unknown',
+      manualConfirmed: null,
+      baselineVersion: 'unknown'
     });
   });
 

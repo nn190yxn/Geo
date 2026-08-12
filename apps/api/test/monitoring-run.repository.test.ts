@@ -45,6 +45,22 @@ describe('monitoring run repository', () => {
     expect(run?.response?.runId).toBe(run?.id);
     expect(run?.response?.brandId).toBe(run?.brandId);
     expect(run?.response?.rawText).toContain('演示回答');
+    expect(run).toMatchObject({
+      modelName: 'mock-v1',
+      collectionMethod: 'mock',
+      searchEnabled: null,
+      market: 'unknown',
+      language: 'unknown',
+      evidenceLevel: 'demo',
+      manualConfirmed: null,
+      baselineVersion: expect.stringMatching(/^baseline-/)
+    });
+    expect(run?.response).toMatchObject({
+      platformCode: 'mock_ai',
+      modelName: 'mock-v1',
+      collectionMethod: 'mock',
+      evidenceLevel: 'demo'
+    });
     expect(repository.listAsyncJobs('user_demo', 'brand_demo', 'succeeded')).toContainEqual(
       expect.objectContaining({ jobType: 'monitoring', entityId: run?.id })
     );
@@ -55,7 +71,11 @@ describe('monitoring run repository', () => {
     const prompt = createPromptForPlatforms(repository, ['manual_input']);
     const run = repository.createMonitoringRun('user_demo', 'brand_demo', {
       promptId: prompt?.id ?? '',
-      platformCode: 'manual_input'
+      platformCode: 'manual_input',
+      searchEnabled: false,
+      market: 'CN-GZ',
+      language: 'zh-CN',
+      baselineVersion: 'baseline-2026-08'
     });
 
     expect(run?.status).toBe('review_required');
@@ -67,12 +87,37 @@ describe('monitoring run repository', () => {
     const completedRun = repository.addManualResponse('user_demo', 'brand_demo', run?.id ?? '', {
       rawText: '示例品牌适合需要多品牌 GEO 管理的运营团队。',
       citations: ['https://example.com'],
-      modelName: 'manual'
+      modelName: 'manual-model',
+      collectionMethod: 'manual',
+      searchEnabled: true,
+      market: 'CN-SH',
+      language: 'zh-CN',
+      evidenceLevel: 'manual_or_browser',
+      manualConfirmed: true
     });
 
     expect(completedRun?.status).toBe('completed');
     expect(completedRun?.response?.runId).toBe(run?.id);
     expect(completedRun?.response?.citations).toEqual(['https://example.com']);
+    expect(run).toMatchObject({
+      collectionMethod: 'manual',
+      searchEnabled: false,
+      market: 'CN-GZ',
+      language: 'zh-CN',
+      baselineVersion: 'baseline-2026-08'
+    });
+    expect(completedRun?.response).toMatchObject({
+      platformCode: 'manual_input',
+      modelName: 'manual-model',
+      collectionMethod: 'manual',
+      searchEnabled: true,
+      market: 'CN-SH',
+      language: 'zh-CN',
+      evidenceLevel: 'manual_or_browser',
+      manualConfirmed: true,
+      baselineVersion: expect.stringMatching(/^baseline-/)
+    });
+    expect(completedRun?.response?.baselineVersion).not.toBe(run?.baselineVersion);
   });
 
   it('records api adapter failures with prompt and retry metadata', () => {

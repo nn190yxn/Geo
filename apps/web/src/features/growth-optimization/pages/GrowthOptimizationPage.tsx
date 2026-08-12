@@ -6,7 +6,9 @@ import type {
   AnalysisDiagnosisDashboard,
   AnalysisFinding,
   AnalysisRecommendedAction,
+  ChannelRoadmap,
   ContentGenerationWorkspace,
+  EffectEvidenceDashboard,
   GrowthOptimizationContentTaskInput,
   GrowthOptimizationPlan,
   GrowthOptimizationPlanConfirmInput,
@@ -17,6 +19,7 @@ import type {
   OptimizationTask,
   OptimizationTaskStatus,
   OptimizationTaskUpdateInput,
+  OpportunityMap,
   RetestPlanInput,
   PublishingRecord,
   SprintContentTaskDashboard,
@@ -36,6 +39,9 @@ import { clearAnalysisScopeQuery, mergeAnalysisScopeQuery, readAnalysisScopeQuer
 import { AnalysisScopeBar } from '../../analysis/components/AnalysisScopeBar';
 import { buildSprintDiagnosisRows } from './growthSprintDiagnostics';
 import { AnalysisFindingCards } from './AnalysisFindingCards';
+import { OpportunityMapPanel } from './OpportunityMapPanel';
+import { ChannelRoadmapBoard } from './ChannelRoadmapBoard';
+import { EffectEvidencePanel } from '../../../components/EffectEvidencePanel';
 
 type PlanFormValues = GrowthOptimizationPlanConfirmInput & {
   publishingPlatformsText?: string;
@@ -108,9 +114,24 @@ export function GrowthOptimizationPage() {
     queryKey: ['visibility-sprint-current', activeBrandId],
     queryFn: () => apiGet<VisibilitySprint>(`/brands/${activeBrandId}/sprints/current`)
   });
+  const opportunityMapQuery = useQuery({
+    queryKey: ['opportunity-map', activeBrandId],
+    queryFn: () => apiGet<OpportunityMap>(`/brands/${activeBrandId}/analysis-diagnosis/opportunity-map`)
+  });
+  const channelRoadmapQuery = useQuery({
+    queryKey: ['channel-roadmap', activeBrandId],
+    queryFn: () => apiGet<ChannelRoadmap>(`/brands/${activeBrandId}/analysis-diagnosis/channel-roadmap`)
+  });
+  const effectEvidenceQuery = useQuery({
+    queryKey: ['effect-evidence', activeBrandId],
+    queryFn: () => apiGet<EffectEvidenceDashboard>(`/brands/${activeBrandId}/reports/effect-evidence`)
+  });
   const workspace = workspaceQuery.data?.success ? workspaceQuery.data.data : null;
   const diagnosis = diagnosisQuery.data?.success ? diagnosisQuery.data.data : null;
   const currentSprint = currentSprintQuery.data?.success ? currentSprintQuery.data.data : null;
+  const opportunityMap = opportunityMapQuery.data?.success ? opportunityMapQuery.data.data : null;
+  const channelRoadmap = channelRoadmapQuery.data?.success ? channelRoadmapQuery.data.data : null;
+  const effectEvidence = effectEvidenceQuery.data?.success ? effectEvidenceQuery.data.data : undefined;
   const alignmentQuery = useQuery({
     queryKey: ['visibility-sprint-alignment', activeBrandId, currentSprint?.sprintId],
     queryFn: () => apiGet<StandardAnswerAlignmentDashboard>(`/brands/${activeBrandId}/sprints/${currentSprint?.sprintId}/alignment`),
@@ -126,7 +147,8 @@ export function GrowthOptimizationPage() {
   const pageResources: QueryWorkspaceResource[] = [
     { isLoading: workspaceQuery.isLoading, response: workspaceQuery.data },
     { isLoading: diagnosisQuery.isLoading, response: diagnosisQuery.data },
-    { isLoading: currentSprintQuery.isLoading, response: currentSprintQuery.data }
+    { isLoading: currentSprintQuery.isLoading, response: currentSprintQuery.data },
+    { isLoading: channelRoadmapQuery.isLoading, response: channelRoadmapQuery.data }
   ];
   if (currentSprint?.sprintId) {
     pageResources.push(
@@ -138,6 +160,9 @@ export function GrowthOptimizationPage() {
   const retryPageQueries = () => Promise.all([
     workspaceQuery.refetch(),
     diagnosisQuery.refetch(),
+    opportunityMapQuery.refetch(),
+    channelRoadmapQuery.refetch(),
+    effectEvidenceQuery.refetch(),
     currentSprintQuery.refetch(),
     ...(currentSprint?.sprintId ? [alignmentQuery.refetch(), contentTasksQuery.refetch()] : [])
   ]);
@@ -359,10 +384,20 @@ export function GrowthOptimizationPage() {
         </Space>
       </InsightOverview>
 
+      <EffectEvidencePanel dashboard={effectEvidence} />
+
       <InsightDetailSection title="统一诊断结论" description="将竞品、评价、信源和事实分析归并为可直接进入任务闭环的优先结论。" resultCount={filteredFindings.length}>
         <Card loading={diagnosisQuery.isLoading}>
           <AnalysisFindingCards findings={filteredFindings} onAction={openFindingAction} onOpenTask={openFindingTask} />
         </Card>
+      </InsightDetailSection>
+
+      <InsightDetailSection title="竞品与渠道机会" description="从有效真实回复中提取竞品优势主题、实际引用域名、渠道依据和内容优先级。" resultCount={opportunityMap?.contentOpportunities.length ?? 0}>
+        <OpportunityMapPanel map={opportunityMap} loading={opportunityMapQuery.isLoading} />
+      </InsightDetailSection>
+
+      <InsightDetailSection title="渠道建设路线图" description="将真实信源机会转换为内容形态、数量、节奏、负责角色和分阶段渠道动作。" resultCount={channelRoadmap?.items.length ?? 0}>
+        <ChannelRoadmapBoard roadmap={channelRoadmap} loading={channelRoadmapQuery.isLoading} />
       </InsightDetailSection>
 
       <InsightDetailSection title="趋势与分布" description="对照真实回复、品牌标准答案和内容资产，判断当前缺口分布。">

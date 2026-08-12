@@ -25,6 +25,7 @@ describe('operation navigation config', () => {
       '/publishing',
       '/owned-media',
       '/media-platforms',
+      '/site-audit',
       '/model-settings',
       '/tasks',
       '/feedback',
@@ -33,7 +34,7 @@ describe('operation navigation config', () => {
     ]));
     expect(navigationGroups.map((group) => group.label)).toEqual(['工作台', '品牌信息', '内容中心', '发布中心', '数据分析']);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toHaveLength(24);
+    expect(keys).toHaveLength(25);
   });
 
   it('keeps secondary entries for management, support, and advanced pages', () => {
@@ -45,6 +46,7 @@ describe('operation navigation config', () => {
     expect(getNavigationItem('/growth-optimization')?.label).toBe('优化建议');
     expect(getNavigationItem('/content-assets')?.label).toBe('内容资产');
     expect(getNavigationItem('/owned-media')?.label).toBe('自有媒体');
+    expect(getNavigationItem('/site-audit')?.label).toBe('站点审计');
     expect(getNavigationItem('/publishing')?.label).toBe('发布记录');
     expect(getNavigationItem('/tasks')?.label).toBe('再次监测');
     expect(getNavigationItem('/reports')?.label).toBe('报告中心');

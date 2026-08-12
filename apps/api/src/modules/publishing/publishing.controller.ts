@@ -9,9 +9,11 @@ import type {
   PublishingAuthStatus,
   PublishingDashboard,
   PublishingExecutionResult,
+  PublishingExecutionConfirmationInput,
   PublishingMode,
   PublishingModeInput,
   PublishingRecord,
+  PublishingRecordConfirmationInput,
   PublishingRecordPerformance,
   PublishingRecordInput,
   PublishingRecordStatus,
@@ -20,12 +22,15 @@ import type {
 import { PermissionsService } from '../permissions/permissions.service';
 import { buildPublishingRecordPerformance } from './publishing-record-performance.mapper';
 import { PublishingExecutionError, PublishingExecutionService } from './publishing-execution.service';
+import { PublishingAdapterRegistry } from './adapters/publishing-adapter.registry';
+import type { PublishingAdapterCapability } from '@geo-platform/shared-types';
 
 @Controller('brands/:brandId/publishing')
 export class PublishingController {
   constructor(
     private readonly permissionsService: PermissionsService,
-    private readonly publishingExecutionService: PublishingExecutionService
+    private readonly publishingExecutionService: PublishingExecutionService,
+    private readonly adapterRegistry: PublishingAdapterRegistry
   ) {}
 
   @Get()
@@ -37,6 +42,13 @@ export class PublishingController {
     }
 
     return { success: true, data: dashboard };
+  }
+
+  @Get('adapter-capabilities')
+  async getAdapterCapabilities(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<PublishingAdapterCapability[]>> {
+    const dashboard = await this.permissionsService.getPublishingDashboard(request.context.userId, brandId);
+    if (!dashboard) throw new NotFoundException('发布中心不存在或当前用户无权访问');
+    return { success: true, data: this.adapterRegistry.listCapabilities(dashboard.platforms.map((platform) => platform.platform)) };
   }
 
   @Post('accounts')
@@ -104,7 +116,16 @@ export class PublishingController {
     @Param('brandId') brandId: string,
     @Body() input: PublishingRecordInput
   ): Promise<ApiResponse<PublishingRecord>> {
-    const record = await this.permissionsService.createPublishingRecord(request.context.userId, brandId, normalizeRecordInput(input));
+    const normalizedInput = normalizeRecordInput(input);
+    const dashboard = await this.permissionsService.getPublishingDashboard(request.context.userId, brandId);
+    if (!dashboard) throw new NotFoundException('发布中心不存在或当前用户无权访问');
+    const account = normalizedInput.accountId
+      ? dashboard.accounts.find((item) => item.id === normalizedInput.accountId)
+      : undefined;
+    const requiresConfirmation = normalizedInput.status === 'pending' || account?.publishingMode === 'automatic' || Boolean(normalizedInput.confirmation);
+    if (requiresConfirmation) validatePublishingConfirmation(normalizedInput, account);
+
+    const record = await this.permissionsService.createPublishingRecord(request.context.userId, brandId, normalizedInput);
 
     if (!record) {
       throw new NotFoundException('发布记录无法创建或关联对象不存在');
@@ -122,9 +143,11 @@ export class PublishingController {
   async executeRecord(
     @Req() request: Request,
     @Param('brandId') brandId: string,
-    @Param('recordId') recordId: string
+    @Param('recordId') recordId: string,
+    @Body() confirmation: PublishingExecutionConfirmationInput
   ): Promise<ApiResponse<PublishingExecutionResult>> {
     try {
+      await this.assertExecutionConfirmed(request.context.userId, brandId, recordId, confirmation);
       const result = await this.publishingExecutionService.execute(request.context.userId, brandId, recordId);
       return { success: true, data: result };
     } catch (error) {
@@ -138,6 +161,45 @@ export class PublishingController {
     }
   }
 
+  private async assertExecutionConfirmed(userId: string, brandId: string, recordId: string, confirmation: PublishingExecutionConfirmationInput): Promise<void> {
+    const dashboard = await this.permissionsService.getPublishingDashboard(userId, brandId);
+    const record = dashboard?.records.find((item) => item.id === recordId);
+    if (!record) throw new NotFoundException('发布记录不存在或当前用户无权访问');
+    if (!confirmation?.confirmed) throw new BadRequestException('请确认本次发布的账号、内容版本和目标渠道');
+    if (confirmation.accountId?.trim() !== record.accountId || confirmation.contentVersion?.trim() !== record.contentVersion || confirmation.targetPlatform?.trim() !== record.platform) {
+      throw new BadRequestException('发布对象已发生变化，请重新确认账号、内容版本和目标渠道');
+    }
+  }
+
+  @Patch('records/:recordId/confirmation')
+  async confirmRecord(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Param('recordId') recordId: string,
+    @Body() input: PublishingRecordConfirmationInput
+  ): Promise<ApiResponse<PublishingRecord>> {
+    const dashboard = await this.permissionsService.getPublishingDashboard(request.context.userId, brandId);
+    const currentRecord = dashboard?.records.find((record) => record.id === recordId);
+    const account = dashboard?.accounts.find((item) => item.id === input.accountId?.trim());
+    if (!currentRecord) throw new NotFoundException('发布记录不存在或当前用户无权访问');
+    const normalizedInput: PublishingRecordConfirmationInput = {
+      accountId: input.accountId?.trim(),
+      publishingMode: input.publishingMode,
+      contentVersionLabel: input.contentVersionLabel?.trim(),
+      materialRequirementsConfirmed: input.materialRequirementsConfirmed === true,
+      retestPlanAt: input.retestPlanAt?.trim()
+    };
+    validatePublishingConfirmation({
+      accountId: normalizedInput.accountId,
+      versionId: currentRecord.versionId,
+      targetPlatform: account?.platform,
+      confirmation: normalizedInput
+    }, account);
+    const record = await this.permissionsService.confirmPublishingRecord(request.context.userId, brandId, recordId, normalizedInput);
+    if (!record) throw new NotFoundException('发布记录确认失败或关联账号不存在');
+    return { success: true, data: record };
+  }
+
   @Patch('records/:recordId/status')
   async updateRecordStatus(
     @Req() request: Request,
@@ -145,7 +207,18 @@ export class PublishingController {
     @Param('recordId') recordId: string,
     @Body() input: PublishingStatusInput
   ): Promise<ApiResponse<PublishingRecord>> {
-    const record = await this.permissionsService.updatePublishingRecordStatus(request.context.userId, brandId, recordId, normalizeRecordStatusInput(input));
+    const normalizedInput = normalizeRecordStatusInput(input);
+    if (normalizedInput.status === 'pending' || normalizedInput.status === 'published') {
+      const dashboard = await this.permissionsService.getPublishingDashboard(request.context.userId, brandId);
+      const currentRecord = dashboard?.records.find((record) => record.id === recordId);
+      if (!currentRecord) throw new NotFoundException('发布记录不存在或当前用户无权访问');
+      assertPublishingRecordConfirmed(currentRecord);
+      const account = dashboard?.accounts.find((item) => item.id === currentRecord.accountId);
+      if (!account || account.publishingMode !== currentRecord.publishingMode) {
+        throw new BadRequestException('发布账号或发布方式已发生变化，请重新确认');
+      }
+    }
+    const record = await this.permissionsService.updatePublishingRecordStatus(request.context.userId, brandId, recordId, normalizedInput);
 
     if (!record) {
       throw new NotFoundException('发布记录不存在或当前用户无权访问');
@@ -276,8 +349,32 @@ function normalizeRecordInput(input: PublishingRecordInput): PublishingRecordInp
     targetPlatform: input.targetPlatform?.trim(),
     contentType: input.contentType?.trim(),
     targetKeywords: input.targetKeywords?.map((keyword) => keyword.trim()).filter(Boolean),
+    confirmation: input.confirmation ? {
+      publishingMode: input.confirmation.publishingMode,
+      contentVersionLabel: input.confirmation.contentVersionLabel?.trim(),
+      materialRequirementsConfirmed: input.confirmation.materialRequirementsConfirmed === true,
+      retestPlanAt: input.confirmation.retestPlanAt?.trim() ?? ''
+    } : undefined,
     status: input.status && recordCreationStatuses.includes(input.status) ? input.status : undefined
   };
+}
+
+function validatePublishingConfirmation(input: PublishingRecordInput, account: PublishingAccount | undefined): void {
+  const confirmation = input.confirmation;
+  if (!account) throw new BadRequestException('创建发布任务前必须选择目标账号');
+  if (account.authStatus !== 'connected') throw new BadRequestException('目标发布账号尚未连接');
+  if (!confirmation || confirmation.publishingMode !== account.publishingMode) throw new BadRequestException('请确认账号当前使用的发布方式');
+  if (!input.versionId && !confirmation.contentVersionLabel) throw new BadRequestException('创建发布任务前必须确认内容版本');
+  if (!confirmation.materialRequirementsConfirmed) throw new BadRequestException('创建发布任务前必须确认素材要求');
+  if (!confirmation.retestPlanAt || Number.isNaN(Date.parse(confirmation.retestPlanAt))) throw new BadRequestException('创建发布任务前必须设置有效的再次监测计划');
+  const platform = input.targetPlatform?.trim() || account.platform;
+  if (platform !== account.platform) throw new BadRequestException('目标平台与发布账号不一致');
+}
+
+function assertPublishingRecordConfirmed(record: PublishingRecord): void {
+  if (!record.confirmedAt || !record.contentVersion || !record.materialRequirementsConfirmed || !record.retestPlanAt) {
+    throw new BadRequestException('请先确认账号、内容版本、发布方式、素材要求和再次监测计划');
+  }
 }
 
 function normalizeRecordStatusInput(input: PublishingStatusInput): PublishingStatusInput {

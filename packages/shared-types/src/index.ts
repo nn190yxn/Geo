@@ -4,6 +4,7 @@ export type ApiError = {
   code: string;
   message: string;
   requestId?: string | null;
+  authorization?: BrandAuthorizationError;
 };
 
 export type ApiResponse<T> =
@@ -45,6 +46,43 @@ export type RoleScope = 'organization' | 'brand';
 
 export type UserBrandRole = 'owner' | 'admin' | 'operator' | 'analyst' | 'viewer';
 
+export type BrandAccessResource =
+  | 'brand_workspace'
+  | 'quick_start'
+  | 'brand'
+  | 'brand_profile'
+  | 'membership'
+  | 'platform_config'
+  | 'monitoring'
+  | 'content'
+  | 'publishing'
+  | 'task'
+  | 'retest'
+  | 'analysis'
+  | 'report'
+  | 'organization';
+
+export type BrandResourceCapability = {
+  resource: BrandAccessResource;
+  canRead: boolean;
+  canWrite: boolean;
+  minimumReadRole: UserBrandRole;
+  minimumWriteRole: UserBrandRole;
+};
+
+export type BrandCapabilitySummary = {
+  role: UserBrandRole;
+  applicationPath: string;
+  resources: BrandResourceCapability[];
+};
+
+export type BrandAuthorizationError = {
+  resource: BrandAccessResource;
+  currentRole: UserBrandRole | null;
+  requiredRole: UserBrandRole;
+  applicationPath: string;
+};
+
 export type BrandWorkspaceSummary = {
   brandId: BrandId;
   name: string;
@@ -53,6 +91,7 @@ export type BrandWorkspaceSummary = {
 };
 
 export type BrandDetail = BrandWorkspaceSummary & {
+  organizationId?: string;
   aliases: string[];
   industry: string;
   website?: string;
@@ -65,6 +104,7 @@ export type BrandDetail = BrandWorkspaceSummary & {
 
 export type BrandMutationInput = {
   name: string;
+  organizationId?: string;
   aliases?: string[];
   industry: string;
   website?: string;
@@ -72,6 +112,65 @@ export type BrandMutationInput = {
   businessScope: string;
   targetAudience: string;
   status?: BrandStatus;
+};
+
+export type ProductEventType =
+  | 'brand_created'
+  | 'profile_confirmed'
+  | 'first_monitoring_completed'
+  | 'recommendation_adopted'
+  | 'content_saved'
+  | 'published'
+  | 'retest_completed'
+  | 'report_generated'
+  | 'operation_failed';
+
+export type ProductEventFailureCategory =
+  | 'authorization'
+  | 'configuration'
+  | 'credential'
+  | 'validation'
+  | 'adapter'
+  | 'timeout'
+  | 'upstream'
+  | 'unknown';
+
+export type ProductEvent = {
+  id: string;
+  organizationId: string;
+  brandId: BrandId;
+  actorUserId?: string;
+  eventType: ProductEventType;
+  entityType?: string;
+  entityId?: string;
+  failureCategory?: ProductEventFailureCategory;
+  metadata: Record<string, string | number | boolean>;
+  idempotencyKey: string;
+  occurredAt: string;
+};
+
+export type ProductEventInput = Omit<ProductEvent, 'id' | 'organizationId' | 'metadata' | 'occurredAt'> & {
+  metadata?: Record<string, unknown>;
+  occurredAt?: string;
+};
+
+export type ProductEffectMetric = {
+  key: 'firstMonitoringReachRate' | 'timeToFirstInsightHours' | 'recommendationAdoptionRate' | 'publishingCompletionRate' | 'retestCompletionRate' | 'improvedTaskRate';
+  label: string;
+  value: number | null;
+  numerator: number;
+  denominator: number;
+  denominatorDefinition: string;
+  dataGap?: string;
+};
+
+export type ProductEffectDashboard = {
+  organizationId: string;
+  brandId: BrandId;
+  period: { from: string; to: string };
+  sampleSize: number;
+  metrics: ProductEffectMetric[];
+  dataGaps: string[];
 };
 
 export type BrandWorkspaceSnapshot = {
@@ -177,6 +276,324 @@ export type KnowledgeSourceInput = {
   sourceUrl?: string;
   fileRef?: string;
   status?: KnowledgeSourceStatus;
+};
+
+export type KnowledgeChunkReviewStatus = 'pending' | 'approved' | 'rejected';
+
+export type KnowledgeChunk = {
+  id: string;
+  brandId: BrandId;
+  sourceId: string;
+  sourceUrl?: string;
+  sourceVersion: number;
+  chunkIndex: number;
+  content: string;
+  contentHash: string;
+  reviewStatus: KnowledgeChunkReviewStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeChunkInput = Pick<KnowledgeChunk, 'sourceId' | 'sourceUrl' | 'chunkIndex' | 'content' | 'contentHash' | 'reviewStatus'>;
+
+export type KnowledgeChunkSyncResult = {
+  brandId: BrandId;
+  sourceCount: number;
+  createdVersionCount: number;
+  unchangedSourceCount: number;
+  chunks: KnowledgeChunk[];
+};
+
+export type KnowledgeQueryPurpose = 'manual_query' | 'content_generation' | 'fact_analysis';
+
+export type KnowledgeEmbeddingCostPolicy = 'organization' | 'platform_quota' | 'full_text';
+
+export type KnowledgeRetrievalFallbackReason =
+  | 'advanced_unavailable'
+  | 'advanced_failed'
+  | 'advanced_insufficient'
+  | 'structured_insufficient';
+
+export type KnowledgeQueryInput = {
+  query: string;
+  limit?: number;
+  purpose?: KnowledgeQueryPurpose;
+  resourceId?: string;
+  embeddingCostPolicy?: KnowledgeEmbeddingCostPolicy;
+};
+
+export type KnowledgeCitation = Pick<
+  KnowledgeChunk,
+  'id' | 'sourceId' | 'sourceUrl' | 'sourceVersion' | 'content' | 'reviewStatus' | 'updatedAt'
+> & {
+  trusted: boolean;
+};
+
+export type KnowledgeGap = {
+  code: 'no_matching_evidence' | 'unconfirmed_evidence';
+  message: string;
+  supplementPath: string;
+  confirmationPath: string;
+};
+
+export type KnowledgeQueryResult = {
+  brandId: BrandId;
+  query: string;
+  answer?: string;
+  citations: KnowledgeCitation[];
+  confidence: 'trusted' | 'needs_confirmation' | 'insufficient';
+  retrievalMode: 'vector' | 'graph' | 'hybrid' | 'full_text' | 'structured' | 'none';
+  embeddingCostPolicy: KnowledgeEmbeddingCostPolicy;
+  fallbackReasons: KnowledgeRetrievalFallbackReason[];
+  gap?: KnowledgeGap;
+  usageId: string;
+};
+
+export type QuickStartStep = 'website' | 'facts' | 'questions' | 'readiness';
+
+export type QuickStartSessionStatus = 'in_progress' | 'completed';
+
+export type QuickStartFactStatus = 'pending' | 'confirmed' | 'rejected' | 'edited';
+
+export type QuickStartQuestionCategory =
+  | 'brand'
+  | 'category'
+  | 'location'
+  | 'buying_decision'
+  | 'competitor_comparison'
+  | 'pain_point';
+
+export type QuickStartFactCandidate = {
+  id: string;
+  fieldKey: string;
+  extractedValue: string;
+  editedValue?: string;
+  confidence: number;
+  status: QuickStartFactStatus;
+  isCritical: boolean;
+  sourceId: string;
+  sourceType: KnowledgeSourceType;
+  url?: string;
+  title?: string;
+  excerpt: string;
+};
+
+export type SourcePageRole = 'home' | 'product' | 'about' | 'faq' | 'case' | 'contact' | 'policy' | 'other';
+
+export type SourcePageProcessingStatus = 'planned' | 'processing' | 'completed' | 'failed';
+
+export type SourcePagePlanItem = {
+  id: string;
+  url: string;
+  title: string;
+  sourceRole: SourcePageRole;
+  selectionReason: string;
+  included: boolean;
+  processingStatus: SourcePageProcessingStatus;
+  errorMessage?: string;
+};
+
+export type SourcePagePlan = {
+  items: SourcePagePlanItem[];
+  confirmedAt?: string;
+};
+
+export type SiteAuditCheckStatus = 'pass' | 'warning' | 'fail' | 'unavailable';
+
+export type SiteAuditCheckKey =
+  | 'robots_txt'
+  | 'sitemap_xml'
+  | 'llms_txt'
+  | 'noindex'
+  | 'ai_bot_access'
+  | 'structured_data'
+  | 'extractable_content';
+
+export type SiteAuditEvidence = {
+  targetUrl: string;
+  checkedAt: string;
+  httpStatus?: number;
+  contentType?: string;
+  excerpt?: string;
+  errorCode?: string;
+};
+
+export type SiteAuditCheck = {
+  key: SiteAuditCheckKey;
+  status: SiteAuditCheckStatus;
+  summary: string;
+  evidence: SiteAuditEvidence;
+};
+
+export type SiteAuditResult = {
+  websiteUrl: string;
+  auditedAt: string;
+  checks: SiteAuditCheck[];
+};
+
+export type SiteAuditImpactLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export type SiteAuditCheckerType = 'structure' | 'text' | 'link' | 'response_header';
+
+export type SiteAuditCheckerRule = {
+  id: string;
+  checkKey: SiteAuditCheckKey;
+  checkerType: SiteAuditCheckerType;
+  targetUrl: string;
+  expectedStatus: 'pass';
+  description: string;
+};
+
+export type SiteAuditTaskTemplate = {
+  title: string;
+  type: 'manual';
+  priority: 'low' | 'medium' | 'high';
+};
+
+export type SiteAuditFinding = {
+  check: SiteAuditCheck;
+  impactLevel: SiteAuditImpactLevel;
+  impactDescription: string;
+  remediation: string;
+  taskTemplate: SiteAuditTaskTemplate;
+  acceptanceRule: SiteAuditCheckerRule;
+};
+
+export type SiteAuditAssessment = SiteAuditResult & {
+  findings: SiteAuditFinding[];
+  recommendedTasks: SiteAuditTaskTemplate[];
+};
+
+export type DiagnosticScoreDimension = 'schema' | 'meta' | 'content' | 'citation';
+
+export type DiagnosticScorePolicyDimension = {
+  configuredWeight: number;
+  checkKeys: SiteAuditCheckKey[];
+};
+
+export type DiagnosticScorePolicy = {
+  version: string;
+  statusScores: Record<SiteAuditCheckStatus, number | null>;
+  dimensions: Record<DiagnosticScoreDimension, DiagnosticScorePolicyDimension>;
+};
+
+export type DiagnosticDimensionScore = {
+  dimension: DiagnosticScoreDimension;
+  rawChecks: SiteAuditCheck[];
+  score: number | null;
+  configuredWeight: number;
+  normalizedWeight: number;
+  weightedScore: number;
+};
+
+export type DiagnosticScoreSnapshot = {
+  id: string;
+  brandId: BrandId;
+  websiteUrl: string;
+  rawChecks: SiteAuditCheck[];
+  dimensionScores: DiagnosticDimensionScore[];
+  normalizedWeights: Record<DiagnosticScoreDimension, number>;
+  policy: DiagnosticScorePolicy;
+  ruleVersion: string;
+  totalScore: number;
+  createdAt: string;
+};
+
+export type SiteAuditScoredAssessment = SiteAuditAssessment & {
+  diagnosticScore: DiagnosticScoreSnapshot;
+};
+
+export type SiteAuditAcceptanceStatus = 'passed' | 'failed' | 'unavailable';
+
+export type SiteAuditAcceptanceRecord = {
+  id: string;
+  ruleId: string;
+  status: SiteAuditAcceptanceStatus;
+  checkedAt: string;
+  evidence: SiteAuditEvidence;
+};
+
+export type SiteAuditAcceptanceResult = {
+  rule: SiteAuditCheckerRule;
+  status: SiteAuditAcceptanceStatus;
+  checkedAt: string;
+  evidence: SiteAuditEvidence;
+  history: SiteAuditAcceptanceRecord[];
+  taskAcceptance?: TaskAcceptanceHistory;
+};
+
+export type QuickStartWebsiteDraft = {
+  brandName: string;
+  websiteUrl: string;
+  targetMarkets: string[];
+  competitors?: string[];
+  crawlStatus: KnowledgeSourceStatus;
+  knowledgeSourceId: string;
+  sourcePagePlan?: SourcePagePlan;
+};
+
+export type QuickStartQuestionItem = {
+  id: string;
+  category: QuickStartQuestionCategory;
+  question: string;
+  enabled: boolean;
+  targetPlatforms: Array<BeginnerFriendlyPlatform | string>;
+};
+
+export type QuickStartQuestionsDraft = {
+  items: QuickStartQuestionItem[];
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
+export type QuickStartReadinessDraft = {
+  completed: boolean;
+  targetPlatforms: Array<BeginnerFriendlyPlatform | string>;
+  connectionSummary: PlatformConnectionSummary[];
+  estimatedSampleCount: number;
+  estimatedDurationMinutes: number;
+  executionMethod: TestPlanExecutionMethod;
+  nextStep: string;
+  testPlanId?: string;
+};
+
+export type QuickStartReadinessStepInput = {
+  completed: boolean;
+};
+
+export type QuickStartDraft = {
+  website?: QuickStartWebsiteDraft;
+  facts?: { candidates: QuickStartFactCandidate[] };
+  questions?: QuickStartQuestionsDraft;
+  readiness?: QuickStartReadinessDraft;
+};
+
+export type QuickStartSession = {
+  id: string;
+  brandId: BrandId;
+  currentStep: QuickStartStep;
+  status: QuickStartSessionStatus;
+  draft: QuickStartDraft;
+  version: number;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+};
+
+export type CreateQuickStartSessionInput = {
+  currentStep?: QuickStartStep;
+};
+
+export type QuickStartWebsiteStepInput = Omit<QuickStartWebsiteDraft, 'crawlStatus' | 'knowledgeSourceId' | 'sourcePagePlan'> & {
+  sourcePagePlan?: Pick<SourcePagePlan, 'items'>;
+};
+
+export type QuickStartFactsStepInput = {
+  candidates: QuickStartFactCandidate[];
+};
+
+export type QuickStartStepUpdateInput = {
+  version: number;
+  data: QuickStartWebsiteStepInput | QuickStartFactsStepInput | QuickStartQuestionsDraft | QuickStartReadinessStepInput;
 };
 
 export type BrandMediaAssetType = 'image' | 'document' | 'webpage' | 'content_asset';
@@ -398,6 +815,7 @@ export type BrandPrompt = {
   intentId: string;
   templateId?: string;
   text: string;
+  promptKind: PromptKind;
   category: UserIntentCategory;
   targetKeywords: string[];
   platformCodes: string[];
@@ -409,6 +827,7 @@ export type BrandPrompt = {
 
 export type BrandPromptInput = {
   text: string;
+  promptKind?: PromptKind;
   targetKeywords?: string[];
   platformCodes: string[];
   monitoringFrequency: MonitoringFrequency;
@@ -519,6 +938,10 @@ export type BrowserResponseCaptureInput = {
   rawText: string;
   modelName?: string;
   citations?: string[];
+  searchEnabled?: boolean | null;
+  market?: string;
+  language?: string;
+  manualConfirmed?: boolean | null;
 };
 
 export type BrowserResponseCaptureResult = {
@@ -588,7 +1011,7 @@ export type AIPlatformCallAuditUpdateInput = Partial<Omit<AIPlatformCallAuditInp
 
 export type AsyncJobType = 'monitoring' | 'content_generation' | 'question_generation' | 'answer_analysis' | 'optimization_planning';
 
-export type AsyncJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'retry-exhausted';
+export type AsyncJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'retry-exhausted' | 'cancelled';
 
 export type AsyncJob = {
   id: string;
@@ -596,6 +1019,10 @@ export type AsyncJob = {
   jobType: AsyncJobType;
   status: AsyncJobStatus;
   entityId: string;
+  idempotencyKey?: string;
+  stepCode?: string;
+  progress?: Record<string, unknown>;
+  resultSummary?: Record<string, unknown>;
   attemptCount: number;
   maxAttempts: number;
   nextRunAt?: string;
@@ -608,6 +1035,10 @@ export type AsyncJob = {
 export type AsyncJobInput = {
   jobType: AsyncJobType;
   entityId: string;
+  idempotencyKey?: string;
+  stepCode?: string;
+  progress?: Record<string, unknown>;
+  resultSummary?: Record<string, unknown>;
   status?: AsyncJobStatus;
   attemptCount?: number;
   maxAttempts?: number;
@@ -1077,7 +1508,7 @@ export type PlatformRewriteVersion = {
 
 export type TestQuestionPoolAngle = 'brand' | 'category' | 'local' | 'audience' | 'pain_point' | 'course' | 'competitor' | 'buying_decision' | 'content_gap' | 'retest';
 
-export type TestQuestionPoolSource = 'llm' | 'rule_template' | 'analysis_gap' | 'retest' | 'user_edit';
+export type TestQuestionPoolSource = 'llm' | 'rule_template' | 'analysis_gap' | 'retest' | 'user_edit' | 'search_autocomplete' | 'manual_import';
 
 export type TestQuestionPoolStatus = 'candidate' | 'selected' | 'tested' | 'paused';
 
@@ -1108,10 +1539,53 @@ export type TestQuestionSourceRecord = {
   createdAt: string;
 };
 
+export type SearchDemandSource = 'baidu' | 'google' | 'manual';
+
+export type SearchDemandCandidateStatus = 'candidate' | 'confirmed';
+
+export type SearchDemandCandidate = {
+  id: string;
+  snapshotId: string;
+  brandId: BrandId;
+  question: string;
+  normalizedQuestion: string;
+  risingObservation: boolean;
+  status: SearchDemandCandidateStatus;
+  confirmedPoolItemId?: string;
+  confirmedAt?: string;
+  createdAt: string;
+};
+
+export type SearchDemandSnapshot = {
+  id: string;
+  brandId: BrandId;
+  seedTerm: string;
+  source: SearchDemandSource;
+  market: string;
+  capturedAt: string;
+  candidateQuestions: SearchDemandCandidate[];
+  previousSnapshotId?: string;
+  createdAt: string;
+};
+
+export type SearchDemandSnapshotInput = {
+  seedTerm: string;
+  source: SearchDemandSource;
+  market: string;
+  candidateQuestions?: string[];
+};
+
+export type SearchDemandCandidateConfirmationResult = {
+  snapshot: SearchDemandSnapshot;
+  candidate: SearchDemandCandidate;
+  poolItem: TestQuestionPoolItem;
+};
+
 export type QuestionGenerationInput = {
   brandProfile: BrandProfile;
   brandDetail: BrandDetail;
   themes?: TestTheme[];
+  seedWords?: string[];
   targetPlatforms: Array<BeginnerFriendlyPlatform | string>;
   scenarioCount?: number;
   questionCountPerTheme?: number;
@@ -1189,13 +1663,34 @@ export type AIResponseParseStatus = 'pending' | 'parsed' | 'review_required' | '
 
 export type AnalysisSentiment = 'positive' | 'neutral' | 'negative' | 'unknown';
 
-export type MonitoringRun = {
+export type MonitoringCollectionMethod = AIConnectionMethod | 'mock' | 'unknown';
+
+export type MonitoringEvidenceLevel = 'manual_or_browser' | 'reproducible_api' | 'demo' | 'unknown';
+
+export type PromptKind = 'discovery' | 'brand_probe';
+
+export type MonitoringClientSurface = 'api' | 'web' | 'app' | 'unknown';
+
+export type MeasurementScope = {
+  platformCode: string;
+  modelName: string;
+  collectionMethod: MonitoringCollectionMethod;
+  clientSurface: MonitoringClientSurface;
+  searchEnabled: boolean | null;
+  market: string;
+  language: string;
+  evidenceLevel: MonitoringEvidenceLevel;
+  manualConfirmed: boolean | null;
+  baselineVersion: string;
+};
+
+export type MonitoringRun = MeasurementScope & {
   id: string;
   brandId: BrandId;
   optimizationUnitId: string;
   intentId: string;
   promptId: string;
-  platformCode: string;
+  promptKind: PromptKind;
   status: MonitoringRunStatus;
   startedAt?: string;
   completedAt?: string;
@@ -1211,7 +1706,19 @@ export type MonitoringRunExecutionUpdateInput = {
   retryStatus?: 'not_retried' | 'retry_pending' | 'retried';
 };
 
-export type TestThemeType = 'brand' | 'category' | 'location' | 'age_group' | 'pain_point' | 'offering' | 'competitor' | 'buying_decision';
+export type QuestionDiscoveryDimension = 'brand' | 'category' | 'scenario' | 'audience' | 'pain_point' | 'location' | 'buying_decision' | 'competitor_comparison';
+
+export type TestThemeType = QuestionDiscoveryDimension | 'age_group' | 'offering' | 'competitor';
+
+export type QuestionBusinessValue = OptimizationUnitPriority;
+
+export type QuestionUserStage = 'awareness' | 'consideration' | 'decision';
+
+export type QuestionGenerationMethod = 'deterministic' | 'ai' | 'merged';
+
+export type QuestionDiscoveryRequest = {
+  seedWords?: string[];
+};
 
 export type TestQuestionPurpose = 'brand_mentioned' | 'rank_first' | 'value_prop_accuracy' | 'competitor_presence' | 'risk_expression';
 
@@ -1249,10 +1756,18 @@ export type TestQuestionCandidate = {
   themeId: string;
   promptId?: string;
   question: string;
+  promptKind: PromptKind;
   purposes: TestQuestionPurpose[];
   targetPlatforms: Array<BeginnerFriendlyPlatform | string>;
   priority: OptimizationUnitPriority;
   estimatedValue: string;
+  discoveryDimension?: QuestionDiscoveryDimension;
+  businessValue?: QuestionBusinessValue;
+  recommendationProbability?: number;
+  userStage?: QuestionUserStage;
+  generationRationale?: string;
+  generationMethod?: QuestionGenerationMethod;
+  mergedFrom?: string[];
   editable: boolean;
   selected: boolean;
   createdAt: string;
@@ -1263,10 +1778,18 @@ export type TestQuestionCandidateInput = {
   themeId: string;
   promptId?: string;
   question: string;
+  promptKind?: PromptKind;
   purposes: TestQuestionPurpose[];
   targetPlatforms: Array<BeginnerFriendlyPlatform | string>;
   priority: OptimizationUnitPriority;
   estimatedValue: string;
+  discoveryDimension?: QuestionDiscoveryDimension;
+  businessValue?: QuestionBusinessValue;
+  recommendationProbability?: number;
+  userStage?: QuestionUserStage;
+  generationRationale?: string;
+  generationMethod?: QuestionGenerationMethod;
+  mergedFrom?: string[];
   editable?: boolean;
   selected?: boolean;
 };
@@ -1405,6 +1928,10 @@ export type ManualTestAnswerInput = {
   rawText: string;
   citations?: string[];
   modelName?: string;
+  searchEnabled?: boolean | null;
+  market?: string;
+  language?: string;
+  manualConfirmed?: boolean | null;
 };
 
 export type ManualTestAnswerBatchInput = {
@@ -1425,13 +1952,12 @@ export type ManualTestAnswerBatchResult = {
   failed: ManualTestAnswerResultItem[];
 };
 
-export type AIResponse = {
+export type AIResponse = MeasurementScope & {
   id: string;
   runId: string;
   brandId: BrandId;
   rawText: string;
   citations: string[];
-  modelName?: string;
   respondedAt: string;
   parseStatus: AIResponseParseStatus;
   createdAt: string;
@@ -1487,6 +2013,8 @@ export type CompetitorCandidateSourceProvider = 'amap' | 'tencent' | 'baidu' | '
 
 export type CompetitorCandidateDecisionStatus = 'pending' | 'confirmed' | 'excluded';
 
+export type CompetitorCandidateLifecycleStatus = 'candidate' | 'sample_confirmed' | 'user_confirmed' | 'excluded';
+
 export type CompetitorDiscoveryRunStatus = 'running' | 'completed' | 'failed';
 
 export type CompetitorMapProviderStatus = 'configured' | 'fallback' | 'rate_limited' | 'disabled' | 'failed';
@@ -1538,6 +2066,10 @@ export type CompetitorCandidate = {
   confidence: 'high' | 'medium' | 'low';
   isCampusFocus: boolean;
   decisionStatus: CompetitorCandidateDecisionStatus;
+  lifecycleStatus: CompetitorCandidateLifecycleStatus;
+  evidenceSampleIds: string[];
+  sampleConfirmedAt?: string;
+  confirmedAt?: string;
   confirmedLabel?: CompetitorConfirmationLabel;
   excludedReason?: string;
   createdAt: string;
@@ -1547,6 +2079,12 @@ export type CompetitorCandidate = {
 export type CompetitorCandidateDecisionInput = {
   label: CompetitorConfirmationLabel;
   excludedReason?: string;
+};
+
+export type CompetitorCandidateEvidenceInput = {
+  competitorName: string;
+  runId: string;
+  capturedAt: string;
 };
 
 export type CompetitorDiscoveryCandidatesQuery = {
@@ -1577,6 +2115,29 @@ export type CompetitorComparisonItem = {
   capturedAt: string;
 };
 
+export type CompetitorQuestionOpportunity = {
+  promptId: string;
+  promptText: string;
+  optimizationUnitId: string;
+  intentId: string;
+  type: 'competitor_loss' | 'brand_exclusive';
+  sampleCount: number;
+  brandMentionRate: number;
+  confirmedCompetitorNames: string[];
+  evidenceRunIds: string[];
+};
+
+export type CompetitorPlatformStrength = {
+  competitorName: string;
+  market: string;
+  platforms: Array<{
+    platformCode: string;
+    mentionSampleCount: number;
+    comparableSampleCount: number;
+    mentionRate: number;
+  }>;
+};
+
 export type CompetitorDashboard = {
   brandId: BrandId;
   competitors: Competitor[];
@@ -1585,6 +2146,14 @@ export type CompetitorDashboard = {
   averageRankGap: number;
   highRiskIntents: Array<{ intentId: string; text: string; suppressionCount: number }>;
   comparisons: CompetitorComparisonItem[];
+  candidates: CompetitorCandidate[];
+  questionOpportunities: CompetitorQuestionOpportunity[];
+  topPlatformsByCompetitor: CompetitorPlatformStrength[];
+};
+
+export type CompetitorOpportunityContentTaskInput = {
+  promptId: string;
+  targetPlatform?: string;
 };
 
 export type CitationSourceType = 'official_site' | 'media' | 'social' | 'encyclopedia' | 'third_party';
@@ -1592,6 +2161,52 @@ export type CitationSourceType = 'official_site' | 'media' | 'social' | 'encyclo
 export type CitationAuthorityLevel = 'high' | 'medium' | 'low' | 'unknown';
 
 export type ContentAssetStatus = 'draft' | 'published' | 'archived';
+
+export type TechnicalAssetType =
+  | 'llms_txt'
+  | 'organization_jsonld'
+  | 'faqpage_jsonld'
+  | 'article_jsonld'
+  | 'faq_content_block'
+  | 'deployment_instructions';
+
+export type TechnicalAssetSourceFact = {
+  candidateId: string;
+  fieldKey: string;
+  value: string;
+  status: 'confirmed' | 'edited';
+  sourceId: string;
+  url?: string;
+  title?: string;
+  excerpt: string;
+};
+
+export type TechnicalAssetVersion = {
+  id: string;
+  contentAssetId: string;
+  version: number;
+  body: string;
+  createdAt: string;
+};
+
+export type TechnicalAssetRecord = {
+  asset: ContentAsset;
+  version: TechnicalAssetVersion;
+};
+
+export type GenerateTechnicalAssetsInput = {
+  targetPage: string;
+  assetTypes?: TechnicalAssetType[];
+};
+
+export type CreateTechnicalAssetInput = {
+  title: string;
+  type: TechnicalAssetType;
+  targetPage: string;
+  body: string;
+  sourceFacts: TechnicalAssetSourceFact[];
+  reviewStatus?: ContentAssetReviewStatus;
+};
 
 export type ContentAsset = {
   id: string;
@@ -1603,6 +2218,8 @@ export type ContentAsset = {
   targetKeywords: string[];
   reuseOfAssetId?: string;
   brandAdaptation?: string;
+  sourceFacts?: TechnicalAssetSourceFact[];
+  reviewStatus?: ContentAssetReviewStatus;
   status: ContentAssetStatus;
   publishedAt?: string;
   createdAt: string;
@@ -1617,6 +2234,8 @@ export type ContentAssetInput = {
   targetKeywords?: string[];
   reuseOfAssetId?: string;
   brandAdaptation?: string;
+  sourceFacts?: TechnicalAssetSourceFact[];
+  reviewStatus?: ContentAssetReviewStatus;
   status?: ContentAssetStatus;
   publishedAt?: string;
 };
@@ -1650,6 +2269,90 @@ export type ContentAssetPageInput = ContentAssetInput & {
   sourceReferences?: Array<{ type: 'citation' | 'knowledge' | 'manual'; title: string; url?: string }>;
 };
 
+export type ContentReadinessCheckKey =
+  | 'definition_block'
+  | 'faq'
+  | 'steps'
+  | 'comparison_table'
+  | 'numeric_basis'
+  | 'author'
+  | 'updated_at'
+  | 'external_references'
+  | 'structured_data'
+  | 'channel_format'
+  | 'comparison_dimensions'
+  | 'comparison_limitations'
+  | 'comparison_verified_at'
+  | 'ranking_methodology'
+  | 'ranking_data_sources'
+  | 'ranking_disclosure'
+  | 'faq_direct_answer';
+
+export type ContentReadinessCheckStatus = 'pass' | 'warning' | 'fail';
+
+export type ContentReadinessSource = {
+  sourceId: string;
+  url?: string;
+  title?: string;
+  excerpt: string;
+  verifiedAt: string;
+  confirmationStatus: 'confirmed' | 'edited' | 'pending';
+};
+
+export type ContentReadinessFactMapping = {
+  claim: string;
+  kind: 'brand_fact' | 'number';
+  source?: ContentReadinessSource;
+  confirmationStatus: 'confirmed' | 'edited' | 'pending';
+  correctionPath: string;
+};
+
+export type ContentReadinessRiskParagraph = {
+  paragraphIndex: number;
+  text: string;
+  reason: string;
+  correctionPath: string;
+  factMappings: ContentReadinessFactMapping[];
+};
+
+export type ContentReadinessCheck = {
+  key: ContentReadinessCheckKey;
+  status: ContentReadinessCheckStatus;
+  summary: string;
+  correctionPath: string;
+};
+
+export type ContentReadinessInput = {
+  body: string;
+  title?: string;
+  contentType?: string;
+  targetPlatform?: string;
+  author?: string;
+  updatedAt?: string;
+  structuredData?: string;
+};
+
+export type ContentReadinessResult = {
+  brandId: BrandId;
+  assetId: string;
+  targetPlatform: string;
+  checkedAt: string;
+  ruleVersion: string;
+  status: 'ready' | 'needs_review' | 'blocked';
+  checks: ContentReadinessCheck[];
+  factMappings: ContentReadinessFactMapping[];
+  riskParagraphs: ContentReadinessRiskParagraph[];
+  channelRequirements: {
+    formats: string[];
+    characterCount: number;
+    coverRatio?: string;
+    publishingNote?: string;
+    requiredLinks: boolean;
+    requiredReview: boolean;
+    requiresRetestPlan: boolean;
+  };
+};
+
 export type ContentAssetFilter = {
   type?: string;
   platform?: string;
@@ -1673,6 +2376,25 @@ export type CitationSource = {
   citationCount: number;
   citedAt: string;
   createdAt: string;
+  absorptionEvidence?: CitationAbsorptionEvidence[];
+};
+
+export type CitationAbsorptionOutcome = 'supports' | 'partial' | 'conflicts' | 'unavailable';
+export type CitationAbsorptionReviewStatus = 'not_required' | 'pending_review' | 'reviewed';
+
+export type CitationAbsorptionEvidence = {
+  id: string;
+  answerSentence: string;
+  answerSentenceIndex: number;
+  sourceFragment: string;
+  sourceStartOffset: number;
+  sourceEndOffset: number;
+  outcome: CitationAbsorptionOutcome;
+  supportScope: number;
+  confidence: number;
+  reviewStatus: CitationAbsorptionReviewStatus;
+  reviewedAt?: string;
+  reviewedBy?: string;
 };
 
 export type CitationDashboard = {
@@ -1684,6 +2406,9 @@ export type CitationDashboard = {
   contentCitationRate: number;
   officialCitationRate: number;
   authoritySourceRate: number;
+  citationBreadthRate?: number;
+  answerAbsorptionDepth?: number;
+  pendingReviewCount?: number;
   sourceTypeBreakdown: Array<{ sourceType: CitationSourceType; citationCount: number; rate: number }>;
   trend: Array<{
     date: string;
@@ -1736,6 +2461,7 @@ export type AnalysisFinding = {
   userIntent?: string;
   platformCode?: string;
   evidence: string[];
+  relatedRunIds?: string[];
   severity: AnalysisFindingSeverity;
   recommendedActions: AnalysisRecommendedAction[];
   relatedTaskId?: string;
@@ -1747,6 +2473,107 @@ export type AnalysisWorkbenchDashboard = {
   brandId: BrandId;
   findings: AnalysisFinding[];
   recommendedActions: AnalysisRecommendedAction[];
+};
+
+export type OpportunityDiagnosticType = 'brand_absent' | 'competitor_dominant' | 'content_gap' | 'fact_inconsistent';
+
+export type OpportunityPlatformDistribution = {
+  platformCode: string;
+  sampleCount: number;
+};
+
+export type OpportunityCompetitorTheme = {
+  competitorName: string;
+  theme: string;
+  evidenceCount: number;
+  platformDistribution: OpportunityPlatformDistribution[];
+  questionExamples: string[];
+  runIds: string[];
+};
+
+export type OpportunityCitationPosition = {
+  runId: string;
+  question: string;
+  platformCode: string;
+  citationIndex: number;
+  label: string;
+  url: string;
+};
+
+export type OpportunityCitedDomain = {
+  domain: string;
+  sourceType: CitationSourceType;
+  citationCount: number;
+  runCount: number;
+  platformDistribution: OpportunityPlatformDistribution[];
+  positions: OpportunityCitationPosition[];
+  contentAssetCovered: boolean;
+};
+
+export type OpportunityChannelBasis = 'brand_sample' | 'industry_sample' | 'industry_reference';
+
+export type OpportunityChannelRecommendation = {
+  id: string;
+  channel: string;
+  domain?: string;
+  sourceType: CitationSourceType;
+  basis: OpportunityChannelBasis;
+  evidenceCount: number;
+  platformDistribution: OpportunityPlatformDistribution[];
+  rationale: string;
+  priority: OptimizationUnitPriority;
+};
+
+export type OpportunityContentItem = {
+  id: string;
+  type: OpportunityDiagnosticType;
+  priority: OptimizationUnitPriority;
+  title: string;
+  question: string;
+  platformCode: string;
+  evidence: string[];
+  runIds: string[];
+};
+
+export type OpportunityMap = {
+  brandId: BrandId;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  sampleCount: number;
+  questionDimensions: Array<{ dimension: QuestionDiscoveryDimension; questionCount: number }>;
+  diagnosticTypes: Array<{ type: OpportunityDiagnosticType; opportunityCount: number }>;
+  competitorThemes: OpportunityCompetitorTheme[];
+  citedDomains: OpportunityCitedDomain[];
+  channelRecommendations: OpportunityChannelRecommendation[];
+  contentOpportunities: OpportunityContentItem[];
+  generationMethod: 'deterministic';
+};
+
+export type ChannelRoadmapWindow = '0_30_days' | '30_60_days' | '60_90_days';
+
+export type ChannelRoadmapCoverageStatus = 'sample_covered' | 'planned';
+
+export type ChannelRoadmapItem = {
+  id: string;
+  channelCode: string;
+  channelName: string;
+  domain?: string;
+  contentFormats: string[];
+  recommendedQuantity: number;
+  cadence: string;
+  ownerRole: string;
+  priority: OptimizationUnitPriority;
+  evidence: string[];
+  window: ChannelRoadmapWindow;
+  coverageStatus: ChannelRoadmapCoverageStatus;
+};
+
+export type ChannelRoadmap = {
+  brandId: BrandId;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  sampleCount: number;
+  items: ChannelRoadmapItem[];
+  generatedAt: string;
+  generationMethod: 'deterministic';
 };
 
 export type AnalysisResultInput = Partial<Omit<AnalysisResult, 'id' | 'responseId' | 'runId' | 'brandId' | 'updatedAt'>>;
@@ -2045,6 +2872,72 @@ export type PublishingAuthStatus = 'connected' | 'expired' | 'error' | 'disconne
 
 export type PublishingMode = 'manual' | 'assisted' | 'automatic';
 
+export type PublishingAdapterResultMode = 'published' | 'draft' | 'manual_handoff';
+
+export type PublishingAdapterCapability = {
+  platform: string;
+  connectionStatus: 'available' | 'unconfigured';
+  supportsConnectionValidation: boolean;
+  supportsDraftCreation: boolean;
+  supportsStatusQuery: boolean;
+  resultMode: PublishingAdapterResultMode;
+  recoveryAction: string;
+};
+
+export type ProviderGovernanceSummary = {
+  organizationId: string;
+  providerId: string;
+  purpose: 'generation' | 'monitoring';
+  platformCode: string;
+  modelName: string;
+  healthStatus: 'healthy' | 'attention' | 'unavailable';
+  priority: number;
+  failoverOrder: number;
+  credentialStatus: 'configured' | 'missing';
+  credentialSource: 'organization_byok' | 'platform_managed';
+};
+
+export type OrganizationProviderConfigInput = {
+  platformCode: string;
+  modelName: string;
+  endpointUrl?: string;
+  purpose?: 'generation' | 'monitoring';
+  credentialRef?: string;
+  enabled?: boolean;
+  priority?: number;
+};
+
+export type QuotaScope = 'user' | 'organization' | 'global';
+export type UsageReservationStatus = 'reserved' | 'settled' | 'released' | 'rejected';
+export type QuotaRejectionReason = 'user_frozen' | 'user_quota_exhausted' | 'organization_quota_exhausted' | 'global_budget_exhausted' | 'byok_required';
+
+export type QuotaReservation = {
+  id: string;
+  taskKey: string;
+  userId: string;
+  organizationId: string;
+  brandId: BrandId;
+  taskType: LLMTaskType;
+  requestedCost: number;
+  settledCost: number;
+  status: UsageReservationStatus;
+  rejectionReason?: QuotaRejectionReason;
+};
+
+export type QuotaReservationResult = {
+  reservation?: QuotaReservation;
+  rejection?: { reason: QuotaRejectionReason; requestedCost: number; remainingCost?: number; recoveryAction: string };
+};
+
+export type RuntimeOperationsDashboard = {
+  providers: ProviderGovernanceSummary[];
+  queuedJobs: AsyncJob[];
+  failedJobs: AsyncJob[];
+  quota: Array<{ scope: QuotaScope; limit?: number; reserved: number; consumed: number }>;
+  publishingAccounts: Array<{ id: string; name: string; authStatus: string }>;
+  dependencies: { database: string; queue: string; aiPlatforms: string };
+};
+
 export type PublishingRecordStatus = 'draft' | 'pending' | 'queued' | 'publishing' | 'published' | 'failed';
 
 export type PublishingLoginMode = 'oauth' | 'manual' | 'cookie';
@@ -2084,6 +2977,24 @@ export type PublishingModeInput = {
   publishingMode: PublishingMode;
 };
 
+export type PublishingConfirmationInput = {
+  publishingMode: PublishingMode;
+  contentVersionLabel?: string;
+  materialRequirementsConfirmed: boolean;
+  retestPlanAt: string;
+};
+
+export type PublishingRecordConfirmationInput = PublishingConfirmationInput & {
+  accountId: string;
+};
+
+export type PublishingExecutionConfirmationInput = {
+  confirmed: boolean;
+  accountId: string;
+  contentVersion: string;
+  targetPlatform: string;
+};
+
 export type PublishingRecord = {
   id: string;
   brandId: BrandId;
@@ -2096,6 +3007,10 @@ export type PublishingRecord = {
   platform: string;
   accountName?: string;
   publishingMode?: PublishingMode;
+  contentVersion?: string;
+  materialRequirementsConfirmed?: boolean;
+  retestPlanAt?: string;
+  confirmedAt?: string;
   status: PublishingRecordStatus;
   externalPlatformId?: string;
   publishedUrl?: string;
@@ -2110,6 +3025,7 @@ export type PublishingRecordInput = Partial<PublishingEntryPayload> & {
   accountId?: string;
   contentAssetId?: string;
   status?: PublishingRecordStatus;
+  confirmation?: PublishingConfirmationInput;
 };
 
 export type PublishingStatusInput = {
@@ -2124,7 +3040,7 @@ export type PublishingExecutionStatusInput = PublishingStatusInput & {
   publishedAt?: string;
 };
 
-export type PublishingExecutionOutcome = 'published' | 'already_published' | 'failed';
+export type PublishingExecutionOutcome = 'published' | 'draft_created' | 'already_published' | 'failed';
 
 export type PublishingExecutionResult = {
   outcome: PublishingExecutionOutcome;
@@ -2188,6 +3104,8 @@ export type RetestRecord = {
   taskId: string;
   sourceRunId: string;
   retestRunId: string;
+  status?: RetestExecutionStatus;
+  evidenceGap?: 'historical_same_run' | 'missing_source_run' | 'missing_real_response' | 'missing_analysis';
   plannedAt: string;
   completedAt?: string;
   targetScore: number;
@@ -2207,12 +3125,49 @@ export type RetestMetricSnapshot = {
   mentionRate: number;
   brandRank: number | null;
   accuracyScore: number;
+  citationRate: number;
 };
 
 export type RetestMetricDelta = {
   mentionRate: number;
   rankImproved: boolean;
   accuracyScore: number;
+  citationRate: number;
+};
+
+export type RetestExecutionStatus = 'planned' | 'collecting' | 'analyzing' | 'improved' | 'unchanged' | 'regressed';
+
+export type TaskAcceptanceStatus = 'passed' | 'failed' | 'unavailable' | 'pending_measurement';
+
+export type TaskAcceptanceSnapshot = {
+  id: string;
+  brandId: BrandId;
+  taskId: string;
+  checkerId: string;
+  status: TaskAcceptanceStatus;
+  progressValue: number;
+  targetValue: number;
+  evidence: Record<string, unknown>;
+  checkedAt: string;
+  createdAt: string;
+};
+
+export type TaskAcceptanceHistory = {
+  brandId: BrandId;
+  taskId: string;
+  firstProgress: TaskAcceptanceSnapshot;
+  currentProgress: TaskAcceptanceSnapshot;
+  targetValue: number;
+  evidenceHistory: TaskAcceptanceSnapshot[];
+};
+
+export type TaskAcceptanceRecordInput = {
+  checkerId: string;
+  status: TaskAcceptanceStatus;
+  progressValue: number;
+  targetValue: number;
+  evidence: Record<string, unknown>;
+  checkedAt: string;
 };
 
 export type OptimizationTask = {
@@ -2360,7 +3315,8 @@ export type RetestPlanInput = {
 };
 
 export type RetestResultInput = {
-  actualScore: number;
+  /** @deprecated actualScore is derived from monitoring evidence. */
+  actualScore?: number;
   targetScore?: number;
   notes?: string;
 };
@@ -2380,6 +3336,69 @@ export type ReportDataGap = {
   reason: string;
 };
 
+export type ReportScopeRecordIds = {
+  monitoringRunIds: string[];
+  contentAssetIds: string[];
+  publishingRecordIds: string[];
+  taskIds: string[];
+  retestRecordIds: string[];
+};
+
+export type ReportSampleSummary = {
+  monitoringRunCount: number;
+  validSampleCount: number;
+  validSampleRunIds: string[];
+  firstSampleAt?: string;
+  lastSampleAt?: string;
+};
+
+export type EffectEvidence = {
+  brandId: BrandId;
+  taskId: string;
+  taskTitle: string;
+  sourceRunId: string;
+  retestRunId: string;
+  contentAssetIds: string[];
+  publishingRecords: Array<{
+    id: string;
+    platform: string;
+    versionId?: string;
+    contentVersion?: string;
+    publishedUrl?: string;
+    publishedAt?: string;
+  }>;
+  baselineMetrics?: RetestMetricSnapshot;
+  afterMetrics?: RetestMetricSnapshot;
+  metricDelta?: RetestMetricDelta;
+  sampleSummary: { baselineValid: boolean; retestValid: boolean };
+  evidenceStatus: 'complete' | 'partial';
+  dataGaps: ReportDataGap[];
+};
+
+export type EffectEvidenceDashboard = {
+  brandId: BrandId;
+  periodStart: string;
+  periodEnd: string;
+  periodSource: 'latest_report' | 'current_month';
+  evidence: EffectEvidence[];
+  dataGaps: ReportDataGap[];
+};
+
+export type ReportScopePreview = {
+  brandId: BrandId;
+  periodStart: string;
+  periodEnd: string;
+  monitoringRunCount: number;
+  validSampleCount: number;
+  contentAssetCount: number;
+  publishingRecordCount: number;
+  taskChangeCount: number;
+  completedRetestCount: number;
+  dataGaps: ReportDataGap[];
+  recordIds: ReportScopeRecordIds;
+  sampleSummary: ReportSampleSummary;
+};
+
 export type SingleBrandReportSnapshot = {
   brand: Pick<BrandDetail, 'brandId' | 'name' | 'industry' | 'status'>;
   metrics: BrandMetricDashboard;
@@ -2388,6 +3407,9 @@ export type SingleBrandReportSnapshot = {
   evaluation: Pick<EvaluationDashboard, 'positiveRate' | 'neutralRate' | 'negativeRate' | 'accurateRate'>;
   content: ContentCenterDashboard['coverage'];
   taskProgress: TaskBoardDashboard['statusCounts'];
+  scope: ReportScopePreview;
+  effectEvidence: EffectEvidence[];
+  methodologyVersion: string;
 };
 
 export type MultiBrandReportSnapshot = {
@@ -2395,6 +3417,9 @@ export type MultiBrandReportSnapshot = {
   strongestPlatforms: Array<{ brandId: BrandId; platformCode: string; totalScore: number }>;
   weakScenarios: Array<{ brandId: BrandId; name: string; reason: string }>;
   highPriorityIssues: Array<{ brandId: BrandId; title: string; source: string }>;
+  scopes: ReportScopePreview[];
+  effectEvidence: EffectEvidence[];
+  methodologyVersion: string;
 };
 
 export type ReportRecord = {
@@ -2544,6 +3569,169 @@ export type MonitoringRunDetail = MonitoringRun & {
   analysis?: AnalysisResult;
 };
 
+export type SampleEvidenceMeasurementStatus = 'unmeasured' | 'insufficient' | 'valid';
+
+export type SampleEvidenceItem = {
+  runId: string;
+  promptId: string;
+  promptKind: PromptKind;
+  question: string;
+  platformCode: string;
+  modelName: string;
+  collectedAt: string;
+  rawAnswer: string;
+  citations: string[];
+  analysis?: AnalysisResult;
+  measurementScope: MeasurementScope;
+};
+
+export type SampleEvidenceResult = {
+  brandId: BrandId;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  requestedRunIds: string[];
+  missingRunIds: string[];
+  items: SampleEvidenceItem[];
+};
+
+export type MeasurementMetricCode = 'mention_rate' | 'first_rate' | 'top3_rate' | 'fact_accuracy' | 'citation_recall' | 'citation_accuracy' | 'recognition_rate' | 'owned_domain_citation_rate';
+
+export type MeasurementMetric = {
+  code: MeasurementMetricCode;
+  label: string;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  sampleCount: number;
+  value: number | null;
+};
+
+export type MeasurementTrendSegment = {
+  baselineVersion: string;
+  measurementScope: MeasurementScope;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  startedAt: string;
+  endedAt: string;
+  runIds: string[];
+  metrics: MeasurementMetric[];
+};
+
+export type PromptMeasurementSection = {
+  promptKind: PromptKind;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  sampleCount: number;
+  runIds: string[];
+  metrics: MeasurementMetric[];
+};
+
+export type PromptMeasurementSeries = PromptMeasurementSection & {
+  measurementScope: MeasurementScope;
+};
+
+export type PromptMeasurementBreakdown = {
+  discovery: PromptMeasurementSection;
+  brandProbe: PromptMeasurementSection;
+  series: PromptMeasurementSeries[];
+};
+
+export type CompositeMetricComponent = {
+  code: MeasurementMetricCode;
+  label: string;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  value: number | null;
+  configuredWeight: number;
+};
+
+export type CompositeMetricResult = {
+  metricState: SampleEvidenceMeasurementStatus;
+  value: number | null;
+  normalizedWeights: Record<string, number>;
+  components: CompositeMetricComponent[];
+};
+
+export type PlatformMetricValue = {
+  platformCode: string;
+  value: number;
+  sampleCount: number;
+};
+
+export type PlatformMetricComparison = {
+  market: string;
+  metricCode: MeasurementMetricCode;
+  metricLabel: string;
+  eligibility: 'eligible' | 'insufficient_sample';
+  reason?: 'fewer_than_two_valid_platforms' | 'all_platforms_equal';
+  platforms: PlatformMetricValue[];
+  strongestPlatformCode?: string;
+  weakestPlatformCode?: string;
+};
+
+export type MetricTrendState = 'unmeasured' | 'stable' | 'single_period_observation' | 'upward_trend' | 'downward_trend';
+
+export type MetricTrendSnapshot = {
+  metricCode: MeasurementMetricCode;
+  metricLabel: string;
+  period: string;
+  measurementScope: MeasurementScope;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  value: number | null;
+  runIds: string[];
+};
+
+export type MetricTrendEvaluation = {
+  metricCode: MeasurementMetricCode;
+  metricLabel: string;
+  measurementScope: MeasurementScope;
+  trendState: MetricTrendState;
+  direction: 'up' | 'down' | 'none';
+  consecutiveDirectionCount: number;
+  snapshots: MetricTrendSnapshot[];
+  runIds: string[];
+};
+
+export type MetricIntegrityContext = {
+  metricState: SampleEvidenceMeasurementStatus;
+  normalizedWeights: Record<string, number>;
+  comparisonEligibility: PlatformMetricComparison['eligibility'];
+  trendState: MetricTrendState;
+  consecutiveDirectionCount: number;
+};
+
+export type MeasurementExternalEvent = {
+  date: string;
+  title: string;
+  category: 'campaign' | 'model_update' | 'platform_rule' | 'other';
+};
+
+export type MeasurementAttributionInput = {
+  baselineWindowStart: string;
+  baselineWindowEnd: string;
+  observationWindowStart: string;
+  observationWindowEnd: string;
+  controlQuestions: string[];
+  externalEvents: MeasurementExternalEvent[];
+  conclusion?: string;
+};
+
+export type MeasurementAttributionRecord = MeasurementAttributionInput & {
+  id: string;
+  brandId: BrandId;
+  conclusionType: 'observational_correlation';
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MeasurementDisciplineResult = {
+  brandId: BrandId;
+  measurementStatus: SampleEvidenceMeasurementStatus;
+  conditionChanged: boolean;
+  segments: MeasurementTrendSegment[];
+  currentMetrics: MeasurementMetric[];
+  promptBreakdown: PromptMeasurementBreakdown;
+  compositeMetric: CompositeMetricResult;
+  platformComparisons: PlatformMetricComparison[];
+  metricTrends: MetricTrendEvaluation[];
+  attribution?: MeasurementAttributionRecord;
+};
+
 export function hasRealMonitoringResponseSample(
   run: Pick<MonitoringRunDetail, 'platformCode' | 'response'>,
 ): boolean {
@@ -2603,6 +3791,80 @@ export type BeginnerHomeDashboard = {
   nextAction: DashboardNextAction;
 };
 
+export type BrandActionContext = {
+  question?: string;
+  optimizationUnitId?: string;
+  intentId?: string;
+  promptId?: string;
+  runId?: string;
+  planId?: string;
+  taskId?: string;
+  generationTaskId?: string;
+  versionId?: string;
+  publishingRecordId?: string;
+  platformCode?: string;
+  mode?: 'automatic' | 'manual' | 'records' | 'retest';
+  action?: 'create' | 'open';
+  tab?: 'records' | 'accounts' | 'platform-guidance' | 'platform-detail';
+};
+
+export type BrandActionItem = {
+  id: string;
+  category: 'data_blocker' | 'manual_confirmation' | 'execution' | 'retest' | 'review';
+  label: string;
+  reason: string;
+  targetPath:
+    | '/brand-profile'
+    | '/optimization-units'
+    | '/monitoring'
+    | '/growth-optimization'
+    | '/content-generation'
+    | '/publishing'
+    | '/tasks'
+    | '/reports';
+  context: BrandActionContext;
+  expectedBusinessValue: OptimizationUnitPriority;
+  dueAt?: string;
+  blocker?: {
+    reason: string;
+    impactScope: string;
+    recoveryAction: string;
+  };
+};
+
+export type BrandActionPeriodEffect = {
+  status: 'complete' | 'partial' | 'pending' | 'unavailable';
+  periodStart?: string;
+  periodEnd?: string;
+  validSampleCount: number;
+  evidenceCount: number;
+  summary: string;
+};
+
+export type BrandActionDashboard = {
+  brandId: BrandId;
+  beginnerHome: BeginnerHomeDashboard;
+  currentStage: {
+    code: VisibilitySprintStepCode | 'profile_setup' | 'monitoring_setup';
+    label: string;
+    status: VisibilitySprintStatus | 'blocked' | 'ready';
+  };
+  primaryAction: BrandActionItem;
+  todos: BrandActionItem[];
+  latestValidSample?: {
+    runId: string;
+    sampledAt: string;
+    question?: string;
+    platformCode?: string;
+    optimizationUnitId?: string;
+    intentId?: string;
+    promptId?: string;
+  };
+  periodEffect: BrandActionPeriodEffect;
+  sourceFailures: string[];
+  updatedAt: string;
+};
+
 export type MonitoringObjectTask = Pick<
   OptimizationTask,
   'id' | 'title' | 'status' | 'relatedPromptId' | 'priority' | 'retestRecords'
@@ -2658,12 +3920,29 @@ export type AnalysisDiagnosisDashboard = AnalysisWorkbenchDashboard & {
 export type MonitoringRunInput = {
   promptId: string;
   platformCode: string;
+  modelName?: string;
+  collectionMethod?: MonitoringCollectionMethod;
+  clientSurface?: MonitoringClientSurface;
+  searchEnabled?: boolean | null;
+  market?: string;
+  language?: string;
+  evidenceLevel?: MonitoringEvidenceLevel;
+  manualConfirmed?: boolean | null;
+  baselineVersion?: string;
 };
 
 export type ManualResponseInput = {
   rawText: string;
   citations?: string[];
   modelName?: string;
+  collectionMethod?: MonitoringCollectionMethod;
+  clientSurface?: MonitoringClientSurface;
+  searchEnabled?: boolean | null;
+  market?: string;
+  language?: string;
+  evidenceLevel?: MonitoringEvidenceLevel;
+  manualConfirmed?: boolean | null;
+  baselineVersion?: string;
 };
 
 export type UserSummary = {
@@ -2712,6 +3991,7 @@ export type UserBrandPermission = {
 
 export type AccessibleBrand = BrandWorkspaceSummary & {
   role: UserBrandRole;
+  capabilities?: BrandCapabilitySummary;
 };
 
 export type DeniedAccessLog = {

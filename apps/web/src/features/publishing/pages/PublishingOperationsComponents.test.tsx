@@ -101,6 +101,7 @@ describe('publishing operations components', () => {
         onOpenOwnedMedia={noOp}
         onOpenPlatformRules={noOp}
         onRecordResult={noOp}
+        onConfirm={noOp}
         onScheduleRetest={noOp}
         onCopy={noOp}
         onSetPending={noOp}
@@ -143,8 +144,8 @@ describe('publishing operations components', () => {
 
     expect(markup).toContain('还没有可用发布账号');
     expect(markup).toContain('请先在自有媒体中接入账号或恢复账号授权');
-    expect(markup).toContain('请补齐发布账号、内容标题、内容正文和目标平台');
-    for (const field of ['发布账号', '内容标题', '内容正文', '目标平台']) {
+    expect(markup).toContain('请确认发布账号、内容版本、发布方式、素材要求和再次监测计划');
+    for (const field of ['发布账号', '内容标题', '内容正文', '目标平台', '内容版本', '发布方式', '素材要求', '再次监测计划']) {
       expect(markup).toContain(field);
     }
   });
@@ -164,6 +165,7 @@ describe('publishing operations components', () => {
         onOpenOwnedMedia={noOp}
         onOpenPlatformRules={noOp}
         onRecordResult={noOp}
+        onConfirm={noOp}
         onScheduleRetest={noOp}
         onCopy={noOp}
         onSetPending={noOp}
@@ -242,6 +244,10 @@ function buildPublishingRecord(): PublishingRecord {
     body: '品牌 FAQ 正文',
     platform: 'wechat',
     accountName: '品牌公众号',
+    contentVersion: 'version-1',
+    materialRequirementsConfirmed: true,
+    retestPlanAt: '2026-07-20T00:00:00.000Z',
+    confirmedAt: '2026-07-14T00:00:00.000Z',
     status: 'published',
     publishedUrl: 'https://brand.example.com/article',
     createdAt: '2026-07-14T00:00:00.000Z',

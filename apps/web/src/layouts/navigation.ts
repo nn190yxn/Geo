@@ -47,6 +47,7 @@ export const navigationGroups: NavigationGroup[] = [
   {
     label: '发布中心',
     items: [
+      { key: '/site-audit', label: '站点审计', description: '检查官网技术基础，生成修复任务和可部署技术资产', requiresBrand: true },
       { key: '/owned-media', label: '自有媒体', description: '管理官网、公众号、知乎、小红书、B 站等品牌可控账号', requiresBrand: true },
       { key: '/media-platforms', label: '媒体平台', description: '查看渠道规则、内容格式要求、适合意图和发布建议', requiresBrand: true },
       { key: '/publishing', label: '发布记录', description: '管理内容资产、发布账号、负责人、发布时间、真实结果和再次监测计划', requiresBrand: true },
@@ -107,6 +108,7 @@ export const workspaceRouteAliases: Record<string, string> = {
   publishing: '/publishing',
   'owned-media': '/owned-media',
   'media-platforms': '/media-platforms',
+  'site-audit': '/site-audit',
   'model-settings': '/model-settings',
   tasks: '/tasks',
   feedback: '/feedback',

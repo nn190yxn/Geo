@@ -12,7 +12,8 @@ import type {
   CompetitorDiscoveryCandidatesQuery,
   CompetitorDiscoveryRun,
   CompetitorDiscoveryRunInput,
-  CompetitorInput
+  CompetitorInput,
+  ContentGenerationWorkspace
 } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
@@ -101,6 +102,14 @@ export function CompetitorAnalysisPage() {
       }
     }
   });
+  const opportunityTaskMutation = useMutation({
+    mutationFn: (promptId: string) => apiPost<ContentGenerationWorkspace>(`/brands/${activeBrandId}/competitors/opportunities/${promptId}/content-task`, {}),
+    onSuccess: (response, promptId) => {
+      if (!response.success) return;
+      void messageApi.success('已创建竞品机会内容任务');
+      navigate(workflowStagePath('/content-generation', { ...workflowContext, promptId, taskId: response.data.currentTask?.id }));
+    }
+  });
 
   const openCreateModal = () => {
     setEditingCompetitor(undefined);
@@ -148,6 +157,7 @@ export function CompetitorAnalysisPage() {
           onCreate={openCreateModal}
           onDiscover={openDiscoveryDrawer}
           onEdit={openEditModal}
+          onDecide={decideCandidate}
         />
       ) : (
       <AnalysisWorkbench
@@ -188,6 +198,7 @@ export function CompetitorAnalysisPage() {
           </Card>
         )}
         distribution={(
+          <Space direction="vertical" size={16} className="full-width">
           <Card size="small" title="AI 平台矩阵">
             <Table
               rowKey="platformCode"
@@ -202,9 +213,39 @@ export function CompetitorAnalysisPage() {
               ]}
             />
           </Card>
+          <Card size="small" title="已确认竞品的前三可比平台">
+            <Table
+              rowKey={(record) => `${record.competitorName}-${record.market}`}
+              dataSource={dashboard?.topPlatformsByCompetitor ?? []}
+              pagination={false}
+              locale={{ emptyText: '确认竞品并积累真实样本后生成平台强度' }}
+              columns={[
+                { title: '竞品', dataIndex: 'competitorName' },
+                { title: '市场', dataIndex: 'market' },
+                { title: '前三平台', dataIndex: 'platforms', render: (platforms: NonNullable<CompetitorDashboard['topPlatformsByCompetitor']>[number]['platforms']) => platforms.map((platform) => `${getPlatformDisplayName(platform.platformCode)} ${platform.mentionRate}%（${platform.mentionSampleCount}/${platform.comparableSampleCount}）`).join('；') }
+              ]}
+            />
+          </Card>
+          </Space>
         )}
         details={(
           <Space direction="vertical" size={16} className="full-width">
+            <Card size="small" title="问题机会">
+              <Table
+                rowKey="promptId"
+                dataSource={dashboard?.questionOpportunities ?? []}
+                pagination={false}
+                locale={{ emptyText: '当前没有满足判定条件的竞品失守或品牌独占问题' }}
+                columns={[
+                  { title: '问题', dataIndex: 'promptText' },
+                  { title: '机会', dataIndex: 'type', render: (value) => <Tag color={value === 'competitor_loss' ? 'red' : 'green'}>{value === 'competitor_loss' ? '竞品失守' : '品牌独占'}</Tag> },
+                  { title: '品牌提及率', dataIndex: 'brandMentionRate', render: (value) => `${value}%` },
+                  { title: '已确认竞品', dataIndex: 'confirmedCompetitorNames', render: (names: string[]) => names.length > 0 ? names.join('、') : '均未出现' },
+                  { title: '样本', dataIndex: 'sampleCount' },
+                  { title: '操作', render: (_, record) => <Button size="small" loading={opportunityTaskMutation.isPending} onClick={() => opportunityTaskMutation.mutate(record.promptId)}>创建内容任务</Button> }
+                ]}
+              />
+            </Card>
             <Card size="small" title="高风险用户意图">
               <Table
                 rowKey="intentId"
@@ -319,7 +360,7 @@ export function CompetitorAnalysisPage() {
               { title: '距离', dataIndex: 'distanceToNearestCampusKm', render: (value, record) => typeof value === 'number' ? <Tag color={record.isCampusFocus ? 'green' : undefined}>{value} 公里</Tag> : '-' },
               { title: '命中关键词', render: (_, record) => record.matchedKeywords.map((keyword) => <Tag key={keyword}>{keyword}</Tag>) },
               { title: '匹配理由', render: (_, record) => record.matchReasons.join('；') },
-              { title: '状态', dataIndex: 'decisionStatus', render: (value) => decisionStatusText[value as keyof typeof decisionStatusText] ?? value },
+              { title: '证据状态', dataIndex: 'lifecycleStatus', render: (value, record) => <Space direction="vertical" size={2}><Tag>{lifecycleStatusText[value as keyof typeof lifecycleStatusText] ?? value}</Tag><Typography.Text type="secondary">{record.evidenceSampleIds.length} 条 AI 样本</Typography.Text></Space> },
               {
                 title: '操作',
                 render: (_, record) => (
@@ -351,7 +392,8 @@ export function CompetitorProfileManagement({
   failed,
   onCreate,
   onDiscover,
-  onEdit
+  onEdit,
+  onDecide
 }: {
   dashboard: CompetitorDashboard | null;
   loading: boolean;
@@ -359,11 +401,14 @@ export function CompetitorProfileManagement({
   onCreate: () => void;
   onDiscover: () => void;
   onEdit: (competitor: Competitor) => void;
+  onDecide: (candidate: CompetitorCandidate, label: CompetitorConfirmationLabel) => void;
 }) {
   const competitors = dashboard?.competitors ?? [];
+  const candidates = dashboard?.candidates ?? [];
   const state = loading ? 'loading' : failed ? 'error' : competitors.length === 0 ? 'empty' : 'ready';
 
   return (
+    <Space direction="vertical" size={16} className="full-width">
     <ManagementListPage<Competitor>
       title="竞品信息"
       description="维护需要持续对照的直接竞品、标杆品牌和地图发现对象，为后续排名与压制分析提供统一档案。"
@@ -374,6 +419,8 @@ export function CompetitorProfileManagement({
           <Statistic title="竞品档案" value={competitors.length} />
           <Statistic title="直接竞品" value={competitors.filter((item) => item.confirmationLabel === 'direct_competitor').length} />
           <Statistic title="标杆品牌" value={competitors.filter((item) => item.confirmationLabel === 'national_benchmark').length} />
+          <Statistic title="样本确认候选" value={(dashboard?.candidates ?? []).filter((item) => item.lifecycleStatus === 'sample_confirmed').length} />
+          <Statistic title="用户确认候选" value={(dashboard?.candidates ?? []).filter((item) => item.lifecycleStatus === 'user_confirmed').length} />
         </Space>
       )}
       tableTitle="竞品档案列表"
@@ -404,6 +451,27 @@ export function CompetitorProfileManagement({
         ]
       }}
     />
+    <Card size="small" title="竞品候选证据生命周期" extra={<Button onClick={onDiscover}>发现更多候选</Button>}>
+      <Table
+        rowKey="candidateId"
+        dataSource={candidates}
+        pagination={{ pageSize: 8 }}
+        locale={{ emptyText: '地图发现或真实 AI 回复命中后，候选及证据会显示在这里' }}
+        columns={[
+          { title: '候选机构', dataIndex: 'name' },
+          { title: '来源', render: (_, record) => `${sourceProviderText[record.sourceProvider]} · ${record.city}` },
+          { title: '证据状态', dataIndex: 'lifecycleStatus', render: (value, record) => <Space direction="vertical" size={2}><Tag>{lifecycleStatusText[value as keyof typeof lifecycleStatusText] ?? value}</Tag><Typography.Text type="secondary">{record.evidenceSampleIds.length} 条 AI 样本</Typography.Text></Space> },
+          { title: '关联证据', render: (_, record) => record.evidenceSampleIds.length > 0 ? record.evidenceSampleIds.join('、') : '等待真实回复命中' },
+          {
+            title: '操作',
+            render: (_, record) => record.lifecycleStatus === 'user_confirmed' || record.lifecycleStatus === 'excluded'
+              ? <Typography.Text type="secondary">{record.lifecycleStatus === 'user_confirmed' ? '已确认' : '已排除'}</Typography.Text>
+              : <Space wrap><Button size="small" onClick={() => onDecide(record, record.suggestedLabel)}>按建议确认</Button><Button size="small" onClick={() => onDecide(record, 'national_benchmark')}>设为标杆</Button><Button size="small" danger onClick={() => onDecide(record, 'excluded')}>排除</Button></Space>
+          }
+        ]}
+      />
+    </Card>
+    </Space>
   );
 }
 
@@ -630,6 +698,13 @@ const sourceProviderText = {
 const decisionStatusText = {
   pending: '待确认',
   confirmed: '已确认',
+  excluded: '已排除'
+};
+
+const lifecycleStatusText = {
+  candidate: '候选',
+  sample_confirmed: '样本确认',
+  user_confirmed: '用户确认',
   excluded: '已排除'
 };
 

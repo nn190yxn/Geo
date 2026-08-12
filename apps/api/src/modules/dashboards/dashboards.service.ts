@@ -1,6 +1,7 @@
 import { ForbiddenException, HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type {
   AnalysisDiagnosisDashboard,
+  BrandActionDashboard,
   BeginnerHomeDashboard,
   BrandId,
   ContentOperationDashboard,
@@ -9,6 +10,7 @@ import type {
   PublishingOperationDashboard,
 } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
+import { ConfirmationQueueService } from '../automation/confirmation-queue.service';
 import { hasRealMonitoringResponse } from '../monitoring/real-monitoring-response';
 import { buildPublishingRecordPerformance } from '../publishing/publishing-record-performance.mapper';
 import { SprintPublishingService } from '../sprints/sprint-publishing.service';
@@ -16,6 +18,7 @@ import { SprintRetestService } from '../sprints/sprint-retest.service';
 import { calculateSprintMetricSummary } from '../sprints/sprint-metrics.service';
 import {
   buildAnalysisDiagnosisDashboard,
+  buildBrandActionDashboard,
   buildBeginnerHomeDashboard,
   buildContentOperationDashboard,
   buildMonitoringObjectDashboard,
@@ -35,6 +38,7 @@ export class DashboardsService {
     private readonly permissionsService: PermissionsService,
     private readonly sprintPublishingService: SprintPublishingService,
     private readonly sprintRetestService: SprintRetestService,
+    private readonly confirmationQueueService: ConfirmationQueueService,
   ) {}
 
   async getBeginnerHomeDashboard(userId: string, brandId: BrandId): Promise<BeginnerHomeDashboard> {
@@ -71,6 +75,89 @@ export class DashboardsService {
         currentSprint: currentSprint
           ? { ...currentSprint, metricSummary: calculateSprintMetricSummary(currentSprint, realResponseRuns) }
           : undefined,
+      });
+    });
+  }
+
+  async getBrandActionDashboard(userId: string, brandId: BrandId): Promise<BrandActionDashboard> {
+    return this.aggregate(async () => {
+      await this.ensureBrandAccess(userId, brandId);
+      const sources = [
+        ['profile', () => this.permissionsService.getBrandProfile(userId, brandId)],
+        ['optimizationUnits', () => this.permissionsService.listOptimizationUnits(userId, brandId)],
+        ['monitoringRuns', () => this.permissionsService.listMonitoringRuns(userId, brandId)],
+        ['contentWorkspace', () => this.permissionsService.getContentGenerationWorkspace(userId, brandId)],
+        ['publishingDashboard', () => this.permissionsService.getPublishingDashboard(userId, brandId)],
+        ['taskBoard', () => this.permissionsService.getTaskBoard(userId, brandId)],
+        ['pendingConfirmations', () => this.confirmationQueueService.listPending(userId, brandId)],
+        ['currentSprint', () => this.permissionsService.getCurrentVisibilitySprint(userId, brandId)],
+        ['reportDashboard', () => this.permissionsService.getReportDashboard(userId, brandId)],
+        ['publishingStats', () => this.permissionsService.getPublishingChannelStats(userId, brandId)],
+        ['citationDashboard', () => this.permissionsService.getCitationDashboard(userId, brandId)],
+        ['analysisFindings', () => this.permissionsService.listAnalysisFindings(userId, brandId)],
+      ] as const;
+      const results = await Promise.allSettled(sources.map(async ([, loader]): Promise<unknown> => loader()));
+      const accessFailure = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected' && result.reason instanceof ForbiddenException,
+      );
+      if (accessFailure) throw accessFailure.reason;
+      if (results.slice(0, 6).every((result) => result.status === 'rejected')) {
+        throw new ServiceUnavailableException({
+          code: 'DASHBOARD_TEMPORARILY_UNAVAILABLE',
+          message: '页面数据暂时无法加载，请稍后重试',
+        });
+      }
+
+      const value = <T>(index: number, fallback: T): T => {
+        const result = results[index];
+        return result?.status === 'fulfilled' ? (result.value as T) ?? fallback : fallback;
+      };
+      const profile = value<ReturnType<PermissionsService['getBrandProfile']>>(0, null);
+      const optimizationUnits = value<NonNullable<ReturnType<PermissionsService['listOptimizationUnits']>>>(1, []);
+      const monitoringRuns = value<NonNullable<ReturnType<PermissionsService['listMonitoringRuns']>>>(2, []);
+      const contentWorkspace = value<ReturnType<PermissionsService['getContentGenerationWorkspace']>>(3, null);
+      const publishingDashboard = value<ReturnType<PermissionsService['getPublishingDashboard']>>(4, null);
+      const taskBoard = value<ReturnType<PermissionsService['getTaskBoard']>>(5, null);
+      const pendingConfirmations = value<ReturnType<ConfirmationQueueService['listPending']>>(6, []);
+      const currentSprint = value<Awaited<ReturnType<PermissionsService['getCurrentVisibilitySprint']>>>(7, null);
+      const reportDashboard = value<ReturnType<PermissionsService['getReportDashboard']>>(8, null);
+      const publishingStats = value<Awaited<ReturnType<PermissionsService['getPublishingChannelStats']>>>(9, []) ?? [];
+      const citationDashboard = value<Awaited<ReturnType<PermissionsService['getCitationDashboard']>>>(10, null);
+      const analysisFindings = value<Awaited<ReturnType<PermissionsService['listAnalysisFindings']>>>(11, []) ?? [];
+      const realResponseRuns = monitoringRuns.filter(hasRealMonitoringResponse);
+      const sprint = currentSprint
+        ? { ...currentSprint, metricSummary: calculateSprintMetricSummary(currentSprint, realResponseRuns) }
+        : undefined;
+      const publishingPerformance = buildPublishingRecordPerformance(
+        publishingDashboard?.records ?? [],
+        citationDashboard?.sources ?? [],
+        taskBoard?.tasks ?? [],
+      );
+      const beginnerHome = buildBeginnerHomeDashboard({
+        brandId,
+        profile: profile ?? undefined,
+        monitoringObjectCount: optimizationUnits.length,
+        realResponseRuns,
+        contentTasks: contentWorkspace?.tasks ?? [],
+        publishingStats,
+        publishingPerformance,
+        analysisFindings,
+        currentSprint: sprint,
+      });
+
+      return buildBrandActionDashboard({
+        brandId,
+        beginnerHome,
+        profile: profile ?? undefined,
+        optimizationUnits,
+        monitoringRuns,
+        contentTasks: contentWorkspace?.tasks ?? [],
+        publishingRecords: publishingDashboard?.records ?? [],
+        optimizationTasks: taskBoard?.tasks ?? [],
+        pendingConfirmations,
+        currentSprint: sprint,
+        reportDashboard: reportDashboard ?? undefined,
+        sourceFailures: results.flatMap((result, index) => result.status === 'rejected' ? [sources[index][0]] : []),
       });
     });
   }

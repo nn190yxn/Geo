@@ -19,10 +19,29 @@ describe('test question candidate repository', () => {
       targetPlatforms: ['doubao', 'kimi'],
       priority: 'high',
       estimatedValue: '验证地域品类推荐场景',
+      discoveryDimension: 'location',
+      businessValue: 'high',
+      recommendationProbability: 0.86,
+      userStage: 'consideration',
+      generationRationale: '  基于目标城市和目标人群生成。  ',
+      generationMethod: 'deterministic',
+      mergedFrom: [' 城市资料 ', '城市资料'],
       selected: true
     });
 
-    expect(candidate).toMatchObject({ brandId: 'brand_demo', themeId: theme?.id, selected: true, editable: true });
+    expect(candidate).toMatchObject({
+      brandId: 'brand_demo',
+      themeId: theme?.id,
+      discoveryDimension: 'location',
+      businessValue: 'high',
+      recommendationProbability: 0.86,
+      userStage: 'consideration',
+      generationRationale: '基于目标城市和目标人群生成。',
+      generationMethod: 'deterministic',
+      mergedFrom: ['城市资料'],
+      selected: true,
+      editable: true
+    });
     expect(repository.listTestQuestionCandidates('user_demo', 'brand_demo')).toContainEqual(candidate);
   });
 
@@ -64,6 +83,12 @@ describe('test question candidate repository', () => {
       purposes: ['brand_mentioned', 'value_prop_accuracy'],
       targetPlatforms: ['doubao', 'kimi'],
       priority: 'high',
+      businessValue: 'high',
+      recommendationProbability: 0.91,
+      userStage: 'decision',
+      generationRationale: '  根据用户决策阶段调整。  ',
+      generationMethod: 'merged',
+      mergedFrom: ['规则候选', 'AI 候选'],
       selected: true
     });
 
@@ -72,6 +97,12 @@ describe('test question candidate repository', () => {
       purposes: ['brand_mentioned', 'value_prop_accuracy'],
       targetPlatforms: ['doubao', 'kimi'],
       priority: 'high',
+      businessValue: 'high',
+      recommendationProbability: 0.91,
+      userStage: 'decision',
+      generationRationale: '根据用户决策阶段调整。',
+      generationMethod: 'merged',
+      mergedFrom: ['规则候选', 'AI 候选'],
       selected: true
     });
   });

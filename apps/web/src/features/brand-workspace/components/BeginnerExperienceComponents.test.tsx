@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { BeginnerHomeDashboard, BrandDetail } from '@geo-platform/shared-types';
+import type { BrandActionDashboard, BeginnerHomeDashboard, BrandDetail, CompetitorDashboard } from '@geo-platform/shared-types';
 import { describe, expect, it, vi } from 'vitest';
 import { CompetitorProfileManagement } from '../../competitors/pages/CompetitorAnalysisPage';
 import { PlatformConnectionCards, type PlatformCardItem } from '../../model-settings/pages/ModelSettingsPage';
@@ -12,7 +12,7 @@ function render(element: ReactElement) {
   return renderToStaticMarkup(element);
 }
 
-function renderBeginnerHome(dashboard: BeginnerHomeDashboard) {
+function renderBeginnerHome(dashboard: BrandActionDashboard) {
   return render(
     <BeginnerHomeContent
       dashboard={dashboard}
@@ -23,60 +23,93 @@ function renderBeginnerHome(dashboard: BeginnerHomeDashboard) {
   );
 }
 
+function createActionDashboard(overrides: Partial<BrandActionDashboard> = {}): BrandActionDashboard {
+  const beginnerHome = overrides.beginnerHome ?? createDashboard();
+  return {
+    brandId: 'brand_demo',
+    beginnerHome,
+    currentStage: { code: 'profile_setup', label: '品牌资料准备', status: 'blocked' },
+    primaryAction: {
+      id: 'blocker:brand-profile',
+      category: 'data_blocker',
+      label: beginnerHome.nextAction.label,
+      reason: beginnerHome.nextAction.reason,
+      targetPath: '/brand-profile',
+      context: {},
+      expectedBusinessValue: 'high'
+    },
+    todos: [],
+    periodEffect: { status: 'unavailable', validSampleCount: 0, evidenceCount: 0, summary: '完成首轮监测后可查看本周期效果' },
+    sourceFailures: [],
+    updatedAt: '2026-07-15T00:00:00.000Z',
+    ...overrides
+  };
+}
+
 describe('开始使用域组件', () => {
-  it.each([
-    {
-      name: '未建档',
-      dashboard: createDashboard(),
-      expected: ['补充品牌资料', '当前完整度 0%']
-    },
-    {
-      name: '待建优化单元',
-      dashboard: createDashboard({
-        profileCompleteness: { completenessScore: 100, missingFields: [] },
-        nextAction: { actionType: 'create_monitoring_object', label: '创建优化单元', reason: '确定监测范围' }
-      }),
-      expected: ['创建优化单元', '品牌资料已完整']
-    },
-    {
-      name: '待采集真实回复',
-      dashboard: createDashboard({
-        profileCompleteness: { completenessScore: 100, missingFields: [] },
-        monitoringObjectCount: 2,
-        nextAction: { actionType: 'collect_real_response', label: '获取真实回复', reason: '开始首轮监测' }
-      }),
-      expected: ['获取真实回复', '已创建 2 个优化单元']
-    },
-    {
-      name: '已有结果',
-      dashboard: createDashboard({
-        realResponseStatus: { total: 3, collected: 3, pending: 0, reviewRequired: 0, failed: 0 },
-        resultSummary: { recommendationRate: 67, averageRank: 2, citationHitRate: 33, pendingIssueCount: 0, sampleSize: 3, rankedSampleSize: 2 }
-      }),
-      expected: ['首轮监测结果', '推荐度', '平均排名', '引用率', 'AI 怎么评价我的品牌？']
-    },
-    {
-      name: '存在风险',
-      dashboard: createDashboard({
-        realResponseStatus: { total: 3, collected: 3, pending: 0, reviewRequired: 2, failed: 0 },
-        analysisRisk: { total: 2, high: 1, byType: { competitor: 1, evaluation: 1, citation: 0, fact: 0 } },
-        resultSummary: { recommendationRate: 33, averageRank: 4, citationHitRate: 0, pendingIssueCount: 2, sampleSize: 3, rankedSampleSize: 1 },
-        nextAction: { actionType: 'review_risk', label: '处理风险回答', reason: '存在高风险表达' }
-      }),
-      expected: ['待处理问题', '需要人工复核的真实回复', '哪些回答需要修正？']
-    }
-  ])('渲染$name首页状态', ({ dashboard, expected }) => {
-    const markup = renderBeginnerHome(dashboard);
-    for (const text of expected) expect(markup).toContain(text);
+  it('首屏只突出一个主按钮并最多渲染三项待办', () => {
+    const todos = Array.from({ length: 4 }, (_, index) => ({
+      id: `task:${index}`,
+      category: 'execution' as const,
+      label: `待办 ${index + 1}`,
+      reason: '等待处理',
+      targetPath: '/tasks' as const,
+      context: { taskId: `task-${index}` },
+      expectedBusinessValue: 'medium' as const
+    }));
+    const markup = renderBeginnerHome(createActionDashboard({ todos }));
+
+    expect(markup.match(/ant-btn-primary/g)).toHaveLength(1);
+    expect(markup.match(/beginner-todo-row/g)).toHaveLength(3);
+    expect(markup).toContain('待办 3');
+    expect(markup).not.toContain('待办 4');
+    expect(markup).toContain('快速接入向导');
+    expect(markup.match(/ant-btn-primary/g)).toHaveLength(1);
   });
 
-  it('为有结果首页展示三个问题式入口', () => {
-    const markup = renderBeginnerHome(createDashboard({
-      resultSummary: { recommendationRate: 50, averageRank: 2, citationHitRate: 50, pendingIssueCount: 1, sampleSize: 2, rankedSampleSize: 2 }
+  it('展示阻断原因、影响范围和恢复动作', () => {
+    const dashboard = createActionDashboard();
+    dashboard.primaryAction.blocker = {
+      reason: '品牌资料不完整',
+      impactScope: '监测问题和内容生成',
+      recoveryAction: '补齐品牌核心资料'
+    };
+    const markup = renderBeginnerHome(dashboard);
+
+    for (const text of ['品牌资料不完整', '影响范围：监测问题和内容生成', '恢复动作：补齐品牌核心资料']) {
+      expect(markup).toContain(text);
+    }
+  });
+
+  it.each([
+    ['complete', '证据完整'],
+    ['partial', '部分证据'],
+    ['pending', '持续观察'],
+    ['unavailable', '等待首轮数据']
+  ] as const)('渲染 %s 周期效果状态', (status, label) => {
+    const markup = renderBeginnerHome(createActionDashboard({
+      periodEffect: { status, validSampleCount: 2, evidenceCount: 1, summary: '效果摘要' }
+    }));
+    expect(markup).toContain(label);
+    expect(markup).toContain('有效样本 2 条，效果证据 1 项');
+  });
+
+  it('部分来源失败时保留主行动、待办和响应式结构', () => {
+    const markup = renderBeginnerHome(createActionDashboard({
+      sourceFailures: ['reportDashboard'],
+      todos: [{
+        id: 'task:one',
+        category: 'execution',
+        label: '继续处理任务',
+        reason: '已成功读取任务数据',
+        targetPath: '/tasks',
+        context: { taskId: 'task-one' },
+        expectedBusinessValue: 'high'
+      }]
     }));
 
-    for (const question of ['AI 怎么评价我的品牌？', '哪些回答需要修正？', '下一篇内容写什么？']) {
-      expect(markup).toContain(question);
+    for (const text of ['部分数据仍在恢复', '补充品牌资料', '继续处理任务', 'beginner-home-layout', 'beginner-todo-row']) {
+      expect(markup).toContain(text);
     }
   });
 
@@ -108,12 +141,28 @@ describe('开始使用域组件', () => {
         onCreate={() => undefined}
         onDiscover={() => undefined}
         onEdit={() => undefined}
+        onDecide={() => undefined}
       />
     );
 
     expect(markup).toContain('还没有竞品档案');
     expect(markup.match(/新增竞品/g)).toHaveLength(1);
     expect(markup.match(/地图发现竞品/g)).toHaveLength(1);
+  });
+
+  it('竞品资料展示可追溯的候选生命周期和样本证据', () => {
+    const dashboard: CompetitorDashboard = {
+      brandId: 'brand_demo', competitors: [], mentionRate: 0, suppressionRate: 0, averageRankGap: 0, highRiskIntents: [], comparisons: [], questionOpportunities: [], topPlatformsByCompetitor: [],
+      candidates: [{
+        candidateId: 'candidate_1', runId: 'discovery_1', brandId: 'brand_demo', sourceProvider: 'amap', name: '候选体能馆', address: '贵阳', city: '贵阳',
+        matchedKeywords: ['儿童体能'], score: 88, suggestedLabel: 'direct_competitor', matchReasons: ['同城同品类'], confidence: 'high', isCampusFocus: true,
+        decisionStatus: 'pending', lifecycleStatus: 'sample_confirmed', evidenceSampleIds: ['run_1'], sampleConfirmedAt: '2026-08-03T01:00:00.000Z',
+        createdAt: '2026-08-03T00:00:00.000Z', updatedAt: '2026-08-03T01:00:00.000Z'
+      }]
+    };
+    const markup = render(<CompetitorProfileManagement dashboard={dashboard} loading={false} failed={false} onCreate={vi.fn()} onDiscover={vi.fn()} onEdit={vi.fn()} onDecide={vi.fn()} />);
+
+    for (const text of ['竞品候选证据生命周期', '候选体能馆', '样本确认', '1 条 AI 样本', 'run_1', '按建议确认', '设为标杆', '排 除']) expect(markup).toContain(text);
   });
 
   it('平台卡片展示连接状态、监测方式和唯一管理动作', () => {

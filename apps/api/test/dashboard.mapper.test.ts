@@ -4,6 +4,8 @@ import type {
   AIResponse,
   AnalysisResult,
   AnalysisFinding,
+  AutomationConfirmation,
+  BeginnerHomeDashboard,
   BrandProfile,
   CitationSource,
   ContentGenerationTask,
@@ -15,12 +17,14 @@ import type {
   PublishingChannelStats,
   PublishingRecord,
   PublishingRecordPerformance,
+  ReportDashboard,
   SprintRetestTrendDashboard,
   UserIntent,
   BrandPrompt,
 } from '@geo-platform/shared-types';
 import {
   buildAnalysisDiagnosisDashboard,
+  buildBrandActionDashboard,
   buildBeginnerHomeDashboard,
   buildBeginnerHomeResultSummary,
   buildContentOperationDashboard,
@@ -67,6 +71,15 @@ function createRun(ownerBrandId = brandId): MonitoringRunDetail {
     brandId: ownerBrandId,
     rawText: '真实 AI 回复',
     citations: [],
+    platformCode: 'doubao',
+    modelName: 'unknown',
+    collectionMethod: 'unknown',
+    searchEnabled: null,
+    market: 'unknown',
+    language: 'unknown',
+    evidenceLevel: 'unknown',
+    manualConfirmed: null,
+    baselineVersion: 'unknown',
     respondedAt: now,
     parseStatus: 'parsed',
     createdAt: now,
@@ -79,9 +92,48 @@ function createRun(ownerBrandId = brandId): MonitoringRunDetail {
     promptId: 'prompt-1',
     promptText: '推荐一个品牌',
     platformCode: 'doubao',
+    modelName: 'unknown',
+    collectionMethod: 'unknown',
+    searchEnabled: null,
+    market: 'unknown',
+    language: 'unknown',
+    evidenceLevel: 'unknown',
+    manualConfirmed: null,
+    baselineVersion: 'unknown',
     status: 'completed',
     createdAt: now,
     response,
+  };
+}
+
+function createBeginnerDashboard(): BeginnerHomeDashboard {
+  return buildBeginnerHomeDashboard({
+    brandId,
+    profile: { brandId, completenessScore: 100, missingFields: [] } as BrandProfile,
+    monitoringObjectCount: 1,
+    realResponseRuns: [],
+    contentTasks: [],
+    publishingStats: [],
+    publishingPerformance: [],
+    analysisFindings: [],
+  });
+}
+
+function createActionSource(overrides: Partial<Parameters<typeof buildBrandActionDashboard>[0]> = {}): Parameters<typeof buildBrandActionDashboard>[0] {
+  const analyzedRun = createRun();
+  analyzedRun.analysis = {} as AnalysisResult;
+  return {
+    brandId,
+    beginnerHome: createBeginnerDashboard(),
+    profile: { brandId, completenessScore: 100, missingFields: [] } as BrandProfile,
+    optimizationUnits: [{ id: 'unit-1', brandId, priority: 'high' } as OptimizationUnit],
+    monitoringRuns: [analyzedRun],
+    contentTasks: [],
+    publishingRecords: [],
+    optimizationTasks: [],
+    pendingConfirmations: [],
+    now: new Date(now),
+    ...overrides,
   };
 }
 
@@ -275,5 +327,171 @@ describe('dashboard mappers', () => {
     expect(publishingDashboard.pendingRetestItems.map((item) => item.task.id)).toEqual(['task-planned']);
     expect(Object.values(analysisDashboard.findingGroups).map((group) => group.length)).toEqual([1, 1, 1, 1]);
     expect(analysisDashboard.recommendedActions).toHaveLength(1);
+  });
+
+  it('将资料阻断置顶并严格过滤品牌且最多返回三项待办', () => {
+    const tasks = Array.from({ length: 5 }, (_, index) => ({
+      id: `task-${index}`,
+      brandId: index === 4 ? otherBrandId : brandId,
+      title: `任务 ${index}`,
+      type: 'manual',
+      status: 'todo',
+      priority: 'medium',
+      retestRecords: [],
+      createdAt: now,
+      updatedAt: now,
+    })) as OptimizationTask[];
+    const dashboard = buildBrandActionDashboard(createActionSource({
+      profile: { brandId, completenessScore: 50, missingFields: ['intro'] } as BrandProfile,
+      optimizationTasks: tasks,
+    }));
+
+    expect(dashboard.primaryAction).toMatchObject({ id: 'blocker:brand-profile', category: 'data_blocker' });
+    expect(dashboard.primaryAction.blocker).toMatchObject({ reason: '品牌资料不完整', recoveryAction: '补齐并确认品牌核心资料' });
+    expect(dashboard.todos).toHaveLength(3);
+    expect(dashboard.todos.every((item) => item.id !== 'task-4')).toBe(true);
+  });
+
+  it('按待确认、执行状态、到期、业务价值和稳定 ID 排序', () => {
+    const confirmation = {
+      confirmationId: 'confirm-1',
+      packageId: 'package-1',
+      brandId,
+      type: 'analysis_review',
+      status: 'pending',
+      title: '确认分析结论',
+      impact: '影响后续内容',
+      recommendation: '人工确认',
+      evidenceSummary: '一条证据',
+      payload: { runId: 'run-1', promptId: 'prompt-1' },
+    } as AutomationConfirmation;
+    const tasks = [
+      { id: 'task-z', status: 'todo', priority: 'high', dueDate: '2026-07-16T00:00:00.000Z' },
+      { id: 'task-b', status: 'doing', priority: 'low', dueDate: '2026-07-20T00:00:00.000Z' },
+      { id: 'task-a', status: 'doing', priority: 'low', dueDate: '2026-07-20T00:00:00.000Z' },
+    ].map((task) => ({
+      ...task,
+      brandId,
+      title: task.id,
+      type: 'manual',
+      retestRecords: [],
+      createdAt: now,
+      updatedAt: now,
+    })) as OptimizationTask[];
+    const dashboard = buildBrandActionDashboard(createActionSource({ pendingConfirmations: [confirmation], optimizationTasks: tasks }));
+
+    expect(dashboard.primaryAction.id).toBe('confirmation:confirm-1');
+    expect(dashboard.primaryAction.context).toMatchObject({ runId: 'run-1', promptId: 'prompt-1' });
+    expect(dashboard.todos.map((item) => item.id)).toEqual(['task:task-a', 'task:task-b', 'task:task-z']);
+  });
+
+  it('覆盖待监测、待发布、待复测和全部完成状态', () => {
+    const noSample = buildBrandActionDashboard(createActionSource({ monitoringRuns: [] }));
+    const pendingAnalysisRun = createRun();
+    const pendingAnalysis = buildBrandActionDashboard(createActionSource({ monitoringRuns: [pendingAnalysisRun] }));
+    const completedContent = createContentTask();
+    const publish = buildBrandActionDashboard(createActionSource({ contentTasks: [completedContent] }));
+    const publishedRecord = {
+      id: 'record-1',
+      brandId,
+      contentAssetId: 'asset-1',
+      generationTaskId: completedContent.id,
+      title: '已发布内容',
+      body: '正文',
+      platform: 'wechat',
+      status: 'published',
+      createdAt: now,
+      updatedAt: now,
+    } as PublishingRecord;
+    const retest = buildBrandActionDashboard(createActionSource({ contentTasks: [completedContent], publishingRecords: [publishedRecord] }));
+    const completed = buildBrandActionDashboard(createActionSource());
+
+    expect(noSample.primaryAction.id).toBe('execution:start-monitoring');
+    expect(pendingAnalysis.primaryAction).toMatchObject({ id: `execution:monitoring:${pendingAnalysisRun.id}`, label: '完成真实回复分析' });
+    expect(publish.primaryAction.id).toBe(`publish:${completedContent.id}`);
+    expect(retest.primaryAction.id).toBe('retest:record-1');
+    expect(completed.primaryAction.id).toBe('review:latest-results');
+  });
+
+  it('持续推荐内容生成和已创建发布记录的权威下一步', () => {
+    const pendingContent = createContentTask();
+    pendingContent.status = 'running';
+    const content = buildBrandActionDashboard(createActionSource({ contentTasks: [pendingContent] }));
+    const pendingPublishing = {
+      id: 'record-pending',
+      brandId,
+      contentAssetId: 'asset-1',
+      generationTaskId: pendingContent.id,
+      versionId: 'version-1',
+      title: '待发布内容',
+      body: '正文',
+      platform: 'wechat',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+    } as PublishingRecord;
+    pendingContent.status = 'completed';
+    const publishing = buildBrandActionDashboard(createActionSource({
+      contentTasks: [pendingContent],
+      publishingRecords: [pendingPublishing],
+    }));
+
+    expect(content.primaryAction).toMatchObject({ id: `content:${pendingContent.id}`, targetPath: '/content-generation' });
+    expect(publishing.primaryAction).toMatchObject({
+      id: 'publishing:record-pending',
+      targetPath: '/publishing',
+      context: { generationTaskId: pendingContent.id, versionId: 'version-1', publishingRecordId: 'record-pending', tab: 'records' },
+    });
+  });
+
+  it('发布来源失败时不根据缺失记录生成待发布动作', () => {
+    const dashboard = buildBrandActionDashboard(createActionSource({
+      contentTasks: [createContentTask()],
+      sourceFailures: ['publishingDashboard'],
+    }));
+
+    expect(dashboard.primaryAction.id).toBe('review:latest-results');
+    expect(dashboard.sourceFailures).toEqual(['publishingDashboard']);
+  });
+
+  it('优先使用冻结报告范围生成最近样本和周期效果', () => {
+    const olderRun = createRun();
+    olderRun.id = 'run-frozen';
+    olderRun.createdAt = '2026-07-10T00:00:00.000Z';
+    const newerRun = createRun();
+    newerRun.id = 'run-newer';
+    newerRun.createdAt = '2026-07-14T00:00:00.000Z';
+    const reportDashboard = {
+      brandId,
+      reports: [{
+        id: 'report-1',
+        brandId,
+        type: 'weekly',
+        title: '周期报告',
+        periodStart: '2026-07-07',
+        periodEnd: '2026-07-13',
+        status: 'generated',
+        content: '',
+        dataGaps: [],
+        createdBy: 'user-a',
+        createdAt: now,
+        snapshot: {
+          brand: { brandId, name: '品牌 A', industry: '软件', status: 'active' },
+          scope: {
+            brandId,
+            periodStart: '2026-07-07',
+            periodEnd: '2026-07-13',
+            validSampleCount: 1,
+            recordIds: { monitoringRunIds: ['run-frozen'] },
+            sampleSummary: { lastSampleAt: '2026-07-10T00:00:00.000Z' },
+          },
+          effectEvidence: [{ brandId, evidenceStatus: 'complete' }],
+        },
+      }],
+    } as ReportDashboard;
+    const dashboard = buildBrandActionDashboard(createActionSource({ monitoringRuns: [olderRun, newerRun], reportDashboard }));
+
+    expect(dashboard.latestValidSample?.runId).toBe('run-frozen');
+    expect(dashboard.periodEffect).toMatchObject({ status: 'complete', validSampleCount: 1, evidenceCount: 1 });
   });
 });

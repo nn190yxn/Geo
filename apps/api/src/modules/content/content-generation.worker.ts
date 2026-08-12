@@ -3,11 +3,13 @@ import type {
   AsyncJob,
   ContentGenerationStepKey,
   ContentGenerationWorkspace,
+  KnowledgeQueryResult,
   LLMContentGenerationInput,
   LLMContentGenerationOutput
 } from '@geo-platform/shared-types';
 import { LLMOrchestrationService } from '../llm/llm-orchestration.service';
 import { PermissionsService } from '../permissions/permissions.service';
+import { KnowledgeRetrievalService } from '../brands/knowledge-retrieval.service';
 
 export type GeneratedContentDraft = {
   title: string;
@@ -20,7 +22,8 @@ export type ContentGenerationDraftGenerator = (workspace: ContentGenerationWorks
 export class ContentGenerationWorker {
   constructor(
     private readonly permissionsService: PermissionsService,
-    @Optional() private readonly llmService?: LLMOrchestrationService
+    @Optional() private readonly llmService?: LLMOrchestrationService,
+    @Optional() private readonly knowledgeRetrievalService?: KnowledgeRetrievalService
   ) {}
 
   async processJob(userId: string, brandId: string, jobId: string, draftGenerator?: ContentGenerationDraftGenerator): Promise<ContentGenerationWorkspace | null> {
@@ -40,7 +43,19 @@ export class ContentGenerationWorker {
     let currentStep: ContentGenerationStepKey = 'strategy_parse';
     try {
       await this.completeStep(userId, brandId, job.entityId, 'strategy_parse', '已读取内容建议');
-      await this.completeStep(userId, brandId, job.entityId, 'knowledge_read', '已读取品牌知识库');
+      const knowledge = await this.knowledgeRetrievalService?.query(userId, brandId, {
+        query: [workspace.currentTask.contentTopic, ...workspace.currentTask.targetKeywords].join(' '),
+        limit: 5,
+        purpose: 'content_generation',
+        resourceId: workspace.currentTask.id
+      });
+      await this.completeStep(
+        userId,
+        brandId,
+        job.entityId,
+        'knowledge_read',
+        knowledge?.citations.length ? `已读取 ${knowledge.citations.length} 条品牌知识依据` : '品牌知识依据待补充'
+      );
       await this.completeStep(userId, brandId, job.entityId, 'outline_generation', '已生成内容大纲');
 
       currentStep = 'body_generation';
@@ -49,7 +64,7 @@ export class ContentGenerationWorker {
         status: 'running',
         message: '正在生成正文草稿'
       });
-      const draft = draftGenerator ? await draftGenerator(workspace) : await this.generateDraft(userId, brandId, workspace);
+      const draft = draftGenerator ? await draftGenerator(workspace) : await this.generateDraft(userId, brandId, workspace, knowledge ?? undefined);
       await this.completeStep(userId, brandId, job.entityId, 'body_generation', '已生成正文草稿');
       await this.completeStep(userId, brandId, job.entityId, 'geo_rule_check', '已完成 AI 推荐表达检查');
 
@@ -83,10 +98,15 @@ export class ContentGenerationWorker {
     });
   }
 
-  private async generateDraft(userId: string, brandId: string, workspace: ContentGenerationWorkspace): Promise<GeneratedContentDraft> {
+  private async generateDraft(
+    userId: string,
+    brandId: string,
+    workspace: ContentGenerationWorkspace,
+    knowledge?: KnowledgeQueryResult
+  ): Promise<GeneratedContentDraft> {
     const task = workspace.currentTask;
     if (!task || !this.llmService) {
-      return buildDefaultDraft(workspace);
+      return buildDefaultDraft(workspace, knowledge);
     }
 
     const [brand, profile] = await Promise.all([
@@ -95,7 +115,7 @@ export class ContentGenerationWorker {
     ]);
 
     if (!brand || !profile) {
-      return buildDefaultDraft(workspace);
+      return buildDefaultDraft(workspace, knowledge);
     }
 
     const response = await this.llmService.runTask<LLMContentGenerationInput, LLMContentGenerationOutput>(userId, brandId, 'content_generation', {
@@ -108,13 +128,13 @@ export class ContentGenerationWorker {
         title: task.contentTopic,
         targetPlatform: task.targetPlatform,
         targetKeywords: task.targetKeywords,
-        referenceSources: task.referenceSources,
+        referenceSources: buildGenerationReferences(task.referenceSources, knowledge),
         retestAt: task.retestAt
       }
     });
 
     if (response.status !== 'succeeded' || !response.output) {
-      return buildDefaultDraft(workspace);
+      return buildDefaultDraft(workspace, knowledge);
     }
 
     return applyContentSafetyNotes(
@@ -151,7 +171,7 @@ function appendLLMGuidance(draft: GeneratedContentDraft, output: LLMContentGener
   };
 }
 
-function buildDefaultDraft(workspace: ContentGenerationWorkspace): GeneratedContentDraft {
+function buildDefaultDraft(workspace: ContentGenerationWorkspace, knowledge?: KnowledgeQueryResult): GeneratedContentDraft {
   const task = workspace.currentTask;
   const targetPlatform = task?.targetPlatform ?? '内容平台';
   const contentType = task?.contentType ?? '内容稿';
@@ -159,7 +179,7 @@ function buildDefaultDraft(workspace: ContentGenerationWorkspace): GeneratedCont
   const contentTypeLabel = getContentTypeLabel(contentType);
   const topic = task?.contentTopic ?? '用户关心的问题';
   const keywords = task?.targetKeywords?.length ? task.targetKeywords : ['品牌关键词'];
-  const referenceSources = task?.referenceSources?.length ? task.referenceSources : ['品牌知识库'];
+  const referenceSources = buildGenerationReferences(task?.referenceSources ?? [], knowledge);
   const retestAt = task?.retestAt;
 
   if ([targetPlatform, contentType].some((value) => /xiaohongshu|小红书|note|post/.test(value))) {
@@ -303,6 +323,14 @@ function buildDefaultDraft(workspace: ContentGenerationWorkspace): GeneratedCont
       `关键词：${keywords.join('、')}`
     ], targetPlatformLabel, referenceSources, retestAt)
   };
+}
+
+function buildGenerationReferences(referenceSources: string[], knowledge?: KnowledgeQueryResult): string[] {
+  const knowledgeReferences = knowledge?.citations
+    .filter((citation) => citation.trusted)
+    .map((citation) => `${citation.content}${citation.sourceUrl ? `（来源：${citation.sourceUrl}）` : `（来源资料：${citation.sourceId}）`}`) ?? [];
+  const references = [...referenceSources, ...knowledgeReferences].map((item) => item.trim()).filter(Boolean);
+  return references.length > 0 ? [...new Set(references)] : ['品牌知识库（资料待确认）'];
 }
 
 function appendDefaultGuidance(lines: string[], targetPlatformLabel: string, referenceSources: string[], retestAt?: string): string {

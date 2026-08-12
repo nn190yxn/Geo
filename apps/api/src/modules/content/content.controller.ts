@@ -8,6 +8,8 @@ import type {
   ContentAssetInput,
   ContentAssetPageInput,
   ContentAssetPageItem,
+  ContentReadinessInput,
+  ContentReadinessResult,
   ContentAssetStatus,
   ContentCenterDashboard,
   ContentExportRecord,
@@ -26,10 +28,12 @@ import type {
   PublishingRecord
 } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
+import { ContentReadinessService } from './content-readiness.service';
+import { ProductEventRecorderService } from '../product-events/product-event-recorder.service';
 
 @Controller('brands/:brandId/content')
 export class ContentController {
-  constructor(private readonly permissionsService: PermissionsService) {}
+  constructor(private readonly permissionsService: PermissionsService, private readonly productEventRecorder: ProductEventRecorderService) {}
 
   @Get()
   async getContentCenter(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<ContentCenterDashboard>> {
@@ -68,6 +72,7 @@ export class ContentController {
     if (!asset) {
       throw new NotFoundException('内容资产关联对象不存在或当前用户无权访问');
     }
+    await this.productEventRecorder.record({ actorUserId: request.context.userId, brandId, eventType: 'content_saved', entityType: 'content_asset', entityId: asset.id, idempotencyKey: `content-asset:${asset.id}`, metadata: { contentType: asset.type } });
 
     return { success: true, data: asset };
   }
@@ -125,6 +130,7 @@ export class ContentController {
     if (!workspace) {
       throw new NotFoundException('内容生成工作台不存在或当前用户无权访问');
     }
+    await this.productEventRecorder.record({ actorUserId: request.context.userId, brandId, eventType: 'content_saved', entityType: 'content_version', entityId: workspace.currentVersion?.id ?? taskId, idempotencyKey: `content-version:${taskId}:${workspace.currentVersion?.id ?? 'saved'}` });
 
     return { success: true, data: workspace };
   }
@@ -227,7 +233,10 @@ export class ContentController {
 
 @Controller('brands/:brandId/content-assets')
 export class ContentAssetsPageController {
-  constructor(private readonly permissionsService: PermissionsService) {}
+  constructor(
+    private readonly permissionsService: PermissionsService,
+    private readonly contentReadinessService: ContentReadinessService
+  ) {}
 
   @Get()
   async listContentAssetsPage(@Req() request: Request, @Param('brandId') brandId: string): Promise<ApiResponse<ContentAssetPageItem[]>> {
@@ -267,6 +276,19 @@ export class ContentAssetsPageController {
       success: true,
       data: buildContentAssetPageItem(asset, citationDashboard?.sources ?? [], publishingDashboard?.records ?? [], growthWorkspace?.relatedTasks ?? [])
     };
+  }
+
+  @Post(':assetId/readiness')
+  async inspectReadiness(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Param('assetId') assetId: string,
+    @Body() input: ContentReadinessInput
+  ): Promise<ApiResponse<ContentReadinessResult>> {
+    if (!input.body?.trim()) throw new BadRequestException('待检查正文不能为空');
+    const result = await this.contentReadinessService.inspect(request.context.userId, brandId, assetId, input);
+    if (!result) throw new NotFoundException('内容资产不存在或当前用户无权访问');
+    return { success: true, data: result };
   }
 }
 

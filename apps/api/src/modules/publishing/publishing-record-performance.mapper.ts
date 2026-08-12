@@ -29,15 +29,15 @@ export function buildPublishingRecordPerformance(
       sourceStatus,
       citationCount: recordCitations.reduce((total, citation) => total + citation.citationCount, 0),
       relatedIntentCount: new Set(recordCitations.map((citation) => citation.promptId)).size,
-      retestStatus: getPublishingRetestStatus(latestRetest),
+      retestStatus: getPublishingRetestStatus(latestRetest, record.retestPlanAt),
       latestRetestRecordId: latestRetest?.id,
       nextSuggestion: getPublishingPerformanceSuggestion(sourceStatus, recordCitations.length, latestRetest?.improved),
     };
   });
 }
 
-function getPublishingRetestStatus(retestRecord: RetestRecord | undefined): PublishingRecordPerformance['retestStatus'] {
-  if (!retestRecord) return 'not_planned';
+function getPublishingRetestStatus(retestRecord: RetestRecord | undefined, retestPlanAt?: string): PublishingRecordPerformance['retestStatus'] {
+  if (!retestRecord) return retestPlanAt ? 'planned' : 'not_planned';
   if (!retestRecord.completedAt) return 'planned';
   if (retestRecord.improved === true) return 'improved';
   if (retestRecord.improved === false) return 'not_improved';

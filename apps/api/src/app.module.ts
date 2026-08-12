@@ -23,9 +23,12 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
 import { SprintsModule } from './modules/sprints/sprints.module';
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
+import { QuickStartModule } from './modules/quick-start/quick-start.module';
+import { SiteAuditModule } from './modules/site-audit/site-audit.module';
+import { ProductEventsModule } from './modules/product-events/product-events.module';
 
 @Module({
-  imports: [PrismaModule, HealthModule, BrandsModule, PermissionsModule, PlatformsModule, MonitoringModule, MetricsModule, CanvasModule, CompetitorsModule, CitationsModule, EvaluationsModule, ContentModule, PublishingModule, TasksModule, ReportsModule, AdvisorModule, LLMModule, AutomationModule, FeedbackModule, SprintsModule, AnalysisModule, DashboardsModule],
+  imports: [PrismaModule, HealthModule, BrandsModule, PermissionsModule, PlatformsModule, MonitoringModule, MetricsModule, CanvasModule, CompetitorsModule, CitationsModule, EvaluationsModule, ContentModule, PublishingModule, TasksModule, ReportsModule, AdvisorModule, LLMModule, AutomationModule, FeedbackModule, SprintsModule, AnalysisModule, DashboardsModule, QuickStartModule, SiteAuditModule, ProductEventsModule],
   providers: [BrandContextMiddleware, BrandAccessMiddleware]
 })
 export class AppModule implements NestModule {

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
 import type { ContentCenterDashboard, ContentExportRecord, ContentGenerationStep, ContentGenerationTask, ContentGenerationTaskInput, ContentGenerationWorkspace, ContentStrategy, ContentVersion, ContentVersionInput, GrowthContentType, PublishingDashboard, PublishingEntryPayload, PublishingRecord } from '@geo-platform/shared-types';
 import { apiGet, apiPost } from '../../../api/http';
+import { useBrandWriteCapability } from '../../../access-control/BrandCapabilityContext';
 import { readWorkflowRouteContext, workflowStagePath } from '../../../app/routePaths';
 import type { WorkflowRouteContext } from '../../../app/routePaths';
 import type { UnifiedFilterValue } from '../../../app/filterQuery';
@@ -20,6 +21,8 @@ import { AutomationOperatorCard } from '../../automation/components/AutomationOp
 const stepOrder = ['strategy_parse', 'knowledge_read', 'outline_generation', 'body_generation', 'geo_rule_check'];
 
 export function ContentGenerationPage() {
+  const contentCapability = useBrandWriteCapability('content');
+  const publishingCapability = useBrandWriteCapability('publishing');
   const [messageApi, contextHolder] = message.useMessage();
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -247,6 +250,8 @@ export function ContentGenerationPage() {
         </Row>
       </Card>
       <ContentTaskListPanel
+        canWrite={contentCapability.canWrite}
+        permissionReason={contentCapability.reason}
         tasks={filteredTaskList}
         totalCount={taskList.length}
         stats={taskListStats}
@@ -278,9 +283,12 @@ export function ContentGenerationPage() {
           resultDescription="在同一区域查看生成进度、失败恢复、草稿风险和发布检查。"
           state={creationWorkspaceState}
           mobileOrder="configuration-first"
-          primaryAction={<Button loading={createTaskMutation.isPending} onClick={() => createForm.submit()}>生成草稿</Button>}
+          primaryAction={<Button disabled={!contentCapability.canWrite} title={contentCapability.reason} loading={createTaskMutation.isPending} onClick={() => createForm.submit()}>生成草稿</Button>}
           resultHeaderExtra={workspace?.currentVersion ? (
             <ContentDraftActions
+              canWrite={contentCapability.canWrite}
+              canPublish={publishingCapability.canWrite}
+              permissionReason={contentCapability.reason ?? publishingCapability.reason}
               onExport={() => exportMutation.mutate()}
               onCopy={() => void copyContent()}
               onSave={() => editorForm.submit()}
@@ -598,7 +606,10 @@ export function PublishEntrySummary({ payload }: { payload: PublishingEntryPaylo
   );
 }
 
-export function ContentDraftActions({ onExport, onCopy, onSave, onPublishPrepare }: {
+export function ContentDraftActions({ canWrite = true, canPublish = true, permissionReason, onExport, onCopy, onSave, onPublishPrepare }: {
+  canWrite?: boolean;
+  canPublish?: boolean;
+  permissionReason?: string;
   onExport: () => void;
   onCopy: () => void;
   onSave: () => void;
@@ -608,13 +619,15 @@ export function ContentDraftActions({ onExport, onCopy, onSave, onPublishPrepare
     <Space wrap>
       <Button onClick={onExport}>导出</Button>
       <Button onClick={onCopy}>复制内容</Button>
-      <Button onClick={onSave}>保存草稿</Button>
-      <Button type="primary" onClick={onPublishPrepare}>进入发布准备</Button>
+      <Button disabled={!canWrite} title={permissionReason} onClick={onSave}>保存草稿</Button>
+      <Button type="primary" disabled={!canPublish} title={permissionReason} onClick={onPublishPrepare}>进入发布准备</Button>
     </Space>
   );
 }
 
-function ContentTaskListPanel({ tasks, totalCount, stats, filters, platformFilter, publishingRecords, strategies, loading, hasError, onFiltersChange, onPlatformFilterChange, onClearFilters, onCreate, onSelect, onPublishPrepare }: {
+function ContentTaskListPanel({ canWrite = true, permissionReason, tasks, totalCount, stats, filters, platformFilter, publishingRecords, strategies, loading, hasError, onFiltersChange, onPlatformFilterChange, onClearFilters, onCreate, onSelect, onPublishPrepare }: {
+  canWrite?: boolean;
+  permissionReason?: string;
   tasks: ContentGenerationTask[];
   totalCount: number;
   stats: ContentTaskListStats;
@@ -637,7 +650,7 @@ function ContentTaskListPanel({ tasks, totalCount, stats, filters, platformFilte
     <ManagementListPage<ContentGenerationTask>
       title="内容任务"
       description="集中管理内容选题、模板、关联对象、目标渠道、生成进度和发布交接。"
-      primaryAction={totalCount > 0 ? <Button type="primary" onClick={onCreate}>创建内容任务</Button> : undefined}
+      primaryAction={totalCount > 0 ? <Button type="primary" disabled={!canWrite} title={permissionReason} onClick={onCreate}>创建内容任务</Button> : undefined}
       state={state}
       summary={(
         <Row gutter={[12, 12]}>

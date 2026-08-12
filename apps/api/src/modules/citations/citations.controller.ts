@@ -2,10 +2,11 @@ import { Body, Controller, Get, NotFoundException, Param, Post, Req } from '@nes
 import type { Request } from 'express';
 import type { ApiResponse, CitationDashboard, ContentAsset, ContentAssetInput, ContentStrategy } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
+import { CitationAbsorptionService } from './citation-absorption.service';
 
 @Controller('brands/:brandId/citations')
 export class CitationsController {
-  constructor(private readonly permissionsService: PermissionsService) {}
+  constructor(private readonly permissionsService: PermissionsService, private readonly absorptionService: CitationAbsorptionService) {}
 
   @Get()
   async getCitationDashboard(
@@ -22,6 +23,20 @@ export class CitationsController {
       success: true,
       data: dashboard
     };
+  }
+
+  @Post(':citationId/absorption')
+  async analyzeAbsorption(@Req() request: Request, @Param('brandId') brandId: string, @Param('citationId') citationId: string) {
+    const source = await this.absorptionService.analyze(request.context.userId, brandId, citationId);
+    if (!source) throw new NotFoundException('引用来源不存在或当前用户无权访问');
+    return { success: true, data: source };
+  }
+
+  @Post(':citationId/absorption/:evidenceId/review')
+  async reviewAbsorption(@Req() request: Request, @Param('brandId') brandId: string, @Param('citationId') citationId: string, @Param('evidenceId') evidenceId: string) {
+    const source = await this.absorptionService.review(request.context.userId, brandId, citationId, evidenceId);
+    if (!source) throw new NotFoundException('引用证据不存在或当前用户无权访问');
+    return { success: true, data: source };
   }
 
   @Post(':citationId/content-asset')

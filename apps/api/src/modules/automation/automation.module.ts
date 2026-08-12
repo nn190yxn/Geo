@@ -10,6 +10,12 @@ import { ConfirmationQueueService } from './confirmation-queue.service';
 import { PlatformRewriteService } from './platform-rewrite.service';
 import { PrismaAutomationRepository } from './prisma-automation.repository';
 import { QuestionPoolService } from './question-pool.service';
+import { DemandSnapshotsController } from './demand-snapshots.controller';
+import { DemandSnapshotService } from './demand-snapshot.service';
+import { DemandSnapshotRepository } from './demand-snapshot.repository';
+import { DEMAND_SNAPSHOT_REPOSITORY } from './demand-snapshot.repository.port';
+import { PrismaDemandSnapshotRepository } from './prisma-demand-snapshot.repository';
+import { BaiduSearchDemandAdapter, GoogleSearchDemandAdapter, ManualSearchDemandAdapter, SearchDemandAdapterRegistry } from './search-demand.adapter';
 
 export const automationRepositoryProvider = {
   provide: AUTOMATION_REPOSITORY,
@@ -19,9 +25,16 @@ export const automationRepositoryProvider = {
   inject: [AutomationRepository, PrismaAutomationRepository]
 };
 
+export const demandSnapshotRepositoryProvider = {
+  provide: DEMAND_SNAPSHOT_REPOSITORY,
+  useFactory: (memoryRepository: DemandSnapshotRepository, prismaRepository: PrismaDemandSnapshotRepository) =>
+    process.env.GEO_REPOSITORY_DRIVER === 'prisma' ? prismaRepository : memoryRepository,
+  inject: [DemandSnapshotRepository, PrismaDemandSnapshotRepository]
+};
+
 @Module({
   imports: [PermissionsModule, BrandsModule, ContentModule],
-  controllers: [AutomationController],
+  controllers: [AutomationController, DemandSnapshotsController],
   providers: [
     AutomationRepository,
     PrismaAutomationRepository,
@@ -29,7 +42,15 @@ export const automationRepositoryProvider = {
     AutomationOrchestratorService,
     ConfirmationQueueService,
     PlatformRewriteService,
-    QuestionPoolService
+    QuestionPoolService,
+    DemandSnapshotRepository,
+    PrismaDemandSnapshotRepository,
+    demandSnapshotRepositoryProvider,
+    BaiduSearchDemandAdapter,
+    GoogleSearchDemandAdapter,
+    ManualSearchDemandAdapter,
+    SearchDemandAdapterRegistry,
+    DemandSnapshotService
   ],
   exports: [AUTOMATION_REPOSITORY, AutomationRepository, PrismaAutomationRepository, AutomationOrchestratorService, ConfirmationQueueService, PlatformRewriteService, QuestionPoolService]
 })

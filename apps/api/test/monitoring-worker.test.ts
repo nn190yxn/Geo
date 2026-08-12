@@ -42,7 +42,7 @@ describe('MonitoringWorker', () => {
     await expect(worker.processJob('user_demo', 'brand_demo', job.id)).resolves.toEqual(expect.objectContaining({ id: run.id, status: 'completed' }));
 
     expect(service.updateAsyncJob).toHaveBeenCalledWith('user_demo', 'brand_demo', job.id, expect.objectContaining({ status: 'running', attemptCount: 1 }));
-    expect(service.addManualResponse).toHaveBeenCalledWith('user_demo', 'brand_demo', run.id, expect.objectContaining({ rawText: 'adapter response', modelName: 'adapter-model' }));
+    expect(service.addManualResponse).toHaveBeenCalledWith('user_demo', 'brand_demo', run.id, expect.objectContaining({ rawText: 'adapter response', modelName: 'adapter-model', clientSurface: 'api' }));
     expect(service.updateAIPlatformCallAudit).toHaveBeenCalledWith('user_demo', 'brand_demo', 'audit_1', expect.objectContaining({ status: 'succeeded', modelName: 'adapter-model' }));
     expect(service.updateAsyncJob).toHaveBeenCalledWith('user_demo', 'brand_demo', job.id, expect.objectContaining({ status: 'succeeded', attemptCount: 1 }));
   });

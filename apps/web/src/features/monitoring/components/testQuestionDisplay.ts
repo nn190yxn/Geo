@@ -1,15 +1,41 @@
-import type { AIConnectionMethod, AIConnectionStatus, BeginnerFriendlyPlatform, OptimizationUnitPriority, PlatformConnectionSummary, TestPlanExecutionResult, TestQuestionCandidate, TestQuestionCandidateUpdateInput, TestQuestionPurpose, TestThemeType } from '@geo-platform/shared-types';
+import type { AIConnectionMethod, AIConnectionStatus, BeginnerFriendlyPlatform, OptimizationUnitPriority, PlatformConnectionSummary, QuestionDiscoveryDimension, QuestionGenerationMethod, QuestionUserStage, TestPlanExecutionResult, TestQuestionCandidate, TestQuestionCandidateUpdateInput, TestQuestionPurpose, TestThemeType } from '@geo-platform/shared-types';
 import { getPlatformDisplayName } from '../../../utils/displayLabels';
 
 export const themeTypeLabels: Record<TestThemeType, string> = {
   brand: '品牌词',
   category: '品类词',
+  scenario: '使用场景',
+  audience: '目标人群',
   location: '地域词',
   age_group: '年龄段',
   pain_point: '用户痛点',
   offering: '课程或产品',
   competitor: '竞品对比',
+  competitor_comparison: '竞品比较',
   buying_decision: '购买决策'
+};
+
+export const discoveryDimensionLabels: Record<QuestionDiscoveryDimension, string> = {
+  brand: '品牌',
+  category: '品类',
+  scenario: '场景',
+  audience: '人群',
+  pain_point: '痛点',
+  location: '地域',
+  buying_decision: '购买决策',
+  competitor_comparison: '竞品比较'
+};
+
+export const userStageLabels: Record<QuestionUserStage, string> = {
+  awareness: '了解阶段',
+  consideration: '比较阶段',
+  decision: '决策阶段'
+};
+
+export const generationMethodLabels: Record<QuestionGenerationMethod, string> = {
+  deterministic: '确定性生成',
+  ai: 'AI 补充',
+  merged: '规则与 AI 合并'
 };
 
 export const questionPurposeLabels: Record<TestQuestionPurpose, string> = {
@@ -112,14 +138,24 @@ export function toQuestionCandidateUpdateInput(values: {
   targetPlatformsText: string;
   priority: OptimizationUnitPriority;
   estimatedValue: string;
+  recommendationProbability?: number;
+  userStage?: QuestionUserStage;
+  generationRationale?: string;
 }): TestQuestionCandidateUpdateInput {
   return {
     question: values.question.trim(),
     purposes: splitList(values.purposesText) as TestQuestionPurpose[],
     targetPlatforms: splitList(values.targetPlatformsText).map(normalizePlatformInput),
     priority: values.priority,
-    estimatedValue: values.estimatedValue.trim()
+    estimatedValue: values.estimatedValue.trim(),
+    ...(values.recommendationProbability !== undefined ? { recommendationProbability: values.recommendationProbability } : {}),
+    ...(values.userStage ? { userStage: values.userStage } : {}),
+    ...(values.generationRationale?.trim() ? { generationRationale: values.generationRationale.trim() } : {})
   };
+}
+
+export function parseQuestionSeedWords(value: string): string[] {
+  return [...new Set(splitList(value))].slice(0, 20);
 }
 
 function normalizePlatformInput(value: string): string {

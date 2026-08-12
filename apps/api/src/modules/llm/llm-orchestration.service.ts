@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import type {
   AsyncJob,
   LLMTaskRequest,
@@ -12,6 +12,9 @@ import type { AIPlatformRuntimeConfig } from '../platforms/adapters/ai-platform.
 import { AIPlatformConfigurationError, AIPlatformProviderError } from '../platforms/adapters/openai-compatible.adapter';
 import { LLMOutputValidationError, LLMOutputValidator } from './llm-output-validator';
 import { LLMPromptTemplateService } from './llm-prompt-template.service';
+import { QuotaService } from './quota.service';
+import { JobOrchestratorService } from './job-orchestrator.service';
+import { ProviderSpendStageService } from './provider-spend-stage.service';
 
 @Injectable()
 export class LLMOrchestrationService {
@@ -19,7 +22,10 @@ export class LLMOrchestrationService {
     private readonly permissionsService: PermissionsService,
     private readonly adapterRegistry: AIPlatformAdapterRegistry,
     private readonly promptTemplateService: LLMPromptTemplateService,
-    private readonly outputValidator: LLMOutputValidator
+    private readonly outputValidator: LLMOutputValidator,
+    @Optional() private readonly quotaService?: QuotaService,
+    @Optional() private readonly jobOrchestrator?: JobOrchestratorService,
+    @Optional() private readonly providerSpendStages?: ProviderSpendStageService
   ) {}
 
   async runTask<TInput, TOutput>(
@@ -29,15 +35,24 @@ export class LLMOrchestrationService {
     request: LLMTaskRequest<TInput>
   ): Promise<LLMTaskResponse<TOutput>> {
     const inputSummary = summarizeTaskInput(request.input, request.platformCode, request.modelName);
+    const taskKey = `llm:${brandId}:${taskType}:${JSON.stringify(inputSummary)}`;
+    const quota = this.quotaService ? await this.quotaService.reserve(userId, brandId, taskType, taskKey) : { reservation: undefined };
+    if (this.quotaService && !quota.reservation) return failedResponse(quota.rejection?.reason ?? 'quota_rejected', '当前额度不足，请调整额度后重试');
+    const reservationId = quota.reservation?.id;
 
     if (request.mode === 'async') {
-      const job = await Promise.resolve(this.permissionsService.createAsyncJob(userId, brandId, {
+      const jobInput = {
         jobType: taskType,
         entityId: `llm_${taskType}_${Date.now()}`,
-        status: 'queued'
-      }));
+        status: 'queued' as const,
+        idempotencyKey: taskKey,
+        stepCode: taskType,
+        progress: { [taskType]: 'queued' }
+      };
+      const job = this.jobOrchestrator ? await this.jobOrchestrator.enqueue(userId, brandId, jobInput) : await Promise.resolve(this.permissionsService.createAsyncJob(userId, brandId, jobInput));
 
       if (!job) {
+        if (reservationId) await this.quotaService?.release(reservationId);
         return failedResponse('llm_brand_access_denied', '当前品牌不可访问或无法创建任务');
       }
 
@@ -58,11 +73,13 @@ export class LLMOrchestrationService {
     const config = await this.selectRuntimeConfig(userId, brandId, request.platformCode);
 
     if (!config) {
+      if (reservationId) await this.quotaService?.release(reservationId);
       await this.recordFailedRun(userId, brandId, taskType, inputSummary, 'llm_platform_missing', '还没有可用于自动生成的 AI 平台，请先配置平台密钥');
       return failedResponse('llm_platform_missing', '还没有可用于自动生成的 AI 平台，请先配置平台密钥');
     }
 
     if (!config.credentialRef) {
+      if (reservationId) await this.quotaService?.release(reservationId);
       await this.recordFailedRun(userId, brandId, taskType, inputSummary, 'llm_credential_missing', '请先填写平台密钥');
       return failedResponse('llm_credential_missing', '请先填写平台密钥');
     }
@@ -70,9 +87,12 @@ export class LLMOrchestrationService {
     const adapter = this.adapterRegistry.requireAdapter(config);
 
     if (!adapter.runMessages) {
+      if (reservationId) await this.quotaService?.release(reservationId);
       await this.recordFailedRun(userId, brandId, taskType, inputSummary, 'llm_adapter_unsupported', '当前平台暂不支持大模型生成任务');
       return failedResponse('llm_adapter_unsupported', '当前平台暂不支持大模型生成任务');
     }
+    const spendStage = this.providerSpendStages ? await this.providerSpendStages.acquire(taskKey, taskType, 1) : null;
+    if (spendStage && !spendStage.acquired) return failedResponse('llm_step_already_running', '当前任务步骤正在执行，请稍后查看结果');
 
     const audit = await Promise.resolve(this.permissionsService.createAIPlatformCallAudit(userId, brandId, {
       platformCode: config.platformCode,
@@ -97,6 +117,9 @@ export class LLMOrchestrationService {
           modelName: request.modelName ?? config.modelName
         }
       );
+      const providerCost = estimateCost(result.inputTokenCount, result.outputTokenCount);
+      if (spendStage?.acquired) await this.providerSpendStages?.recordCost(taskKey, taskType, 1, spendStage.stage.token, config.platformCode, providerCost);
+      if (reservationId) await this.quotaService?.settle(reservationId, providerCost, config.platformCode);
       const output = this.outputValidator.validate(taskType, result.rawText) as TOutput;
 
       if (audit) {
@@ -136,6 +159,8 @@ export class LLMOrchestrationService {
           completedAt: new Date().toISOString()
         }));
       }
+
+      if (reservationId) await this.quotaService?.release(reservationId);
 
       await Promise.resolve(this.permissionsService.createLLMTaskRun(userId, brandId, {
         taskType,
@@ -188,6 +213,10 @@ export class LLMOrchestrationService {
   }
 }
 
+function estimateCost(inputTokenCount?: number, outputTokenCount?: number): number {
+  return Number((((inputTokenCount ?? 0) + (outputTokenCount ?? 0)) / 1000).toFixed(6));
+}
+
 function failedResponse<TOutput>(code: string, message: string): LLMTaskResponse<TOutput> {
   return {
     status: 'failed',
@@ -208,7 +237,7 @@ function normalizeLLMError(error: unknown): { code: string; message: string; ret
 }
 
 function toLLMTaskStatus(job: AsyncJob): LLMTaskStatus {
-  if (job.status === 'retry-exhausted') {
+  if (job.status === 'retry-exhausted' || job.status === 'cancelled') {
     return 'failed';
   }
 

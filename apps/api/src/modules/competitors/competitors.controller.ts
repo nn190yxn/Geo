@@ -10,13 +10,19 @@ import type {
   CompetitorDiscoveryCandidatesQuery,
   CompetitorDiscoveryRun,
   CompetitorDiscoveryRunInput,
-  CompetitorInput
+  CompetitorInput,
+  CompetitorOpportunityContentTaskInput,
+  ContentGenerationWorkspace
 } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
+import { CompetitorOpportunityService } from './competitor-opportunity.service';
 
 @Controller('brands/:brandId/competitors')
 export class CompetitorsController {
-  constructor(private readonly permissionsService: PermissionsService) {}
+  constructor(
+    private readonly permissionsService: PermissionsService,
+    private readonly competitorOpportunityService: CompetitorOpportunityService = new CompetitorOpportunityService(permissionsService)
+  ) {}
 
   @Get()
   async listCompetitors(
@@ -133,7 +139,7 @@ export class CompetitorsController {
     @Req() request: Request,
     @Param('brandId') brandId: string
   ): Promise<ApiResponse<CompetitorDashboard>> {
-    const dashboard = await this.permissionsService.getCompetitorDashboard(request.context.userId, brandId);
+    const dashboard = await this.competitorOpportunityService.getDashboard(request.context.userId, brandId);
 
     if (!dashboard) {
       throw new NotFoundException('竞品分析不存在或当前用户无权访问');
@@ -143,5 +149,17 @@ export class CompetitorsController {
       success: true,
       data: dashboard
     };
+  }
+
+  @Post('opportunities/:promptId/content-task')
+  async createOpportunityContentTask(
+    @Req() request: Request,
+    @Param('brandId') brandId: string,
+    @Param('promptId') promptId: string,
+    @Body() input: Pick<CompetitorOpportunityContentTaskInput, 'targetPlatform'> = {}
+  ): Promise<ApiResponse<ContentGenerationWorkspace>> {
+    const result = await this.competitorOpportunityService.createOpportunityContentTask(request.context.userId, brandId, { promptId, ...input });
+    if (!result) throw new NotFoundException('问题机会不存在或当前用户无权访问');
+    return { success: true, data: result };
   }
 }

@@ -8,14 +8,15 @@ const defaultTargetPlatforms = ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfu
 export class TestThemeService {
   constructor(@Optional() private readonly llmService?: LLMOrchestrationService) {}
 
-  generateThemes(brand: BrandDetail, profile: BrandProfile): TestThemeInput[] {
+  generateThemes(brand: BrandDetail, profile: BrandProfile, seedWords: string[] = []): TestThemeInput[] {
     const themes: TestThemeInput[] = [];
     const brandName = brand.name.trim();
     const primaryCity = brand.targetCities[0]?.trim();
     const primaryOffering = profile.offerings[0]?.trim();
     const primaryCompetitor = profile.competitors[0]?.trim();
+    const primarySeed = seedWords.find(hasText)?.trim();
     const painPoint = inferPainPoint(profile);
-    const ageGroup = inferAgeGroup(brand.targetAudience, profile.targetCustomers);
+    const audience = brand.targetAudience.trim() || profile.targetCustomers[0]?.trim();
 
     pushTheme(themes, {
       type: 'brand',
@@ -29,11 +30,33 @@ export class TestThemeService {
     if (hasText(brand.industry) || hasText(brand.businessScope) || profile.offerings.length > 0) {
       pushTheme(themes, {
         type: 'category',
-        name: buildName([brand.industry, brand.businessScope, primaryOffering], '品类推荐'),
+        name: buildName([primarySeed, brand.industry, brand.businessScope, primaryOffering], '品类推荐'),
         businessExplanation: '验证用户按品类寻找服务时，品牌是否会被 AI 推荐。',
         priority: 'high',
         estimatedValue: '直接影响非品牌词流量，是首轮 AI 回复监测的核心入口。',
         sourceProfileFields: ['industry', 'businessScope', 'offerings']
+      });
+    }
+
+    if (primaryOffering || primarySeed) {
+      pushTheme(themes, {
+        type: 'scenario',
+        name: `${primarySeed || primaryOffering}使用场景`,
+        businessExplanation: `验证用户在具体使用场景中提问时，AI 是否会把${brandName}作为合适选择。`,
+        priority: 'high',
+        estimatedValue: '用于发现真实使用场景中的品牌推荐机会和内容缺口。',
+        sourceProfileFields: ['businessScope', 'offerings', 'faqs']
+      });
+    }
+
+    if (audience) {
+      pushTheme(themes, {
+        type: 'audience',
+        name: `${audience}人群需求`,
+        businessExplanation: `验证目标人群提出需求时，AI 是否会把${brandName}作为合适选择。`,
+        priority: 'medium',
+        estimatedValue: '帮助判断品牌在具体用户画像下的推荐准确性。',
+        sourceProfileFields: ['targetAudience', 'targetCustomers']
       });
     }
 
@@ -48,17 +71,6 @@ export class TestThemeService {
       });
     }
 
-    if (ageGroup) {
-      pushTheme(themes, {
-        type: 'age_group',
-        name: `${ageGroup}人群需求`,
-        businessExplanation: `验证目标人群提出需求时，AI 是否会把${brandName}作为合适选择。`,
-        priority: 'medium',
-        estimatedValue: '帮助判断品牌在具体用户画像下的推荐准确性。',
-        sourceProfileFields: ['targetAudience', 'targetCustomers']
-      });
-    }
-
     if (painPoint) {
       pushTheme(themes, {
         type: 'pain_point',
@@ -70,20 +82,9 @@ export class TestThemeService {
       });
     }
 
-    if (primaryOffering) {
-      pushTheme(themes, {
-        type: 'offering',
-        name: `${primaryOffering}课程或产品`,
-        businessExplanation: `验证用户按具体课程或产品搜索时，AI 是否理解${brandName}的服务能力。`,
-        priority: 'medium',
-        estimatedValue: '帮助品牌找到具体产品词下的推荐机会。',
-        sourceProfileFields: ['offerings', 'valueProps', 'faqs']
-      });
-    }
-
     if (primaryCompetitor) {
       pushTheme(themes, {
-        type: 'competitor',
+        type: 'competitor_comparison',
         name: `${brandName}与${primaryCompetitor}对比`,
         businessExplanation: '验证竞品对比场景中品牌是否被提到、排名如何、优势是否表达准确。',
         priority: 'medium',
@@ -110,8 +111,8 @@ export class TestThemeService {
     return themes;
   }
 
-  async generateThemesWithLLM(userId: string, brandId: string, brand: BrandDetail, profile: BrandProfile): Promise<TestAssetGenerationResult<TestThemeInput>> {
-    const fallback = this.generateThemes(brand, profile);
+  async generateThemesWithLLM(userId: string, brandId: string, brand: BrandDetail, profile: BrandProfile, seedWords: string[] = []): Promise<TestAssetGenerationResult<TestThemeInput>> {
+    const fallback = this.generateThemes(brand, profile, seedWords);
 
     if (!this.llmService) {
       return fallbackResult(fallback, profile);
@@ -122,6 +123,7 @@ export class TestThemeService {
       input: {
         brandDetail: brand,
         brandProfile: profile,
+        seedWords,
         targetPlatforms: defaultTargetPlatforms,
         scenarioCount: 8,
         questionCountPerTheme: 1,
@@ -133,15 +135,14 @@ export class TestThemeService {
       return fallbackResult(fallback, profile, response.message);
     }
 
-    const themes = response.output.themes.map((theme) => ({
+    const aiThemes = response.output.themes.map((theme) => ({
       ...theme,
       enabled: theme.enabled ?? true,
       sourceProfileFields: theme.sourceProfileFields ?? []
     }));
+    const themes = mergeThemes(fallback, aiThemes);
 
-    return themes.length
-      ? { items: themes, missingProfileFields: response.output.missingProfileFields, generationNotes: response.output.generationNotes, source: 'llm' }
-      : fallbackResult(fallback, profile);
+    return { items: themes, missingProfileFields: response.output.missingProfileFields, generationNotes: response.output.generationNotes, source: 'llm' };
   }
 }
 
@@ -242,11 +243,29 @@ function inferPainPoint(profile: BrandProfile): string | null {
   return candidates.find(hasText)?.slice(0, 24) ?? null;
 }
 
-function inferAgeGroup(targetAudience: string, targetCustomers: string[]): string | null {
-  const text = [targetAudience, ...targetCustomers].join(' ');
-  const ageMatch = text.match(/\d+\s*[-到至]\s*\d+\s*岁|\d+\s*岁/);
+function mergeThemes(deterministic: TestThemeInput[], aiThemes: TestThemeInput[]): TestThemeInput[] {
+  const merged = [...deterministic];
+  const keys = new Set(merged.map(themeKey));
 
-  return ageMatch?.[0] ?? null;
+  aiThemes.forEach((theme) => {
+    const key = themeKey(theme);
+    if (keys.has(key)) return;
+    keys.add(key);
+    merged.push(theme);
+  });
+
+  return merged;
+}
+
+function themeKey(theme: TestThemeInput): string {
+  return `${normalizeThemeType(theme.type)}:${theme.name.toLocaleLowerCase().replace(/[\s，。！？、,.!?]+/g, '')}`;
+}
+
+function normalizeThemeType(type: TestThemeInput['type']): string {
+  if (type === 'age_group') return 'audience';
+  if (type === 'offering') return 'scenario';
+  if (type === 'competitor') return 'competitor_comparison';
+  return type;
 }
 
 function isSupercalfBrand(brand: BrandDetail): boolean {

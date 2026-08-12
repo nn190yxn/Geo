@@ -19,7 +19,11 @@ import {
 import { buildAnalysisResultFields, pickSentence } from './analysis-result-builder';
 import { getMissingApiConfigMessage, getModeValidationMessage } from '../platforms/platform-validation-message';
 import { hasRealMonitoringResponse } from '../monitoring/real-monitoring-response';
+import { isComparableMeasurementScope, resolveBaselineVersion } from '../monitoring/measurement-baseline';
+import { classifyPromptKind } from '../monitoring/prompt-measurement';
 import { applyBrowserConnectionEvent } from '../platforms/browser-session-state';
+import { buildRetestNextSuggestion, evaluateRetestEvidence } from '../tasks/retest-evidence';
+import { getConfirmedCompetitorNames, isConfirmedCompetitorName, normalizeCompetitorName } from '../competitors/competitor-confirmation';
 import type {
   AccessibleBrand,
   AdvisorDashboard,
@@ -52,6 +56,8 @@ import type {
   DeniedAccessLog,
   KnowledgeSource,
   KnowledgeSourceInput,
+  KnowledgeChunk,
+  KnowledgeChunkInput,
   AIPlatformCallAudit,
   AIPlatformCallAuditInput,
   AIPlatformCallAuditUpdateInput,
@@ -76,6 +82,7 @@ import type {
   CompetitorCandidate,
   CompetitorCandidateConfirmationResult,
   CompetitorCandidateDecisionInput,
+  CompetitorCandidateEvidenceInput,
   CompetitorCandidateSourceProvider,
   CompetitorConfirmationLabel,
   CompetitorComparisonItem,
@@ -88,6 +95,7 @@ import type {
   BrandMetricDashboard,
   BrandMetricRankingItem,
   CitationDashboard,
+  CitationAbsorptionEvidence,
   CitationSource,
   CitationSourceType,
   CitationAuthorityLevel,
@@ -99,6 +107,7 @@ import type {
   ContentAssetFilter,
   ContentAssetInput,
   ContentAssetPageItem,
+  CreateTechnicalAssetInput,
   ContentCenterDashboard,
   ContentExportRecord,
   ContentGenerationCompletionInput,
@@ -128,10 +137,15 @@ import type {
   ContentStrategySuggestion,
   ContentVersion,
   ContentVersionInput,
+  TechnicalAssetRecord,
+  TechnicalAssetVersion,
   PublishingEntryPayload,
   GEOMetricSnapshot,
   GeoCanvasWorkspace,
   ManualResponseInput,
+  MeasurementAttributionInput,
+  MeasurementAttributionRecord,
+  MeasurementScope,
   ManualTestAnswerInput,
   ManualTestAnswerBatchInput,
   ManualTestAnswerBatchResult,
@@ -165,6 +179,7 @@ import type {
   PromptTemplate,
   PromptTemplateInput,
   PublishingRecord,
+  PublishingRecordConfirmationInput,
   PublishingRecordInput,
   PublishingRecordStatus,
   OptimizationTask,
@@ -179,6 +194,7 @@ import type {
   ReportDashboard,
   ReportInput,
   ReportRecord,
+  ReportScopePreview,
   SingleBrandReportSnapshot,
   MultiBrandReportSnapshot,
   TaskBoardDashboard,
@@ -207,6 +223,7 @@ import type {
   VisibilitySprintMetricSummary,
   VisibilitySprintStep
 } from '@geo-platform/shared-types';
+import { PeriodReportSnapshotService, type ReportPeriod } from '../reports/period-report-snapshot.service';
 
 const users: UserSummary[] = [
   {
@@ -300,6 +317,7 @@ const organizationMembers: OrganizationMember[] = [
 const brands: BrandDetail[] = [
   {
     brandId: 'brand_demo',
+    organizationId: 'org_demo',
     name: '追光小牛',
     status: 'active',
     aliases: ['SUPERCALF', '追光小牛运动成长中心'],
@@ -313,6 +331,7 @@ const brands: BrandDetail[] = [
   },
   {
     brandId: 'brand_child_fitness',
+    organizationId: 'org_demo',
     name: '儿童体适能品牌',
     status: 'active',
     aliases: ['儿童运动成长品牌'],
@@ -349,6 +368,7 @@ const permissions: UserBrandPermission[] = [
 
 const profiles = new Map<BrandId, BrandProfile>();
 const knowledgeSources: KnowledgeSource[] = [];
+const knowledgeChunks: KnowledgeChunk[] = [];
 const brandMediaAssets: BrandMediaAsset[] = [];
 const optimizationUnits: OptimizationUnit[] = [];
 const testThemes: TestTheme[] = [];
@@ -371,6 +391,7 @@ const promptTemplates: PromptTemplate[] = [
 ];
 const brandPrompts: BrandPrompt[] = [];
 const monitoringRuns: MonitoringRun[] = [];
+const measurementAttributions: MeasurementAttributionRecord[] = [];
 const auditLogs: AuditLog[] = [];
 const aiPlatformCallAudits: AIPlatformCallAudit[] = [];
 const asyncJobs: AsyncJob[] = [];
@@ -395,6 +416,7 @@ const contentAssets: ContentAsset[] = [];
 const contentStrategies: ContentStrategy[] = [];
 const contentGenerationTasks: ContentGenerationTask[] = [];
 const contentVersions: ContentVersion[] = [];
+const technicalAssetVersions: TechnicalAssetVersion[] = [];
 const contentExportRecords: ContentExportRecord[] = [];
 const publishingAccounts: PublishingAccount[] = [];
 const publishingRecords: PublishingRecord[] = [];
@@ -530,6 +552,7 @@ brandPrompts.push({
   intentId: 'intent_demo_buying',
   templateId: 'template_brand_recommendation',
   text: '贵阳有哪些适合 2-14 岁孩子的儿童运动成长机构？请说明追光小牛的适用场景、课程优势和家长决策要点。',
+  promptKind: 'brand_probe',
   category: 'category_recommendation',
   targetKeywords: ['贵阳儿童运动', '儿童体适能', '追光小牛', 'ACE 成长体系'],
   platformCodes: ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfun', 'mock_ai'],
@@ -588,6 +611,7 @@ testQuestionCandidates.push(
     themeId: 'theme_demo_local_recommendation',
     promptId: 'prompt_demo_comparison',
     question: '贵阳有哪些值得推荐的儿童运动成长机构？',
+    promptKind: 'discovery',
     purposes: ['brand_mentioned', 'rank_first', 'competitor_presence'],
     targetPlatforms: ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfun'],
     priority: 'high',
@@ -603,6 +627,7 @@ testQuestionCandidates.push(
     themeId: 'theme_demo_age_group',
     promptId: 'prompt_demo_comparison',
     question: '贵阳哪里有适合 3-5 岁孩子的体能馆？',
+    promptKind: 'discovery',
     purposes: ['brand_mentioned', 'rank_first', 'value_prop_accuracy'],
     targetPlatforms: ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfun'],
     priority: 'high',
@@ -618,6 +643,7 @@ testQuestionCandidates.push(
     themeId: 'theme_demo_risk_expression',
     promptId: 'prompt_demo_comparison',
     question: '贵阳儿童增高体能课怎么选？哪些表达需要家长谨慎看待？',
+    promptKind: 'discovery',
     purposes: ['brand_mentioned', 'value_prop_accuracy', 'risk_expression'],
     targetPlatforms: ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfun'],
     priority: 'high',
@@ -704,7 +730,17 @@ monitoringRuns.push({
   optimizationUnitId: 'unit_demo_core',
   intentId: 'intent_demo_buying',
   promptId: 'prompt_demo_comparison',
+  promptKind: 'brand_probe',
   platformCode: 'mock_ai',
+  modelName: 'mock-v1',
+  collectionMethod: 'mock',
+  clientSurface: 'unknown',
+  searchEnabled: null,
+  market: 'unknown',
+  language: 'unknown',
+  evidenceLevel: 'demo',
+  manualConfirmed: null,
+  baselineVersion: 'unknown',
   status: 'completed',
   startedAt: now,
   completedAt: now,
@@ -718,7 +754,16 @@ aiResponses.push({
   brandId: 'brand_demo',
   rawText: '贵阳家长选择儿童运动成长机构时，可以关注课程体系、师资安全、体测反馈和孩子长期兴趣。追光小牛适合 2-14 岁儿童家庭，优势包括 ACE 成长体系、快乐体操、少儿跑酷、体能训练、5 家贵阳校区、2000+ 家庭服务经验和世界冠军师资背书。',
   citations: ['https://example.com/supercalf-brand-profile'],
+  platformCode: 'mock_ai',
   modelName: 'mock-v1',
+  collectionMethod: 'mock',
+  clientSurface: 'unknown',
+  searchEnabled: null,
+  market: 'unknown',
+  language: 'unknown',
+  evidenceLevel: 'demo',
+  manualConfirmed: null,
+  baselineVersion: 'unknown',
   respondedAt: now,
   parseStatus: 'parsed',
   createdAt: now
@@ -1154,7 +1199,23 @@ reports.push({
     citation: { totalCitations: 2, officialCitationRate: 1, authoritySourceRate: 0, contentCitationRate: 1 },
     evaluation: { positiveRate: 1, neutralRate: 0, negativeRate: 0, accurateRate: 1 },
     content: { keywordCoverageRate: 0.5, uncoveredKeywords: ['贵阳校区详情', 'ACE 课程案例'], publishedAssetCount: 1, reusableAssetCount: 1 },
-    taskProgress: { todo: 0, doing: 1, review: 0, retest: 0, done: 0, reopened: 0 }
+    taskProgress: { todo: 0, doing: 1, review: 0, retest: 0, done: 0, reopened: 0 },
+    scope: {
+      brandId: 'brand_demo',
+      periodStart: '2026-07-01',
+      periodEnd: '2026-07-07',
+      monitoringRunCount: 0,
+      validSampleCount: 0,
+      contentAssetCount: 0,
+      publishingRecordCount: 0,
+      taskChangeCount: 0,
+      completedRetestCount: 0,
+      dataGaps: [{ section: '有效样本', reason: '历史演示报告未冻结周期样本明细' }],
+      recordIds: { monitoringRunIds: [], contentAssetIds: [], publishingRecordIds: [], taskIds: [], retestRecordIds: [] },
+      sampleSummary: { monitoringRunCount: 0, validSampleCount: 0, validSampleRunIds: [] }
+    },
+    effectEvidence: [],
+    methodologyVersion: 'period-report-v1'
   }
 });
 
@@ -1230,6 +1291,7 @@ brandStandardAnswers.push({
 
 @Injectable()
 export class PermissionsRepository implements PermissionsRepositoryPort {
+  private readonly periodReportSnapshotService = new PeriodReportSnapshotService();
   private readonly deniedAccessLogs: DeniedAccessLog[] = [];
 
   findUser(userId: string): UserSummary | null {
@@ -1307,6 +1369,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     const timestamp = new Date().toISOString();
     const brand: BrandDetail = {
       brandId: `brand_${Date.now()}`,
+      organizationId: input.organizationId ?? this.listOrganizationMemberships(userId)[0]?.organizationId,
       name: input.name.trim(),
       status: input.status ?? 'active',
       aliases: input.aliases ?? [],
@@ -1563,6 +1626,42 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     return source;
   }
 
+  listKnowledgeChunks(userId: string, brandId: BrandId, sourceId?: string): KnowledgeChunk[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    return knowledgeChunks.filter((chunk) => chunk.brandId === brandId && (!sourceId || chunk.sourceId === sourceId));
+  }
+
+  searchKnowledgeChunks(userId: string, brandId: BrandId, _query: string, limit: number): KnowledgeChunk[] | null {
+    const chunks = this.listKnowledgeChunks(userId, brandId);
+    if (!chunks) return null;
+    const latestVersions = new Map<string, number>();
+    for (const chunk of chunks) latestVersions.set(chunk.sourceId, Math.max(latestVersions.get(chunk.sourceId) ?? 0, chunk.sourceVersion));
+    return chunks.filter((chunk) => chunk.sourceVersion === latestVersions.get(chunk.sourceId)).slice(0, limit);
+  }
+
+  appendKnowledgeChunkVersion(userId: string, brandId: BrandId, sourceId: string, chunks: KnowledgeChunkInput[]): KnowledgeChunk[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    const source = knowledgeSources.find((item) => item.brandId === brandId && item.id === sourceId);
+    if (!source) return null;
+    const sourceVersion = Math.max(0, ...knowledgeChunks.filter((item) => item.brandId === brandId && item.sourceId === sourceId).map((item) => item.sourceVersion)) + 1;
+    const timestamp = new Date().toISOString();
+    const created = chunks.map((input) => ({
+      id: `knowledge_chunk_${Date.now()}_${input.chunkIndex}_${Math.random().toString(36).slice(2, 8)}`,
+      brandId,
+      sourceId,
+      sourceUrl: input.sourceUrl,
+      sourceVersion,
+      chunkIndex: input.chunkIndex,
+      content: input.content,
+      contentHash: input.contentHash,
+      reviewStatus: input.reviewStatus,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    } satisfies KnowledgeChunk));
+    knowledgeChunks.push(...created);
+    return created;
+  }
+
   listOptimizationUnits(userId: string, brandId: BrandId): OptimizationUnit[] | null {
     if (!this.findAccessibleBrandDetail(userId, brandId)) {
       return null;
@@ -1665,7 +1764,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
   }
 
   createTestQuestionCandidate(userId: string, brandId: BrandId, input: TestQuestionCandidateInput): TestQuestionCandidate | null {
-    if (!this.findAccessibleBrandDetail(userId, brandId) || !testThemes.some((theme) => theme.brandId === brandId && theme.id === input.themeId)) {
+    const brand = this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand || !testThemes.some((theme) => theme.brandId === brandId && theme.id === input.themeId)) {
       return null;
     }
 
@@ -1675,6 +1775,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       id: `candidate_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       brandId,
       ...normalized,
+      promptKind: normalized.promptKind ?? classifyPromptKind(normalized.question, brand),
       editable: normalized.editable ?? true,
       selected: normalized.selected ?? false,
       createdAt: timestamp,
@@ -1687,7 +1788,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
   }
 
   updateTestQuestionCandidate(userId: string, brandId: BrandId, candidateId: string, input: TestQuestionCandidateUpdateInput): TestQuestionCandidate | null {
-    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+    const brand = this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) {
       return null;
     }
 
@@ -1704,10 +1806,19 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     if (normalized.themeId !== undefined) candidate.themeId = normalized.themeId;
     if (normalized.promptId !== undefined) candidate.promptId = normalized.promptId;
     if (normalized.question !== undefined) candidate.question = normalized.question;
+    if (normalized.promptKind !== undefined) candidate.promptKind = normalized.promptKind;
+    else if (normalized.question !== undefined) candidate.promptKind = classifyPromptKind(normalized.question, brand);
     if (normalized.purposes !== undefined) candidate.purposes = normalized.purposes;
     if (normalized.targetPlatforms !== undefined) candidate.targetPlatforms = normalized.targetPlatforms;
     if (normalized.priority !== undefined) candidate.priority = normalized.priority;
     if (normalized.estimatedValue !== undefined) candidate.estimatedValue = normalized.estimatedValue;
+    if (normalized.discoveryDimension !== undefined) candidate.discoveryDimension = normalized.discoveryDimension;
+    if (normalized.businessValue !== undefined) candidate.businessValue = normalized.businessValue;
+    if (normalized.recommendationProbability !== undefined) candidate.recommendationProbability = normalized.recommendationProbability;
+    if (normalized.userStage !== undefined) candidate.userStage = normalized.userStage;
+    if (normalized.generationRationale !== undefined) candidate.generationRationale = normalized.generationRationale;
+    if (normalized.generationMethod !== undefined) candidate.generationMethod = normalized.generationMethod;
+    if (normalized.mergedFrom !== undefined) candidate.mergedFrom = normalized.mergedFrom;
     if (normalized.editable !== undefined) candidate.editable = normalized.editable;
     if (normalized.selected !== undefined) candidate.selected = normalized.selected;
     candidate.updatedAt = new Date().toISOString();
@@ -1963,7 +2074,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
   }
 
   updateBrandPrompt(userId: string, brandId: BrandId, promptId: string, input: Partial<BrandPromptInput>): BrandPrompt | null {
-    if (!this.findAccessibleBrandDetail(userId, brandId)) {
+    const brand = this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) {
       return null;
     }
 
@@ -1974,6 +2086,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
 
     const normalized = normalizePartialBrandPromptInput(input);
     if (normalized.text !== undefined) prompt.text = normalized.text;
+    if (normalized.promptKind !== undefined) prompt.promptKind = normalized.promptKind;
+    else if (normalized.text !== undefined) prompt.promptKind = classifyPromptKind(normalized.text, brand);
     if (normalized.targetKeywords !== undefined) prompt.targetKeywords = normalized.targetKeywords;
     if (normalized.platformCodes !== undefined) prompt.platformCodes = normalized.platformCodes;
     if (normalized.monitoringFrequency !== undefined) prompt.monitoringFrequency = normalized.monitoringFrequency;
@@ -2242,6 +2356,10 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       jobType: input.jobType,
       status: input.status ?? 'queued',
       entityId: input.entityId,
+      idempotencyKey: input.idempotencyKey?.trim(),
+      stepCode: input.stepCode?.trim(),
+      progress: input.progress ?? {},
+      resultSummary: input.resultSummary,
       attemptCount: input.attemptCount ?? 0,
       maxAttempts: input.maxAttempts ?? 3,
       nextRunAt: input.nextRunAt,
@@ -2270,6 +2388,10 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     if (input.attemptCount !== undefined) job.attemptCount = input.attemptCount;
     if (input.maxAttempts !== undefined) job.maxAttempts = input.maxAttempts;
     if (input.nextRunAt !== undefined) job.nextRunAt = input.nextRunAt;
+    if (input.idempotencyKey !== undefined) job.idempotencyKey = input.idempotencyKey?.trim();
+    if (input.stepCode !== undefined) job.stepCode = input.stepCode?.trim();
+    if (input.progress !== undefined) job.progress = input.progress;
+    if (input.resultSummary !== undefined) job.resultSummary = input.resultSummary;
     if (input.lastErrorCode !== undefined) job.lastErrorCode = input.lastErrorCode.trim();
     if (input.lastErrorMessage !== undefined) job.lastErrorMessage = input.lastErrorMessage.trim();
     job.updatedAt = new Date().toISOString();
@@ -2489,6 +2611,30 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     return monitoringRuns
       .filter((run) => run.brandId === brandId)
       .map((run) => this.toMonitoringRunDetail(run));
+  }
+
+  getMeasurementAttribution(userId: string, brandId: BrandId): MeasurementAttributionRecord | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    return measurementAttributions.find((item) => item.brandId === brandId) ?? null;
+  }
+
+  saveMeasurementAttribution(userId: string, brandId: BrandId, input: MeasurementAttributionInput): MeasurementAttributionRecord | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    const timestamp = new Date().toISOString();
+    const record: MeasurementAttributionRecord = {
+      id: `measurement_attribution_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      brandId,
+      ...input,
+      controlQuestions: cleanStringList(input.controlQuestions),
+      externalEvents: input.externalEvents.map((event) => ({ ...event, title: event.title.trim() })).filter((event) => event.title),
+      conclusion: input.conclusion?.trim(),
+      conclusionType: 'observational_correlation',
+      updatedBy: userId,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    measurementAttributions.unshift(record);
+    return record;
   }
 
   getMonitoringRun(userId: string, brandId: BrandId, runId: string): MonitoringRunDetail | null {
@@ -2741,7 +2887,10 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       suppressionRate: comparisons.length === 0 ? 0 : clampScore((suppressedItems.length / comparisons.length) * 100),
       averageRankGap: rankGaps.length === 0 ? 0 : Math.round(rankGaps.reduce((sum, value) => sum + value, 0) / rankGaps.length),
       highRiskIntents: Array.from(riskIntentMap.values()).sort((a, b) => b.suppressionCount - a.suppressionCount),
-      comparisons
+      comparisons,
+      candidates: [],
+      questionOpportunities: [],
+      topPlatformsByCompetitor: []
     };
   }
 
@@ -2818,6 +2967,29 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       .sort((a, b) => b.score - a.score);
   }
 
+  listCompetitorCandidates(userId: string, brandId: BrandId): CompetitorCandidate[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    return competitorCandidates.filter((candidate) => candidate.brandId === brandId).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  syncCompetitorCandidateEvidence(userId: string, brandId: BrandId, evidence: CompetitorCandidateEvidenceInput[]): CompetitorCandidate[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    for (const item of evidence) {
+      const normalizedName = item.competitorName.trim().toLocaleLowerCase();
+      competitorCandidates.filter((candidate) => (
+        candidate.brandId === brandId
+        && candidate.lifecycleStatus !== 'excluded'
+        && candidate.name.trim().toLocaleLowerCase() === normalizedName
+      )).forEach((candidate) => {
+        candidate.evidenceSampleIds = mergeStringLists(candidate.evidenceSampleIds, [item.runId]);
+        candidate.sampleConfirmedAt ??= item.capturedAt;
+        if (candidate.lifecycleStatus === 'candidate') candidate.lifecycleStatus = 'sample_confirmed';
+        candidate.updatedAt = item.capturedAt;
+      });
+    }
+    return this.listCompetitorCandidates(userId, brandId);
+  }
+
   decideCompetitorCandidate(userId: string, brandId: BrandId, candidateId: string, input: CompetitorCandidateDecisionInput): CompetitorCandidateConfirmationResult | null {
     const brand = this.findAccessibleBrandDetail(userId, brandId);
     if (!brand) {
@@ -2836,6 +3008,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
 
     if (label === 'excluded') {
       candidate.decisionStatus = 'excluded';
+      candidate.lifecycleStatus = 'excluded';
       candidate.excludedReason = input.excludedReason?.trim() || '用户排除';
       this.createAuditLog(userId, {
         brandId,
@@ -2856,6 +3029,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     }
 
     candidate.decisionStatus = 'confirmed';
+    candidate.lifecycleStatus = 'user_confirmed';
+    candidate.confirmedAt = timestamp;
     candidate.excludedReason = undefined;
     this.createAuditLog(userId, {
       brandId,
@@ -2928,6 +3103,9 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       .filter((source) => source.authorityLevel === 'high')
       .reduce((sum, source) => sum + source.citationCount, 0);
 
+    const absorptionEvidence = sources.flatMap((source) => source.absorptionEvidence ?? []);
+    const reviewedEvidence = absorptionEvidence.filter((item) => item.outcome !== 'unavailable');
+    const absorbedEvidence = reviewedEvidence.filter((item) => item.outcome === 'supports' || item.outcome === 'partial');
     return {
       brandId,
       sampleCount: samples.length,
@@ -2937,11 +3115,38 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       contentCitationRate: totalCitations === 0 ? 0 : clampScore((contentCitationCount / totalCitations) * 100),
       officialCitationRate: totalCitations === 0 ? 0 : clampScore((officialCitationCount / totalCitations) * 100),
       authoritySourceRate: totalCitations === 0 ? 0 : clampScore((authorityCitationCount / totalCitations) * 100),
+      citationBreadthRate: totalCitations === 0 ? 0 : clampScore((sources.filter((source) => (source.absorptionEvidence ?? []).length > 0).reduce((sum, source) => sum + source.citationCount, 0) / totalCitations) * 100),
+      answerAbsorptionDepth: reviewedEvidence.length === 0 ? 0 : clampScore((absorbedEvidence.length / reviewedEvidence.length) * 100),
+      pendingReviewCount: absorptionEvidence.filter((item) => item.reviewStatus === 'pending_review').length,
       sourceTypeBreakdown: buildCitationTypeBreakdown(sources, totalCitations),
       trend: buildCitationTrend(sources, citationSamples),
       sources,
       contentAssets: contentAssets.filter((asset) => asset.brandId === brandId)
     };
+  }
+
+  getCitationSource(userId: string, brandId: BrandId, citationId: string): CitationSource | null {
+    const brand = this.findAccessibleBrandDetail(userId, brandId);
+    return brand ? this.syncCitationSources(brand).find((item) => item.brandId === brandId && item.id === citationId) ?? null : null;
+  }
+
+  saveCitationAbsorptionEvidence(userId: string, brandId: BrandId, citationId: string, evidence: CitationAbsorptionEvidence[]): CitationSource | null {
+    const brand = this.findAccessibleBrandDetail(userId, brandId);
+    const source = brand && this.syncCitationSources(brand).find((item) => item.brandId === brandId && item.id === citationId);
+    if (!source) return null;
+    source.absorptionEvidence = evidence;
+    return source;
+  }
+
+  reviewCitationAbsorptionEvidence(userId: string, brandId: BrandId, citationId: string, evidenceId: string): CitationSource | null {
+    const brand = this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) return null;
+    const source = this.syncCitationSources(brand).find((item) => item.brandId === brandId && item.id === citationId);
+    if (!source?.absorptionEvidence) return null;
+    source.absorptionEvidence = source.absorptionEvidence.map((item) => item.id === evidenceId
+      ? { ...item, reviewStatus: 'reviewed', reviewedAt: new Date().toISOString(), reviewedBy: userId }
+      : item);
+    return source;
   }
 
   bindCitationContentAsset(userId: string, brandId: BrandId, citationId: string, input: ContentAssetInput = {}): ContentAsset | null {
@@ -3225,7 +3430,16 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
 
     const assets = contentAssets.filter((asset) => asset.brandId === brandId);
     const strategies = contentStrategies.filter((strategy) => strategy.brandId === brandId);
-    const suggestions = buildContentStrategySuggestions(brandId, this.getAnalysisSamples(brandId), assets, strategies);
+    const suggestions = buildContentStrategySuggestions(
+      brandId,
+      this.getAnalysisSamples(brandId),
+      assets,
+      strategies,
+      getConfirmedCompetitorNames(
+        competitors.filter((competitor) => competitor.brandId === brandId),
+        competitorCandidates.filter((candidate) => candidate.brandId === brandId)
+      )
+    );
 
     return {
       brandId,
@@ -3339,6 +3553,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       targetKeywords: normalized.targetKeywords ?? [],
       reuseOfAssetId: normalized.reuseOfAssetId,
       brandAdaptation: normalized.brandAdaptation,
+      sourceFacts: normalized.sourceFacts,
+      reviewStatus: normalized.reviewStatus,
       status: normalized.status ?? 'draft',
       publishedAt: normalized.publishedAt,
       createdAt: timestamp,
@@ -3348,6 +3564,29 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     contentAssets.unshift(asset);
 
     return asset;
+  }
+
+  createTechnicalContentAsset(userId: string, brandId: BrandId, input: CreateTechnicalAssetInput): TechnicalAssetRecord | null {
+    const asset = this.createContentAsset(userId, brandId, {
+      title: input.title,
+      type: input.type,
+      platform: 'official_site',
+      url: input.targetPage,
+      sourceFacts: input.sourceFacts,
+      reviewStatus: input.reviewStatus ?? 'pending',
+      status: 'draft'
+    });
+    if (!asset) return null;
+
+    const version: TechnicalAssetVersion = {
+      id: `technical_version_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      contentAssetId: asset.id,
+      version: 1,
+      body: input.body,
+      createdAt: new Date().toISOString()
+    };
+    technicalAssetVersions.unshift(version);
+    return { asset, version };
   }
 
   updateContentAsset(userId: string, brandId: BrandId, assetId: string, input: ContentAssetInput): ContentAsset | null {
@@ -3371,6 +3610,8 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     if (normalized.targetKeywords !== undefined) asset.targetKeywords = normalized.targetKeywords;
     if (normalized.reuseOfAssetId !== undefined) asset.reuseOfAssetId = normalized.reuseOfAssetId;
     if (normalized.brandAdaptation !== undefined) asset.brandAdaptation = normalized.brandAdaptation;
+    if (normalized.sourceFacts !== undefined) asset.sourceFacts = normalized.sourceFacts;
+    if (normalized.reviewStatus !== undefined) asset.reviewStatus = normalized.reviewStatus;
     if (normalized.status !== undefined) asset.status = normalized.status;
     if (normalized.publishedAt !== undefined) asset.publishedAt = normalized.publishedAt;
     asset.updatedAt = new Date().toISOString();
@@ -3401,7 +3642,11 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       brandId,
       this.getAnalysisSamples(brandId),
       contentAssets.filter((asset) => asset.brandId === brandId),
-      contentStrategies.filter((strategy) => strategy.brandId === brandId)
+      contentStrategies.filter((strategy) => strategy.brandId === brandId),
+      getConfirmedCompetitorNames(
+        competitors.filter((competitor) => competitor.brandId === brandId),
+        competitorCandidates.filter((candidate) => candidate.brandId === brandId)
+      )
     );
     const created: ContentStrategy[] = [];
 
@@ -4150,6 +4395,10 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       platform: input.targetPlatform?.trim() || account?.platform || asset.platform,
       accountName: account?.accountName,
       publishingMode: account?.publishingMode ?? 'manual',
+      contentVersion: input.versionId ?? input.confirmation?.contentVersionLabel?.trim(),
+      materialRequirementsConfirmed: input.confirmation?.materialRequirementsConfirmed ?? false,
+      retestPlanAt: input.confirmation?.retestPlanAt,
+      confirmedAt: input.confirmation ? timestamp : undefined,
       status: input.status ? normalizePublishingRecordStatus(input.status) : 'draft',
       createdAt: timestamp,
       updatedAt: timestamp
@@ -4157,6 +4406,24 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
 
     publishingRecords.unshift(record);
 
+    return record;
+  }
+
+  confirmPublishingRecord(userId: string, brandId: BrandId, recordId: string, input: PublishingRecordConfirmationInput): PublishingRecord | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    const record = publishingRecords.find((item) => item.brandId === brandId && item.id === recordId);
+    const account = publishingAccounts.find((item) => item.brandId === brandId && item.id === input.accountId);
+    if (!record || !account) return null;
+    const timestamp = new Date().toISOString();
+    record.accountId = account.id;
+    record.accountName = account.accountName;
+    record.platform = account.platform;
+    record.publishingMode = account.publishingMode ?? 'manual';
+    record.contentVersion = record.versionId ?? input.contentVersionLabel?.trim();
+    record.materialRequirementsConfirmed = input.materialRequirementsConfirmed;
+    record.retestPlanAt = input.retestPlanAt;
+    record.confirmedAt = timestamp;
+    record.updatedAt = timestamp;
     return record;
   }
 
@@ -4312,20 +4579,16 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     }
 
     const sourceRunId = input.sourceRunId?.trim() || task.sourceRunId;
-    const retestRunId = input.retestRunId?.trim() || sourceRunId;
     if (!sourceRunId || !monitoringRuns.some((run) => run.brandId === brandId && run.id === sourceRunId)) {
       return null;
     }
-    if (!retestRunId || !monitoringRuns.some((run) => run.brandId === brandId && run.id === retestRunId)) {
-      return null;
-    }
-
     const timestamp = new Date().toISOString();
     const record: RetestRecord = {
       id: `retest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       taskId,
       sourceRunId,
-      retestRunId,
+      retestRunId: '',
+      status: 'planned',
       plannedAt: input.plannedAt?.trim() || timestamp,
       targetScore: clampScore(input.targetScore ?? 80),
       notes: input.notes?.trim(),
@@ -4334,13 +4597,30 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     };
 
     task.sourceRunId = sourceRunId;
-    task.retestRunId = retestRunId;
+    task.retestRunId = undefined;
     task.retestPlanAt = record.plannedAt;
     task.status = 'retest';
     task.retestRecords = [record, ...task.retestRecords];
     task.updatedAt = timestamp;
     this.syncGrowthPlanRetestStatus(brandId, task);
 
+    return task;
+  }
+
+  bindOptimizationTaskRetestRun(userId: string, brandId: BrandId, taskId: string, recordId: string, retestRunId: string): OptimizationTask | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+    const task = optimizationTasks.find((item) => item.brandId === brandId && item.id === taskId);
+    const record = task?.retestRecords.find((item) => item.id === recordId);
+    const retestRun = monitoringRuns.find((run) => run.brandId === brandId && run.id === retestRunId);
+    if (!task || !record || !retestRun || retestRunId === record.sourceRunId) return null;
+
+    const timestamp = new Date().toISOString();
+    record.retestRunId = retestRunId;
+    record.status = 'collecting';
+    record.evidenceGap = 'missing_real_response';
+    record.updatedAt = timestamp;
+    task.retestRunId = retestRunId;
+    task.updatedAt = timestamp;
     return task;
   }
 
@@ -4355,24 +4635,30 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       return null;
     }
 
-    const timestamp = new Date().toISOString();
     const targetScore = clampScore(input.targetScore ?? record.targetScore);
-    const comparison = buildRetestMetricComparison(
-      analysisResults.find((item) => item.runId === record.sourceRunId),
-      analysisResults.find((item) => item.runId === record.retestRunId)
+    const evaluation = evaluateRetestEvidence(
+      this.getMonitoringRun(userId, brandId, record.sourceRunId),
+      record.retestRunId ? this.getMonitoringRun(userId, brandId, record.retestRunId) : null
     );
-    const actualScore = clampScore(input.actualScore ?? comparison.afterMetrics.accuracyScore);
+    const timestamp = new Date().toISOString();
     record.targetScore = targetScore;
-    record.actualScore = actualScore;
-    record.beforeMetrics = comparison.beforeMetrics;
-    record.afterMetrics = comparison.afterMetrics;
-    record.metricDelta = comparison.metricDelta;
-    record.improved = record.sourceRunId === record.retestRunId ? actualScore >= targetScore : comparison.improved;
-    record.passed = actualScore >= targetScore && record.improved;
-    record.completedAt = timestamp;
-    record.nextSuggestion = record.improved ? undefined : buildRetestNextSuggestion(comparison);
+    record.status = evaluation.status;
+    record.evidenceGap = evaluation.evidenceGap;
     record.notes = input.notes?.trim() || record.notes;
     record.updatedAt = timestamp;
+    if (evaluation.actualScore === undefined || !evaluation.beforeMetrics || !evaluation.afterMetrics || !evaluation.metricDelta) {
+      return task;
+    }
+
+    const actualScore = clampScore(evaluation.actualScore);
+    record.actualScore = actualScore;
+    record.beforeMetrics = evaluation.beforeMetrics;
+    record.afterMetrics = evaluation.afterMetrics;
+    record.metricDelta = evaluation.metricDelta;
+    record.improved = evaluation.improved;
+    record.passed = actualScore >= targetScore && evaluation.improved === true;
+    record.completedAt = timestamp;
+    record.nextSuggestion = record.passed ? undefined : buildRetestNextSuggestion(evaluation);
     task.status = record.passed ? 'done' : 'reopened';
     task.processingNote = record.passed
       ? `${task.processingNote ?? ''}\n复测通过：${actualScore}/${targetScore}`.trim()
@@ -4412,14 +4698,15 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       id: `retest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       taskId: task.id,
       sourceRunId: task.sourceRunId,
-      retestRunId: task.retestRunId ?? task.sourceRunId,
+      retestRunId: '',
+      status: 'planned',
       plannedAt: plan?.retestAt ?? timestamp,
       targetScore: 80,
       notes: '优化任务完成后自动进入再次监测计划',
       createdAt: timestamp,
       updatedAt: timestamp
     };
-    task.retestRunId = record.retestRunId;
+    task.retestRunId = undefined;
     task.retestPlanAt = record.plannedAt;
     task.status = 'retest';
     task.retestRecords = [record, ...task.retestRecords];
@@ -4547,13 +4834,31 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     }
 
     const timestamp = new Date().toISOString();
+    const collectionMethod = input.collectionMethod ?? collectionMethodForPlatformMode(platform.mode);
+    const scope = {
+      platformCode: platform.platformCode,
+      modelName: input.modelName?.trim() || platform.modelName?.trim() || 'unknown',
+      collectionMethod,
+      clientSurface: input.clientSurface ?? clientSurfaceForCollectionMethod(collectionMethod),
+      searchEnabled: input.searchEnabled ?? null,
+      market: input.market?.trim() || 'unknown',
+      language: input.language?.trim() || 'unknown',
+      evidenceLevel: input.evidenceLevel ?? evidenceLevelForCollectionMethod(collectionMethod),
+      manualConfirmed: input.manualConfirmed ?? null
+    };
     const run: MonitoringRun = {
       id: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       brandId,
       optimizationUnitId: prompt.optimizationUnitId,
       intentId: prompt.intentId,
       promptId: prompt.id,
-      platformCode: platform.platformCode,
+      promptKind: prompt.promptKind,
+      ...scope,
+      baselineVersion: input.baselineVersion?.trim() || resolveBaselineVersion(
+        monitoringRuns.filter((item) => item.brandId === brandId).map((item) => item as MeasurementScope),
+        scope,
+        createBaselineVersion
+      ),
       status: 'pending',
       startedAt: timestamp,
       retryStatus: 'not_retried',
@@ -4634,7 +4939,9 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     });
     const updated = this.addManualResponse(userId, brandId, run.id, {
       rawText: `API response for ${platformCode}: ${question.question}`,
-      modelName: platform.modelName
+      modelName: platform.modelName,
+      collectionMethod: 'api',
+      evidenceLevel: 'reproducible_api'
     });
     this.parseAnalysisResult(userId, brandId, run.id);
 
@@ -4688,13 +4995,31 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     }
 
     const timestamp = new Date().toISOString();
+    const scope = {
+      platformCode: run.platformCode,
+      modelName: input.modelName?.trim() || run.modelName || 'unknown',
+      collectionMethod: input.collectionMethod ?? 'manual',
+      clientSurface: input.clientSurface ?? run.clientSurface,
+      searchEnabled: input.searchEnabled ?? run.searchEnabled,
+      market: input.market?.trim() || run.market,
+      language: input.language?.trim() || run.language,
+      evidenceLevel: input.evidenceLevel ?? 'manual_or_browser',
+      manualConfirmed: input.manualConfirmed ?? null
+    };
     aiResponses.unshift({
       id: `response_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       runId: run.id,
       brandId,
       rawText: input.rawText.trim(),
       citations: normalizeStringList(input.citations),
-      modelName: input.modelName?.trim() || 'manual',
+      ...scope,
+      baselineVersion: input.baselineVersion?.trim() || resolveBaselineVersion(
+        aiResponses.filter((item) => item.brandId === brandId).map((item) => item as MeasurementScope),
+        scope,
+        () => run.baselineVersion !== 'unknown' && isComparableMeasurementScope(run, { ...scope, baselineVersion: run.baselineVersion })
+          ? run.baselineVersion
+          : createBaselineVersion()
+      ),
       respondedAt: timestamp,
       parseStatus: 'pending',
       createdAt: timestamp
@@ -4756,7 +5081,13 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       const completed = this.addManualResponse(userId, brandId, run.id, {
         rawText: normalized.rawText,
         citations: normalized.citations,
-        modelName: normalized.modelName || `${normalized.platformCode}-manual`
+        modelName: normalized.modelName || `${normalized.platformCode}-manual`,
+        collectionMethod: 'manual',
+        evidenceLevel: 'manual_or_browser',
+        searchEnabled: normalized.searchEnabled,
+        market: normalized.market,
+        language: normalized.language,
+        manualConfirmed: normalized.manualConfirmed
       });
       this.parseAnalysisResult(userId, brandId, run.id);
       const detail = this.getMonitoringRun(userId, brandId, run.id) ?? completed ?? run;
@@ -4834,6 +5165,22 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     return { brandId, reports: brandReports, latest: brandReports[0] };
   }
 
+  previewReport(userId: string, brandId: BrandId, input: ReportInput): ReportScopePreview[] | null {
+    if (!this.findAccessibleBrandDetail(userId, brandId)) return null;
+
+    const normalized = normalizeReportInput(input);
+    const period = this.periodReportSnapshotService.resolvePeriod(normalized.periodStart, normalized.periodEnd);
+    const brandIds = normalized.type === 'multi_brand'
+      ? this.listAccessibleBrandDetails(userId).map((brand) => brand.brandId)
+      : [brandId];
+
+    return brandIds.map((scopedBrandId) => this.periodReportSnapshotService.buildPreview(
+      scopedBrandId,
+      period,
+      this.getPeriodReportSource(scopedBrandId)
+    ));
+  }
+
   createReport(userId: string, brandId: BrandId, input: ReportInput): ReportRecord | null {
     const brand = this.findAccessibleBrandDetail(userId, brandId);
     if (!brand) {
@@ -4842,12 +5189,14 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
 
     const normalized = normalizeReportInput(input);
     const timestamp = new Date().toISOString();
-    const periodStart = normalized.periodStart ?? timestamp.slice(0, 10);
-    const periodEnd = normalized.periodEnd ?? timestamp.slice(0, 10);
+    const period = this.periodReportSnapshotService.resolvePeriod(normalized.periodStart, normalized.periodEnd);
+    const periodStart = period.periodStart;
+    const periodEnd = period.periodEnd;
     const isMultiBrand = normalized.type === 'multi_brand';
+    const scopes = this.previewReport(userId, brandId, { ...normalized, periodStart, periodEnd }) as ReportScopePreview[];
     const snapshot = isMultiBrand
-      ? this.buildMultiBrandReportSnapshot(userId)
-      : this.buildSingleBrandReportSnapshot(userId, brandId);
+      ? this.buildMultiBrandReportSnapshot(userId, period, scopes)
+      : this.buildSingleBrandReportSnapshot(userId, brandId, period, scopes[0]);
     const dataGaps = isMultiBrand
       ? buildMultiBrandDataGaps(snapshot as MultiBrandReportSnapshot)
       : buildSingleBrandDataGaps(snapshot as SingleBrandReportSnapshot);
@@ -5002,7 +5351,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
     return record;
   }
 
-  private buildSingleBrandReportSnapshot(userId: string, brandId: BrandId): SingleBrandReportSnapshot {
+  private buildSingleBrandReportSnapshot(userId: string, brandId: BrandId, period: ReportPeriod, scope: ReportScopePreview): SingleBrandReportSnapshot {
     const brand = this.findAccessibleBrandDetail(userId, brandId) as BrandDetail;
     const metrics = this.getBrandMetricDashboard(userId, brandId) as BrandMetricDashboard;
     const competitor = this.getCompetitorDashboard(userId, brandId) as CompetitorDashboard;
@@ -5033,11 +5382,14 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
         accurateRate: evaluation.accurateRate
       },
       content: content.coverage,
-      taskProgress: taskBoard.statusCounts
+      taskProgress: taskBoard.statusCounts,
+      scope,
+      effectEvidence: this.periodReportSnapshotService.buildEffectEvidence(brandId, period, this.getPeriodReportSource(brandId)),
+      methodologyVersion: this.periodReportSnapshotService.methodologyVersion
     };
   }
 
-  private buildMultiBrandReportSnapshot(userId: string): MultiBrandReportSnapshot {
+  private buildMultiBrandReportSnapshot(userId: string, period: ReportPeriod, scopes: ReportScopePreview[]): MultiBrandReportSnapshot {
     const ranking = this.listBrandMetricRanking(userId);
     const strongestPlatforms = ranking.flatMap((brand) => {
       const dashboard = this.getBrandMetricDashboard(userId, brand.brandId);
@@ -5053,7 +5405,28 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       .filter((task) => task.brandId === brand.brandId && task.priority === 'high' && task.status !== 'done')
       .map((task) => ({ brandId: brand.brandId, title: task.title, source: task.type })));
 
-    return { ranking, strongestPlatforms, weakScenarios, highPriorityIssues };
+    return {
+      ranking,
+      strongestPlatforms,
+      weakScenarios,
+      highPriorityIssues,
+      scopes,
+      effectEvidence: scopes.flatMap((scope) => this.periodReportSnapshotService.buildEffectEvidence(
+        scope.brandId,
+        period,
+        this.getPeriodReportSource(scope.brandId)
+      )),
+      methodologyVersion: this.periodReportSnapshotService.methodologyVersion
+    };
+  }
+
+  private getPeriodReportSource(brandId: BrandId) {
+    return {
+      monitoringRuns: monitoringRuns.filter((run) => run.brandId === brandId).map((run) => this.toMonitoringRunDetail(run)),
+      contentAssets: contentAssets.filter((asset) => asset.brandId === brandId),
+      publishingRecords: publishingRecords.filter((record) => record.brandId === brandId),
+      tasks: optimizationTasks.filter((task) => task.brandId === brandId)
+    };
   }
 
   private withAdvisorReport(record: AdvisorRecord): AdvisorRecord {
@@ -5139,6 +5512,7 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
       intentId: intent.id,
       templateId: template.id,
       text,
+      promptKind: classifyPromptKind(text, brand),
       category: intent.category,
       targetKeywords: mergeStringLists(template.targetKeywords, unit?.targetKeywords ?? []),
       platformCodes: template.platformCodes,
@@ -5159,7 +5533,16 @@ export class PermissionsRepository implements PermissionsRepositoryPort {
         brandId: run.brandId,
         rawText: `演示回答（${platform.platformCode}）：${prompt.text}`,
         citations: [],
+        platformCode: run.platformCode,
         modelName: platform.modelName ?? 'mock-v1',
+        collectionMethod: 'mock',
+        clientSurface: run.clientSurface,
+        searchEnabled: run.searchEnabled,
+        market: run.market,
+        language: run.language,
+        evidenceLevel: 'demo',
+        manualConfirmed: null,
+        baselineVersion: run.baselineVersion,
         respondedAt: timestamp,
         parseStatus: 'pending',
         createdAt: timestamp
@@ -5698,7 +6081,8 @@ function buildContentStrategySuggestions(
   brandId: BrandId,
   samples: AnalysisSample[],
   assets: ContentAsset[],
-  existingStrategies: ContentStrategy[]
+  existingStrategies: ContentStrategy[],
+  confirmedCompetitorNames: Set<string>
 ): ContentStrategySuggestion[] {
   const suggestions: ContentStrategySuggestion[] = [];
   const coveredKeywords = new Set(assets.flatMap((asset) => asset.targetKeywords));
@@ -5747,12 +6131,16 @@ function buildContentStrategySuggestions(
       });
     }
 
-    if (sample.analysis.competitorMentions.some((mention) => isSuppressedByCompetitor(sample.analysis, mention.name))) {
+    const suppressingCompetitor = sample.analysis.competitorMentions.find((mention) => (
+      isConfirmedCompetitorName(mention.name, confirmedCompetitorNames)
+      && isSuppressedByCompetitor(sample.analysis, mention.name)
+    ));
+    if (suppressingCompetitor) {
       pushContentSuggestion(suggestions, seen, {
         ...base,
         type: 'competitor_response',
         priority: 'high',
-        suggestedTitle: `回应${sample.analysis.competitorMentions[0]?.name ?? '竞品'}推荐压制`,
+        suggestedTitle: `回应${suppressingCompetitor.name}推荐压制`,
         targetKeywords: promptKeywords.slice(0, 5),
         reason: '竞品在同 Prompt 下位于品牌之前'
       });
@@ -5966,6 +6354,26 @@ function normalizeProfileInput(input: BrandProfileInput): BrandProfileInput {
   };
 }
 
+function collectionMethodForPlatformMode(mode: PlatformMode): MonitoringRun['collectionMethod'] {
+  if (mode === 'mock') return 'mock';
+  if (mode === 'api') return 'api';
+  if (mode === 'semi_auto') return 'browser';
+  return 'manual';
+}
+
+function clientSurfaceForCollectionMethod(method: MonitoringRun['collectionMethod']): MonitoringRun['clientSurface'] {
+  if (method === 'api') return 'api';
+  if (method === 'browser') return 'web';
+  return 'unknown';
+}
+
+function evidenceLevelForCollectionMethod(method: MonitoringRun['collectionMethod']): MonitoringRun['evidenceLevel'] {
+  if (method === 'mock') return 'demo';
+  if (method === 'api') return 'reproducible_api';
+  if (method === 'manual' || method === 'browser') return 'manual_or_browser';
+  return 'unknown';
+}
+
 function normalizeStringList(values: string[] = []): string[] {
   return values.map((value) => value.trim()).filter(Boolean);
 }
@@ -6070,10 +6478,18 @@ function normalizeTestQuestionCandidateInput(input: TestQuestionCandidateInput):
     themeId: input.themeId,
     promptId: input.promptId?.trim(),
     question: input.question.trim(),
+    promptKind: input.promptKind,
     purposes: normalizeTestQuestionPurposes(input.purposes),
     targetPlatforms: normalizeStringList(input.targetPlatforms),
     priority: input.priority,
     estimatedValue: input.estimatedValue.trim(),
+    discoveryDimension: input.discoveryDimension,
+    businessValue: input.businessValue ?? input.priority,
+    recommendationProbability: input.recommendationProbability,
+    userStage: input.userStage,
+    generationRationale: input.generationRationale?.trim(),
+    generationMethod: input.generationMethod,
+    mergedFrom: normalizeUniqueStringList(input.mergedFrom),
     editable: input.editable ?? true,
     selected: input.selected ?? false
   };
@@ -6084,10 +6500,18 @@ function normalizePartialTestQuestionCandidateInput(input: TestQuestionCandidate
     themeId: input.themeId,
     promptId: input.promptId?.trim(),
     question: input.question?.trim(),
+    promptKind: input.promptKind,
     purposes: input.purposes ? normalizeTestQuestionPurposes(input.purposes) : undefined,
     targetPlatforms: input.targetPlatforms ? normalizeStringList(input.targetPlatforms) : undefined,
     priority: input.priority,
     estimatedValue: input.estimatedValue?.trim(),
+    discoveryDimension: input.discoveryDimension,
+    businessValue: input.businessValue,
+    recommendationProbability: input.recommendationProbability,
+    userStage: input.userStage,
+    generationRationale: input.generationRationale?.trim(),
+    generationMethod: input.generationMethod,
+    mergedFrom: input.mergedFrom ? normalizeUniqueStringList(input.mergedFrom) : undefined,
     editable: input.editable,
     selected: input.selected
   };
@@ -6138,7 +6562,11 @@ function normalizeManualTestAnswerInput(input: ManualTestAnswerInput): ManualTes
     platformCode: input.platformCode?.trim() ?? '',
     rawText: input.rawText?.trim() ?? '',
     citations: normalizeStringList(input.citations),
-    modelName: input.modelName?.trim()
+    modelName: input.modelName?.trim(),
+    searchEnabled: input.searchEnabled ?? null,
+    market: input.market?.trim(),
+    language: input.language?.trim(),
+    manualConfirmed: input.manualConfirmed ?? null
   };
 }
 
@@ -6580,6 +7008,7 @@ function normalizePromptTemplateInput(
 function normalizePartialBrandPromptInput(input: Partial<BrandPromptInput>): Partial<BrandPromptInput> {
   return {
     text: input.text?.trim(),
+    promptKind: input.promptKind,
     targetKeywords: input.targetKeywords ? normalizeStringList(input.targetKeywords) : undefined,
     platformCodes: input.platformCodes ? normalizeStringList(input.platformCodes) : undefined,
     monitoringFrequency: input.monitoringFrequency,
@@ -6669,6 +7098,10 @@ function cloneCompetitorCandidatesForRun(candidates: CompetitorCandidate[], runI
     candidateId: `competitor_candidate_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`,
     runId,
     decisionStatus: 'pending',
+    lifecycleStatus: 'candidate',
+    evidenceSampleIds: [],
+    sampleConfirmedAt: undefined,
+    confirmedAt: undefined,
     confirmedLabel: undefined,
     excludedReason: undefined,
     createdAt: timestamp,
@@ -6749,6 +7182,8 @@ function buildLocalCompetitorCandidates(brand: BrandDetail, run: CompetitorDisco
       confidence: score >= 78 ? 'high' : score >= 60 ? 'medium' : 'low',
       isCampusFocus,
       decisionStatus: 'pending',
+      lifecycleStatus: 'candidate',
+      evidenceSampleIds: [],
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -6960,6 +7395,7 @@ function createCompetitorLinkedTestQuestions(brand: BrandDetail, candidate: Comp
       brandId: brand.brandId,
       themeId: theme.id,
       question: question.question,
+      promptKind: classifyPromptKind(question.question, brand),
       purposes: question.purposes,
       targetPlatforms: ['doubao', 'kimi', 'deepseek', 'qianwen', 'stepfun'],
       priority: question.priority,
@@ -7136,6 +7572,8 @@ function normalizeContentAssetInput(input: ContentAssetInput): ContentAssetInput
     targetKeywords: input.targetKeywords ? normalizeStringList(input.targetKeywords) : undefined,
     reuseOfAssetId: input.reuseOfAssetId?.trim(),
     brandAdaptation: input.brandAdaptation?.trim(),
+    sourceFacts: input.sourceFacts ? structuredClone(input.sourceFacts) : undefined,
+    reviewStatus: input.reviewStatus,
     status: input.status,
     publishedAt: input.publishedAt?.trim()
   };
@@ -7488,7 +7926,8 @@ function buildCompetitorComparisons(
   samples: AnalysisSample[]
 ): CompetitorComparisonItem[] {
   return samples.flatMap((sample) => {
-    return sample.analysis.competitorMentions.map((mention) => {
+    const confirmedNames = getConfirmedCompetitorNames(brandCompetitors, []);
+    return sample.analysis.competitorMentions.filter((mention) => isConfirmedCompetitorName(mention.name, confirmedNames)).map((mention) => {
       const competitor = brandCompetitors.find((item) => matchesCompetitor(mention.name, item));
       const intent = userIntents.find((item) => item.id === sample.run.intentId);
       const suppressed = isSuppressedByCompetitor(sample.analysis, mention.name);
@@ -7519,7 +7958,8 @@ function buildCompetitorComparisons(
 }
 
 function matchesCompetitor(name: string, competitor: Competitor): boolean {
-  return [competitor.name, ...competitor.aliases].includes(name);
+  const normalizedName = normalizeCompetitorName(name);
+  return [competitor.name, ...competitor.aliases].some((candidate) => normalizeCompetitorName(candidate) === normalizedName);
 }
 
 function isSuppressedByCompetitor(analysis: AnalysisResult, competitorName: string): boolean {
@@ -7875,38 +8315,6 @@ function buildGrowthContentReferenceSources(plan: GrowthOptimizationPlan, recomm
   );
 }
 
-function buildRetestMetricComparison(sourceAnalysis?: AnalysisResult, retestAnalysis?: AnalysisResult) {
-  const beforeMetrics = toRetestMetricSnapshot(sourceAnalysis);
-  const afterMetrics = toRetestMetricSnapshot(retestAnalysis);
-  const sourceRank = beforeMetrics.brandRank ?? Number.MAX_SAFE_INTEGER;
-  const retestRank = afterMetrics.brandRank ?? Number.MAX_SAFE_INTEGER;
-  const metricDelta = {
-    mentionRate: afterMetrics.mentionRate - beforeMetrics.mentionRate,
-    rankImproved: retestRank < sourceRank,
-    accuracyScore: afterMetrics.accuracyScore - beforeMetrics.accuracyScore
-  };
-  const improved = metricDelta.mentionRate > 0 || metricDelta.rankImproved || metricDelta.accuracyScore > 0;
-
-  return { beforeMetrics, afterMetrics, metricDelta, improved };
-}
-
-function toRetestMetricSnapshot(analysis?: AnalysisResult) {
-  return {
-    mentionRate: analysis?.brandMentioned ? 100 : 0,
-    brandRank: analysis?.brandRank ?? null,
-    accuracyScore: analysis?.accuracyScore ?? 0
-  };
-}
-
-function buildRetestNextSuggestion(comparison: ReturnType<typeof buildRetestMetricComparison>): string {
-  const suggestions = [];
-  if (comparison.metricDelta.mentionRate <= 0) suggestions.push('继续补充品牌名称、别名和高频问法内容');
-  if (!comparison.metricDelta.rankImproved) suggestions.push('强化本地化证据、权威背书和竞品对比内容');
-  if (comparison.metricDelta.accuracyScore <= 0) suggestions.push('补齐标准表达、FAQ 和可引用事实');
-
-  return suggestions.join('；') || '继续补充可被 AI 引用的品牌内容，并在下一轮复测中观察变化。';
-}
-
 function slugify(value: string): string {
   const normalized = value.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/^-|-$/g, '');
   return normalized || 'content-draft';
@@ -8246,6 +8654,10 @@ function scoreCompetitor(analysis: AnalysisResult): number {
 
 function currentMetricPeriod(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function createBaselineVersion(): string {
+  return `baseline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function sanitizeAuditMetadata(metadata: Record<string, unknown>): Record<string, unknown> {

@@ -32,12 +32,15 @@ import type {
   CompetitorCandidate,
   CompetitorCandidateConfirmationResult,
   CompetitorCandidateDecisionInput,
+  CompetitorCandidateEvidenceInput,
   CompetitorDashboard,
   CompetitorDiscoveryCandidatesQuery,
   CompetitorDiscoveryRun,
   CompetitorDiscoveryRunInput,
   CompetitorInput,
   CitationDashboard,
+  CitationAbsorptionEvidence,
+  CitationSource,
   ContentAsset,
   ContentAssetFilter,
   ContentAssetInput,
@@ -79,7 +82,11 @@ import type {
   DeniedAccessLog,
   KnowledgeSource,
   KnowledgeSourceInput,
+  KnowledgeChunk,
+  KnowledgeChunkInput,
   ManualResponseInput,
+  MeasurementAttributionInput,
+  MeasurementAttributionRecord,
   MediaPlatformRule,
   ManualTestAnswerBatchInput,
   ManualTestAnswerBatchResult,
@@ -96,6 +103,7 @@ import type {
   PublishingEntryPayload,
   PublishingExecutionStatusInput,
   PublishingRecord,
+  PublishingRecordConfirmationInput,
   PublishingRecordInput,
   PromptBatchGenerateInput,
   PromptTemplate,
@@ -108,6 +116,7 @@ import type {
   ReportDashboard,
   ReportInput,
   ReportRecord,
+  ReportScopePreview,
   TaskBoardDashboard,
   TestQuestionCandidate,
   TestQuestionCandidateInput,
@@ -144,6 +153,7 @@ import {
   type BrandStandardAnswerUpdateInput
 } from './permissions.repository.port';
 import type { AIPlatformRuntimeConfig } from '../platforms/adapters/ai-platform.adapter';
+import { buildBrandCapabilitySummary } from '../../common/access-control/brand-access.policy';
 
 @Injectable()
 export class PermissionsService {
@@ -154,11 +164,21 @@ export class PermissionsService {
   }
 
   listAccessibleBrands(userId: string): AccessibleBrand[] {
-    return this.permissionsRepository.listAccessibleBrands(userId);
+    return this.permissionsRepository.listAccessibleBrands(userId).map((brand) => ({
+      ...brand,
+      capabilities: buildBrandCapabilitySummary(brand.role)
+    }));
   }
 
   listAccessibleBrandDetails(userId: string): BrandDetail[] {
     return this.permissionsRepository.listAccessibleBrandDetails(userId);
+  }
+
+  async getAccessibleBrandOrganizationId(userId: string, brandId: BrandId): Promise<string | null> {
+    const brand = this.permissionsRepository.findAccessibleBrandDetail
+      ? await this.permissionsRepository.findAccessibleBrandDetail(userId, brandId)
+      : null;
+    return brand?.organizationId ?? null;
   }
 
   getBrandWorkspaceSnapshot(userId: string, brandId: BrandId): BrandWorkspaceSnapshot | null {
@@ -213,6 +233,18 @@ export class PermissionsService {
     errorMessage?: string
   ): KnowledgeSource | null {
     return this.permissionsRepository.updateKnowledgeSourceStatus(userId, brandId, sourceId, status, errorMessage);
+  }
+
+  async listKnowledgeChunks(userId: string, brandId: BrandId, sourceId?: string): Promise<KnowledgeChunk[] | null> {
+    return this.permissionsRepository.listKnowledgeChunks(userId, brandId, sourceId);
+  }
+
+  async searchKnowledgeChunks(userId: string, brandId: BrandId, query: string, limit: number): Promise<KnowledgeChunk[] | null> {
+    return this.permissionsRepository.searchKnowledgeChunks(userId, brandId, query, limit);
+  }
+
+  async appendKnowledgeChunkVersion(userId: string, brandId: BrandId, sourceId: string, chunks: KnowledgeChunkInput[]): Promise<KnowledgeChunk[] | null> {
+    return this.permissionsRepository.appendKnowledgeChunkVersion(userId, brandId, sourceId, chunks);
   }
 
   listOptimizationUnits(userId: string, brandId: BrandId): OptimizationUnit[] | null {
@@ -402,7 +434,13 @@ export class PermissionsService {
     const updatedRun = await this.permissionsRepository.addManualResponse(userId, brandId, run.id, {
       rawText: input.rawText,
       modelName: input.modelName || `${session.platformCode}-browser`,
-      citations: input.citations
+      citations: input.citations,
+      collectionMethod: 'browser',
+      searchEnabled: input.searchEnabled,
+      market: input.market,
+      language: input.language,
+      evidenceLevel: 'manual_or_browser',
+      manualConfirmed: input.manualConfirmed
     });
     if (!updatedRun) {
       throw new BadRequestException('真实回答保存失败，请稍后重试');
@@ -504,6 +542,14 @@ export class PermissionsService {
     return this.permissionsRepository.listMonitoringRuns(userId, brandId);
   }
 
+  async getMeasurementAttribution(userId: string, brandId: BrandId): Promise<MeasurementAttributionRecord | null> {
+    return this.permissionsRepository.getMeasurementAttribution ? await this.permissionsRepository.getMeasurementAttribution(userId, brandId) : null;
+  }
+
+  async saveMeasurementAttribution(userId: string, brandId: BrandId, input: MeasurementAttributionInput): Promise<MeasurementAttributionRecord | null> {
+    return this.permissionsRepository.saveMeasurementAttribution ? await this.permissionsRepository.saveMeasurementAttribution(userId, brandId, input) : null;
+  }
+
   getMonitoringRun(userId: string, brandId: BrandId, runId: string): MonitoringRunDetail | null {
     return this.permissionsRepository.getMonitoringRun(userId, brandId, runId);
   }
@@ -568,12 +614,28 @@ export class PermissionsService {
     return this.permissionsRepository.listCompetitorDiscoveryCandidates(userId, brandId, runId, query);
   }
 
+  listCompetitorCandidates(userId: string, brandId: BrandId): CompetitorCandidate[] | Promise<CompetitorCandidate[] | null> | null {
+    return this.permissionsRepository.listCompetitorCandidates(userId, brandId);
+  }
+
+  syncCompetitorCandidateEvidence(userId: string, brandId: BrandId, evidence: CompetitorCandidateEvidenceInput[]): CompetitorCandidate[] | Promise<CompetitorCandidate[] | null> | null {
+    return this.permissionsRepository.syncCompetitorCandidateEvidence(userId, brandId, evidence);
+  }
+
   decideCompetitorCandidate(userId: string, brandId: BrandId, candidateId: string, input: CompetitorCandidateDecisionInput): CompetitorCandidateConfirmationResult | Promise<CompetitorCandidateConfirmationResult | null> | null {
     return this.permissionsRepository.decideCompetitorCandidate(userId, brandId, candidateId, input);
   }
 
-  getCitationDashboard(userId: string, brandId: BrandId): CitationDashboard | null {
+  getCitationDashboard(userId: string, brandId: BrandId): CitationDashboard | Promise<CitationDashboard | null> | null {
     return this.permissionsRepository.getCitationDashboard(userId, brandId);
+  }
+
+  saveCitationAbsorptionEvidence(userId: string, brandId: BrandId, citationId: string, evidence: CitationAbsorptionEvidence[]): CitationSource | Promise<CitationSource | null> | null {
+    return this.permissionsRepository.saveCitationAbsorptionEvidence?.(userId, brandId, citationId, evidence) ?? null;
+  }
+
+  reviewCitationAbsorptionEvidence(userId: string, brandId: BrandId, citationId: string, evidenceId: string): CitationSource | Promise<CitationSource | null> | null {
+    return this.permissionsRepository.reviewCitationAbsorptionEvidence?.(userId, brandId, citationId, evidenceId) ?? null;
   }
 
   bindCitationContentAsset(userId: string, brandId: BrandId, citationId: string, input: ContentAssetInput): ContentAsset | null {
@@ -728,6 +790,10 @@ export class PermissionsService {
     return this.permissionsRepository.createPublishingRecord(userId, brandId, input);
   }
 
+  confirmPublishingRecord(userId: string, brandId: BrandId, recordId: string, input: PublishingRecordConfirmationInput): PublishingRecord | null {
+    return this.permissionsRepository.confirmPublishingRecord(userId, brandId, recordId, input);
+  }
+
   updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingExecutionStatusInput): PublishingRecord | null {
     return this.permissionsRepository.updatePublishingRecordStatus(userId, brandId, recordId, input);
   }
@@ -748,12 +814,20 @@ export class PermissionsService {
     return this.permissionsRepository.planOptimizationTaskRetest(userId, brandId, taskId, input);
   }
 
+  bindOptimizationTaskRetestRun(userId: string, brandId: BrandId, taskId: string, recordId: string, retestRunId: string): OptimizationTask | null {
+    return this.permissionsRepository.bindOptimizationTaskRetestRun(userId, brandId, taskId, recordId, retestRunId);
+  }
+
   completeOptimizationTaskRetest(userId: string, brandId: BrandId, taskId: string, recordId: string, input: RetestResultInput): OptimizationTask | null {
     return this.permissionsRepository.completeOptimizationTaskRetest(userId, brandId, taskId, recordId, input);
   }
 
   getReportDashboard(userId: string, brandId: BrandId): ReportDashboard | null {
     return this.permissionsRepository.getReportDashboard(userId, brandId);
+  }
+
+  async previewReport(userId: string, brandId: BrandId, input: ReportInput): Promise<ReportScopePreview[] | null> {
+    return this.permissionsRepository.previewReport(userId, brandId, input);
   }
 
   createReport(userId: string, brandId: BrandId, input: ReportInput): ReportRecord | null {

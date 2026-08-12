@@ -1172,6 +1172,75 @@ body {
   font-weight: 600;
 }
 
+.quick-start-shell {
+  align-items: start;
+  display: grid;
+  gap: var(--geo-space-section);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+}
+
+.quick-start-navigation,
+.quick-start-content {
+  background: var(--geo-color-surface);
+  border: 1px solid var(--geo-color-border);
+  border-radius: var(--geo-radius-surface);
+  padding: var(--geo-space-component);
+}
+
+.quick-start-navigation {
+  position: sticky;
+  top: 88px;
+}
+
+.quick-start-form-grid,
+.quick-start-fact-grid {
+  display: grid;
+  gap: var(--geo-space-component);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-start-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--geo-space-compact);
+}
+
+.quick-start-fact-card,
+.quick-start-fact-card .ant-card-body {
+  height: 100%;
+}
+
+.quick-start-source {
+  background: var(--geo-color-surface-subtle);
+  border-radius: var(--geo-radius-control);
+  padding: 12px;
+}
+
+.quick-start-source .ant-typography {
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.quick-start-question-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.quick-start-actions {
+  border-top: 1px solid var(--geo-color-border);
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--geo-space-component);
+}
+
+.quick-start-source-page-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto;
+  gap: var(--geo-space-compact);
+}
+
 .beginner-question-row,
 .beginner-todo-row {
   align-items: center;
@@ -1306,6 +1375,14 @@ body {
 
   .beginner-home-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-start-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-start-navigation {
+    position: static;
   }
 }
 
@@ -1561,6 +1638,17 @@ body {
   }
 
   .beginner-home-task .ant-btn {
+    width: 100%;
+  }
+
+  .quick-start-form-grid,
+  .quick-start-fact-grid,
+  .quick-start-source-page-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-start-actions,
+  .quick-start-actions .ant-btn {
     width: 100%;
   }
 }

@@ -162,6 +162,8 @@ describe('competitor analysis repository', () => {
     });
 
     expect(result?.candidate.decisionStatus).toBe('confirmed');
+    expect(result?.candidate.lifecycleStatus).toBe('user_confirmed');
+    expect(result?.candidate.confirmedAt).toEqual(expect.any(String));
     expect(result?.competitor).toMatchObject({
       name: candidate?.name,
       confirmationLabel: 'direct_competitor',
@@ -172,6 +174,21 @@ describe('competitor analysis repository', () => {
     expect(competitorQuestions?.some((item) => item.purposes.includes('competitor_presence'))).toBe(true);
     expect(competitorQuestions?.some((item) => item.question.includes('怎么选'))).toBe(true);
     expect(auditLogs.some((log) => log.resourceId === candidate?.candidateId && log.metadata.label === 'direct_competitor')).toBe(true);
+  });
+
+  it('promotes matching candidates to sample confirmed and keeps evidence unique', async () => {
+    const repository = new PermissionsRepository();
+    const brandId = createIsolatedBrand(repository);
+    const run = await repository.createCompetitorDiscoveryRun('user_demo', brandId, { city: '贵阳' });
+    const candidate = repository.listCompetitorDiscoveryCandidates('user_demo', brandId, run?.runId ?? '')?.[0];
+
+    repository.syncCompetitorCandidateEvidence('user_demo', brandId, [
+      { competitorName: candidate?.name ?? '', runId: 'monitoring_1', capturedAt: '2026-08-03T01:00:00.000Z' },
+      { competitorName: candidate?.name ?? '', runId: 'monitoring_1', capturedAt: '2026-08-03T01:00:00.000Z' }
+    ]);
+    const updated = repository.listCompetitorCandidates('user_demo', brandId)?.find((item) => item.candidateId === candidate?.candidateId);
+
+    expect(updated).toMatchObject({ lifecycleStatus: 'sample_confirmed', evidenceSampleIds: ['monitoring_1'], sampleConfirmedAt: '2026-08-03T01:00:00.000Z' });
   });
 
   it('reuses cached competitor discovery candidates for the same search conditions', async () => {
@@ -210,6 +227,7 @@ describe('competitor analysis repository', () => {
 
     expect(result?.candidate).toMatchObject({
       decisionStatus: 'excluded',
+      lifecycleStatus: 'excluded',
       excludedReason: '艺术培训，不纳入儿童运动竞品'
     });
     expect(excluded?.map((item) => item.candidateId)).toContain(unrelatedCandidate?.candidateId);

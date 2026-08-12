@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
 import type { BrandDetail, BrandMutationInput, BrandWorkspaceSnapshot, BrandWorkspaceSummary, VisibilitySprint } from '@geo-platform/shared-types';
 import { apiGet, apiPatch, apiPost } from '../../../api/http';
+import { monitoringPath, userIntentsPath } from '../../../app/routePaths';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
 import { getBrandRoleDisplay } from '../../../utils/displayLabels';
 import { operationWorkflow } from '../../../layouts/navigation';
@@ -12,6 +13,7 @@ import { ProductPage } from '../../../components/ProductPage';
 import { getQueryGroupWorkspaceState, type QueryWorkspaceResource } from '../../../components/WorkspaceState';
 import { AutomationOperatorCard } from '../../automation/components/AutomationOperatorCard';
 import { BeginnerHomePanel } from '../components/BeginnerHomePanel';
+import { QuickStartWizard } from '../components/QuickStartWizard';
 import { BrandPortfolioPanel } from '../components/BrandPortfolioPanel';
 import { BrandKnowledgeCard } from '../components/BrandKnowledgeCard';
 import { OptimizationUnitsCard } from '../components/OptimizationUnitsCard';
@@ -37,6 +39,7 @@ export function BrandWorkspacePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedGuideKey, setSelectedGuideKey] = useState(firstRoundSteps[0].key);
   const pageMode = getBrandWorkspacePageMode(location.pathname);
+  const quickStartMode = isQuickStartMode(location.search) && !pageMode.focusModule;
   const activeBrandQuery = useQuery({
     queryKey: ['active-brand', activeBrandId],
     queryFn: () => apiGet<BrandWorkspaceSummary>('/brands/active')
@@ -44,17 +47,17 @@ export function BrandWorkspacePage() {
   const brandsQuery = useQuery({
     queryKey: ['brand-details'],
     queryFn: () => apiGet<BrandDetail[]>('/brands/details'),
-    enabled: !pageMode.focusModule
+    enabled: !pageMode.focusModule && !quickStartMode
   });
   const workspaceQuery = useQuery({
     queryKey: ['brand-workspace', activeBrandId],
     queryFn: () => apiGet<BrandWorkspaceSnapshot>(`/brands/${activeBrandId}/workspace`),
-    enabled: !pageMode.focusModule
+    enabled: !pageMode.focusModule && !quickStartMode
   });
   const currentSprintQuery = useQuery({
     queryKey: ['visibility-sprint-current', activeBrandId],
     queryFn: () => apiGet<VisibilitySprint>(`/brands/${activeBrandId}/sprints/current`),
-    enabled: !pageMode.focusModule
+    enabled: !pageMode.focusModule && !quickStartMode
   });
   const activeBrand = activeBrandQuery.data?.success ? activeBrandQuery.data.data : null;
   const brands = brandsQuery.data?.success ? brandsQuery.data.data : [];
@@ -143,6 +146,19 @@ export function BrandWorkspacePage() {
   };
 
   const pagePresentation = getBrandWorkspacePagePresentation(pageMode.focusModule);
+
+  if (quickStartMode) {
+    return (
+      <QuickStartWizard
+        key={activeBrandId}
+        brandId={activeBrandId}
+        brandName={activeBrand?.name}
+        onExit={() => navigate('/brands')}
+        onViewMoreQuestions={() => navigate(userIntentsPath())}
+        onStartMonitoring={(planId) => navigate(getQuickStartMonitoringPath(planId))}
+      />
+    );
+  }
 
   return (
     <ProductPage
@@ -346,6 +362,14 @@ export function getBrandWorkspacePageMode(pathname: string): { focusModule?: Bra
   if (pathname === '/user-intents') return { focusModule: 'user-intents' };
   if (pathname === '/optimization-units') return { focusModule: 'optimization-units' };
   return {};
+}
+
+export function isQuickStartMode(search: string): boolean {
+  return new URLSearchParams(search).get('quickStart') === '1';
+}
+
+export function getQuickStartMonitoringPath(planId: string) {
+  return monitoringPath({ planId }, 'test-question-candidate-card');
 }
 
 export function getBrandWorkspacePagePresentation(focusModule?: BrandWorkspaceFocusModule) {

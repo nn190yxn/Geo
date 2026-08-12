@@ -4,9 +4,10 @@ import { PermissionsModule } from '../permissions/permissions.module';
 import { PlatformsModule } from '../platforms/platforms.module';
 import { MonitoringController } from './monitoring.controller';
 import { MonitoringWorker } from './monitoring.worker';
+import { ProductEventsModule } from '../product-events/product-events.module';
 
 @Module({
-  imports: [PermissionsModule, PlatformsModule, LLMModule],
+  imports: [PermissionsModule, PlatformsModule, LLMModule, ProductEventsModule],
   controllers: [MonitoringController],
   providers: [MonitoringWorker],
   exports: [MonitoringWorker]

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type {
   AutomationPackage,
   BrandDetail,
@@ -9,15 +10,26 @@ import type {
   TestQuestionCandidateInput,
   TestQuestionPoolAngle,
   TestQuestionPoolSource,
+  TestQuestionPoolItem,
+  SearchDemandSource,
   TestTheme
 } from '@geo-platform/shared-types';
-import { TestQuestionService } from '../brands/test-question.service';
+import { normalizeQuestionText, TestQuestionService } from '../brands/test-question.service';
 import { TestThemeService } from '../brands/test-theme.service';
 import { PERMISSIONS_REPOSITORY, type PermissionsRepositoryPort } from '../permissions/permissions.repository.port';
 import { AUTOMATION_REPOSITORY, type AutomationRepositoryPort } from './automation.repository.port';
 import { ConfirmationQueueService } from './confirmation-queue.service';
 
 const selectedQuestionCount = 6;
+
+export type ConfirmedSearchDemandQuestionInput = {
+  question: string;
+  seedTerm: string;
+  market: string;
+  source: SearchDemandSource;
+  snapshotId: string;
+  candidateId: string;
+};
 
 @Injectable()
 export class QuestionPoolService {
@@ -77,6 +89,80 @@ export class QuestionPoolService {
     return updated;
   }
 
+  addConfirmedSearchDemandQuestion(userId: string, brandId: BrandId, input: ConfirmedSearchDemandQuestionInput): TestQuestionPoolItem {
+    const brand = this.permissionsRepository.listAccessibleBrandDetails(userId).find((item) => item.brandId === brandId);
+    if (!brand) throw new NotFoundException('品牌不存在或当前用户无权访问');
+    const themeName = `搜索需求：${input.seedTerm}（${input.market}）`;
+    const themes = this.permissionsRepository.listTestThemes(userId, brandId) ?? [];
+    const theme = themes.find((item) => item.name === themeName) ?? this.permissionsRepository.createTestTheme(userId, brandId, {
+      type: 'category',
+      name: themeName,
+      businessExplanation: `追踪${input.market}市场中“${input.seedTerm}”相关搜索需求。`,
+      priority: 'medium',
+      estimatedValue: '用于发现新出现的搜索问法并进入后续 AI 回复监测。',
+      enabled: true,
+      sourceProfileFields: []
+    });
+    if (!theme) throw new NotFoundException('搜索需求监测方向创建失败');
+
+    const normalized = normalizeQuestionText(input.question);
+    const candidates = this.permissionsRepository.listTestQuestionCandidates(userId, brandId) ?? [];
+    const existingCandidate = candidates.find((candidate) => normalizeQuestionText(candidate.question) === normalized);
+    const candidate = existingCandidate ?? this.permissionsRepository.createTestQuestionCandidate(userId, brandId, {
+      themeId: theme.id,
+      question: input.question,
+      promptKind: 'discovery',
+      purposes: ['brand_mentioned', 'competitor_presence'],
+      targetPlatforms: ['doubao', 'kimi', 'deepseek', 'qwen', 'stepfun'],
+      priority: 'medium',
+      estimatedValue: '搜索补全需求候选，确认后纳入稳定监测问题库。',
+      discoveryDimension: 'category',
+      businessValue: 'medium',
+      recommendationProbability: 0.6,
+      userStage: 'awareness',
+      generationRationale: `${input.source} 搜索补全快照 ${input.snapshotId}`,
+      generationMethod: 'deterministic',
+      mergedFrom: [`search-demand:${input.candidateId}`],
+      editable: true,
+      selected: false
+    });
+    if (!candidate) throw new NotFoundException('搜索需求监测问题创建失败');
+
+    const source: TestQuestionPoolSource = input.source === 'manual' ? 'manual_import' : 'search_autocomplete';
+    const existingPoolItem = this.automationRepository.listQuestionPoolItems(brandId).find((item) => normalizeQuestionText(item.question) === normalized);
+    const now = new Date().toISOString();
+    const poolItem = existingPoolItem
+      ? this.automationRepository.updateQuestionPoolItem(brandId, existingPoolItem.poolItemId, { ...existingPoolItem, candidateId: existingPoolItem.candidateId ?? candidate.id, updatedAt: now }) ?? existingPoolItem
+      : this.automationRepository.createQuestionPoolItem({
+        poolItemId: `pool_item_${randomUUID()}`,
+        brandId,
+        question: input.question,
+        angle: 'category',
+        purposes: candidate.purposes,
+        targetPlatforms: candidate.targetPlatforms,
+        priority: candidate.priority,
+        estimatedValue: candidate.estimatedValue,
+        source,
+        status: 'candidate',
+        candidateId: candidate.id,
+        createdAt: now,
+        updatedAt: now
+      });
+    const sourceExists = this.automationRepository.listQuestionSourceRecords(brandId, poolItem.poolItemId).some((record) => record.sourceId === input.candidateId);
+    if (!sourceExists) {
+      this.automationRepository.createQuestionSourceRecord({
+        sourceRecordId: `question_source_${randomUUID()}`,
+        poolItemId: poolItem.poolItemId,
+        brandId,
+        sourceType: source,
+        sourceId: input.candidateId,
+        summary: `由${input.source}搜索补全快照“${input.seedTerm}”人工确认入库`,
+        createdAt: now
+      });
+    }
+    return poolItem;
+  }
+
   private async ensureThemes(userId: string, brandId: BrandId, brand: BrandDetail, profile: BrandProfile): Promise<TestTheme[]> {
     const existing = this.permissionsRepository.listTestThemes(userId, brandId) ?? [];
     const existingKeys = new Set(existing.map((theme) => `${theme.type}:${theme.name}`));
@@ -97,11 +183,11 @@ export class QuestionPoolService {
     themes: TestTheme[]
   ): Promise<TestAssetGenerationResult<TestQuestionCandidateInput>> {
     const existing = this.permissionsRepository.listTestQuestionCandidates(userId, brandId) ?? [];
-    const existingKeys = new Set(existing.map((candidate) => `${candidate.themeId}:${candidate.question}`));
+    const existingKeys = new Set(existing.map((candidate) => normalizeQuestionText(candidate.question)));
     const generated = await this.testQuestionService.generateCandidatesWithLLM(userId, brandId, brand, profile, themes);
 
     generated.items
-      .filter((candidate) => !existingKeys.has(`${candidate.themeId}:${candidate.question}`))
+      .filter((candidate) => !existingKeys.has(normalizeQuestionText(candidate.question)))
       .forEach((candidate) => this.permissionsRepository.createTestQuestionCandidate(userId, brandId, { ...candidate, selected: false }));
 
     return generated;
@@ -120,11 +206,12 @@ export class QuestionPoolService {
   private syncQuestionPool(brandId: BrandId, candidates: TestQuestionCandidate[], source: TestQuestionPoolSource) {
     const existing = this.automationRepository.listQuestionPoolItems(brandId);
     const existingByCandidateId = new Map(existing.filter((item) => item.candidateId).map((item) => [item.candidateId, item]));
-    const existingByQuestion = new Map(existing.map((item) => [item.question.trim(), item]));
+    const existingByQuestion = new Map(existing.map((item) => [normalizeQuestionText(item.question), item]));
     const now = new Date().toISOString();
 
     candidates.forEach((candidate) => {
-      const existingItem = existingByCandidateId.get(candidate.id) ?? existingByQuestion.get(candidate.question.trim());
+      const candidateSource = candidate.generationMethod === 'ai' || candidate.generationMethod === 'merged' ? 'llm' : source;
+      const existingItem = existingByCandidateId.get(candidate.id) ?? existingByQuestion.get(normalizeQuestionText(candidate.question));
       if (existingItem) {
         const updated = {
           ...existingItem,
@@ -149,7 +236,7 @@ export class QuestionPoolService {
         targetPlatforms: candidate.targetPlatforms,
         priority: candidate.priority,
         estimatedValue: candidate.estimatedValue,
-        source,
+        source: candidateSource,
         status: candidate.selected ? 'selected' as const : 'candidate' as const,
         candidateId: candidate.id,
         createdAt: now,
@@ -160,7 +247,7 @@ export class QuestionPoolService {
         sourceRecordId: `question_source_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         poolItemId: poolItem.poolItemId,
         brandId,
-        sourceType: source,
+        sourceType: candidateSource,
         sourceId: candidate.id,
         summary: `由监测问题候选同步：${candidate.question}`,
         createdAt: now
@@ -208,10 +295,6 @@ function selectRoundQuestions(pool: TestQuestionCandidate[], limit: number): Tes
   }
 
   return selected;
-}
-
-function normalizeQuestionText(question: string): string {
-  return question.trim().replace(/[\s，,。？?！!：:；;、]+/g, '').toLowerCase();
 }
 
 function priorityScore(priority: TestQuestionCandidate['priority']): number {

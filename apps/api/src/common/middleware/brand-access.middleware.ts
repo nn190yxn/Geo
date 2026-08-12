@@ -42,6 +42,17 @@ export class BrandAccessMiddleware implements NestMiddleware {
       metadata: { requiredRole: policy.minimumRole, actualRole: accessibleBrand?.role ?? null, path: req.path }
     });
 
-    throw new ForbiddenException('当前用户无权访问该品牌工作区');
+    throw new ForbiddenException({
+      code: 'BRAND_RESOURCE_FORBIDDEN',
+      message: accessibleBrand
+        ? `当前角色缺少${policy.resource}操作权限，请申请${policy.minimumRole}角色。`
+        : '当前用户无权访问该品牌工作区',
+      authorization: {
+        resource: policy.resource,
+        currentRole: accessibleBrand?.role ?? null,
+        requiredRole: policy.minimumRole,
+        applicationPath: `/brands?permissionRequest=${policy.resource}`
+      }
+    });
   }
 }

@@ -3,12 +3,14 @@ import type { AIPlatformCallAudit, AsyncJob, MonitoringRunDetail } from '@geo-pl
 import type { AIPlatformRuntimeConfig } from '../platforms/adapters/ai-platform.adapter';
 import { AIPlatformAdapterSelectionError, AIPlatformAdapterRegistry } from '../platforms/adapters/ai-platform-adapter.registry';
 import { PermissionsService } from '../permissions/permissions.service';
+import { ProductEventRecorderService } from '../product-events/product-event-recorder.service';
 
 @Injectable()
 export class MonitoringWorker {
   constructor(
     private readonly permissionsService: PermissionsService,
-    private readonly adapterRegistry: AIPlatformAdapterRegistry
+    private readonly adapterRegistry: AIPlatformAdapterRegistry,
+    private readonly productEventRecorder?: ProductEventRecorderService
   ) {}
 
   async processJob(userId: string, brandId: string, jobId: string): Promise<MonitoringRunDetail | null> {
@@ -61,10 +63,14 @@ export class MonitoringWorker {
       const updatedRun = await this.permissionsService.addManualResponse(userId, brandId, run.id, {
         rawText: result.rawText,
         citations: [],
-        modelName: result.modelName
+        modelName: result.modelName,
+        collectionMethod: 'api',
+        clientSurface: 'api',
+        evidenceLevel: 'reproducible_api'
       });
       await this.permissionsService.updateAsyncJob(userId, brandId, job.id, { status: 'succeeded', attemptCount });
       await this.updateAuditSuccess(userId, brandId, audit, result.modelName, Date.now() - startedMs, completedAt);
+      await this.productEventRecorder?.record({ actorUserId: userId, brandId, eventType: 'first_monitoring_completed', entityType: 'monitoring_run', entityId: run.id, idempotencyKey: 'first-monitoring-completed', metadata: { collectionMethod: 'api', platformCode: platform.platformCode } });
 
       return updatedRun;
     } catch (error) {
@@ -136,6 +142,7 @@ export class MonitoringWorker {
       lastErrorCode: errorCode,
       lastErrorMessage: userFacingMessage
     });
+    await this.productEventRecorder?.record({ actorUserId: userId, brandId, eventType: 'operation_failed', entityType: 'monitoring_run', entityId: runId, failureCategory: toFailureCategory(errorCode), idempotencyKey: `monitoring-failed:${job.id}:${attemptCount}`, metadata: { stage: 'monitoring' } });
 
     return this.permissionsService.updateMonitoringRunExecution(userId, brandId, runId, {
       status: 'failed',
@@ -144,6 +151,15 @@ export class MonitoringWorker {
       retryStatus: exhausted ? 'retried' : 'retry_pending'
     });
   }
+}
+
+function toFailureCategory(errorCode: string): 'configuration' | 'credential' | 'timeout' | 'adapter' | 'upstream' | 'unknown' {
+  if (errorCode.includes('config')) return 'configuration';
+  if (errorCode.includes('credential') || errorCode.includes('auth')) return 'credential';
+  if (errorCode.includes('timeout')) return 'timeout';
+  if (errorCode.includes('adapter')) return 'adapter';
+  if (errorCode.includes('upstream') || errorCode.includes('http')) return 'upstream';
+  return 'unknown';
 }
 
 function normalizeWorkerError(error: unknown): { code: string; message: string; retryable: boolean } {

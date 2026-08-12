@@ -1,9 +1,9 @@
-import { Alert, Button, Card, Space, Steps, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Space, Tag, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
-import type { BeginnerHomeDashboard } from '@geo-platform/shared-types';
+import type { BrandActionDashboard, BrandActionPeriodEffect, EffectEvidenceDashboard } from '@geo-platform/shared-types';
 import { apiGet } from '../../../api/http';
-import { MetricSummaryGrid } from '../../../components/MetricSummaryGrid';
-import { getBeginnerActionRoute, getBeginnerHomeQuestions, getBeginnerJourneyStages } from './BeginnerHomeState';
+import { getBrandActionPath } from './BeginnerHomeState';
+import { EffectEvidencePanel } from '../../../components/EffectEvidencePanel';
 
 type BeginnerHomePanelProps = {
   brandId: string;
@@ -13,10 +13,17 @@ type BeginnerHomePanelProps = {
 
 export function BeginnerHomePanel({ brandId, brandName, onNavigate }: BeginnerHomePanelProps) {
   const dashboardQuery = useQuery({
-    queryKey: ['beginner-home-dashboard', brandId],
-    queryFn: () => apiGet<BeginnerHomeDashboard>(`/brands/${brandId}/dashboards/home`)
+    queryKey: ['brand-action-dashboard', brandId],
+    queryFn: () => apiGet<BrandActionDashboard>(`/brands/${encodeURIComponent(brandId)}/dashboards/actions`),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true
   });
   const dashboard = dashboardQuery.data?.success ? dashboardQuery.data.data : null;
+  const effectQuery = useQuery({
+    queryKey: ['effect-evidence', brandId],
+    queryFn: () => apiGet<EffectEvidenceDashboard>(`/brands/${encodeURIComponent(brandId)}/reports/effect-evidence`)
+  });
+  const effectEvidence = effectQuery.data?.success ? effectQuery.data.data : undefined;
 
   if (dashboardQuery.isLoading) {
     return <Card className="beginner-home-card" loading />;
@@ -29,66 +36,92 @@ export function BeginnerHomePanel({ brandId, brandName, onNavigate }: BeginnerHo
     return <Alert type="error" showIcon message="无法读取开始进度" description={message} action={<Button onClick={() => void dashboardQuery.refetch()}>重新加载</Button>} />;
   }
 
-  return <BeginnerHomeContent dashboard={dashboard} brandId={brandId} brandName={brandName} onNavigate={onNavigate} />;
+  return <BeginnerHomeContent dashboard={dashboard} effectEvidence={effectEvidence} brandId={brandId} brandName={brandName} onNavigate={onNavigate} />;
 }
 
 export function BeginnerHomeContent({
   dashboard,
+  effectEvidence,
   brandId,
   brandName,
   onNavigate
-}: BeginnerHomePanelProps & { dashboard: BeginnerHomeDashboard }) {
-
-  const stages = getBeginnerJourneyStages(dashboard);
-  const actionRoute = getBeginnerActionRoute(dashboard.nextAction);
-
-  if (dashboard.resultSummary.sampleSize > 0) {
-    const summary = dashboard.resultSummary;
-    const questions = getBeginnerHomeQuestions(brandId);
-
-    return (
-      <Card className="beginner-home-card" title={`${brandName ?? '当前品牌'}的首轮监测结果`}>
-        <Space direction="vertical" size={20} className="page-stack">
-          <MetricSummaryGrid
-            ariaLabel="首轮监测结果摘要"
-            items={[
-              { key: 'recommendation', label: '推荐度', value: summary.recommendationRate, suffix: '%', description: `${summary.rankedSampleSize}/${summary.sampleSize} 条回复出现有效排名` },
-              { key: 'rank', label: '平均排名', value: summary.averageRank ?? '-', description: summary.averageRank === null ? '暂无有效排名' : `基于 ${summary.rankedSampleSize} 条有效排名` },
-              { key: 'citation', label: '引用率', value: summary.citationHitRate, suffix: '%', description: `基于 ${summary.sampleSize} 条真实回复` },
-              { key: 'issues', label: '待处理问题', value: summary.pendingIssueCount, suffix: '条', description: '需要人工复核的真实回复' }
-            ]}
-          />
-          <div>
-            <Typography.Title level={4}>你可能想了解</Typography.Title>
-            <Space wrap>
-              {questions.map((question) => (
-                <Button key={question.key} onClick={() => onNavigate(question.route)}>{question.label}</Button>
-              ))}
-            </Space>
-          </div>
-        </Space>
-      </Card>
-    );
-  }
+}: BeginnerHomePanelProps & { dashboard: BrandActionDashboard; effectEvidence?: EffectEvidenceDashboard }) {
+  const primaryAction = dashboard.primaryAction;
+  const sample = dashboard.latestValidSample;
 
   return (
     <Card className="beginner-home-card">
-      <div className="beginner-home-layout">
-        <Space direction="vertical" size={12} className="page-stack beginner-home-task">
-          <Tag color="blue">推荐下一步</Tag>
-          <Typography.Title level={2}>{dashboard.nextAction.label}</Typography.Title>
-          <Typography.Paragraph type="secondary">
-            {brandName ?? '当前品牌'}：{dashboard.nextAction.reason}。完成后即可继续推进首轮 AI 回复监测。
-          </Typography.Paragraph>
-          <Button type="primary" size="large" onClick={() => onNavigate(actionRoute)}>
-            {dashboard.nextAction.label}
-          </Button>
-        </Space>
-        <div className="beginner-home-journey" aria-label="首轮监测三个阶段">
-          <Typography.Text strong>完成首轮监测</Typography.Text>
-          <Steps direction="vertical" size="small" items={stages.map((stage) => ({ title: stage.title, description: stage.description, status: stage.status }))} />
+      <Space direction="vertical" size={20} className="page-stack">
+        {dashboard.sourceFailures.length > 0 ? (
+          <Alert type="warning" showIcon message="部分数据仍在恢复" description="当前页面保留了已成功读取的数据，稍后会自动刷新。" />
+        ) : null}
+        <div className="beginner-home-layout brand-action-overview">
+          <Space direction="vertical" size={12} className="page-stack beginner-home-task">
+            <Space wrap>
+              <Tag color={dashboard.currentStage.status === 'blocked' ? 'error' : 'blue'}>当前阶段：{dashboard.currentStage.label}</Tag>
+              {sample ? <Tag>最近有效样本：{formatDate(sample.sampledAt)}</Tag> : <Tag>最近有效样本：待采集</Tag>}
+            </Space>
+            <Typography.Title level={2}>{primaryAction.label}</Typography.Title>
+            <Typography.Paragraph type="secondary">
+              {brandName ?? '当前品牌'}：{primaryAction.reason}
+            </Typography.Paragraph>
+            {primaryAction.blocker ? (
+              <Alert
+                type="error"
+                showIcon
+                message={primaryAction.blocker.reason}
+                description={`影响范围：${primaryAction.blocker.impactScope}。恢复动作：${primaryAction.blocker.recoveryAction}`}
+              />
+            ) : null}
+            <Button type="primary" size="large" onClick={() => onNavigate(getBrandActionPath(brandId, primaryAction))}>
+              {primaryAction.label}
+            </Button>
+            <Button type="text" onClick={() => onNavigate('/brands?quickStart=1')}>快速接入向导</Button>
+          </Space>
+          <PeriodEffectCard effect={dashboard.periodEffect} />
         </div>
-      </div>
+        <EffectEvidencePanel dashboard={effectEvidence} compact />
+        <div aria-label="前三项待办">
+          <Typography.Title level={4}>接下来待办</Typography.Title>
+          {dashboard.todos.length > 0 ? (
+            <Space direction="vertical" size={10} className="page-stack">
+              {dashboard.todos.slice(0, 3).map((todo) => (
+                <div className="beginner-todo-row" key={todo.id}>
+                  <div>
+                    <Typography.Text strong>{todo.label}</Typography.Text>
+                    <Typography.Paragraph type="secondary">{todo.reason}</Typography.Paragraph>
+                  </div>
+                  <Button onClick={() => onNavigate(getBrandActionPath(brandId, todo))}>去处理</Button>
+                </div>
+              ))}
+            </Space>
+          ) : <Typography.Text type="secondary">当前主行动完成后将刷新下一项待办。</Typography.Text>}
+        </div>
+      </Space>
     </Card>
   );
+}
+
+function PeriodEffectCard({ effect }: { effect: BrandActionPeriodEffect }) {
+  const statusLabels: Record<BrandActionPeriodEffect['status'], string> = {
+    complete: '证据完整',
+    partial: '部分证据',
+    pending: '持续观察',
+    unavailable: '等待首轮数据'
+  };
+  return (
+    <div className="beginner-home-journey brand-action-effect" aria-label="本周期效果">
+      <Space direction="vertical" size={8}>
+        <Typography.Text strong>本周期效果</Typography.Text>
+        <Tag color={effect.status === 'complete' ? 'green' : effect.status === 'partial' ? 'gold' : 'default'}>{statusLabels[effect.status]}</Tag>
+        <Typography.Paragraph>{effect.summary}</Typography.Paragraph>
+        <Typography.Text type="secondary">有效样本 {effect.validSampleCount} 条，效果证据 {effect.evidenceCount} 项</Typography.Text>
+      </Space>
+    </div>
+  );
+}
+
+function formatDate(value: string) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString('zh-CN') : value;
 }

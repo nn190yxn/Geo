@@ -121,6 +121,11 @@ describe('publishing repository', () => {
     const record = repository.createPublishingRecord('user_demo', 'brand_demo', {
       ...publishPayload,
       accountId: account?.id,
+      confirmation: {
+        publishingMode: 'manual',
+        materialRequirementsConfirmed: true,
+        retestPlanAt: '2026-07-25T09:00:00.000Z'
+      },
       status: 'pending'
     });
 
@@ -130,6 +135,10 @@ describe('publishing repository', () => {
       accountName: '品牌公众号',
       generationTaskId: taskId,
       versionId,
+      contentVersion: versionId,
+      materialRequirementsConfirmed: true,
+      retestPlanAt: '2026-07-25T09:00:00.000Z',
+      confirmedAt: expect.any(String),
       platform: 'wechat',
       status: 'pending'
     });

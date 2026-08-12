@@ -46,7 +46,10 @@ describe('CompetitorAnalysisPage helpers', () => {
       suppressionRate: 12,
       averageRankGap: 2,
       highRiskIntents: [{ intentId: 'intent-1', text: '儿童体能哪家好', suppressionCount: 3 }],
-      comparisons: []
+      comparisons: [],
+      candidates: [],
+      questionOpportunities: [],
+      topPlatformsByCompetitor: []
     })).toEqual(['竞品提及率 20%']);
   });
 

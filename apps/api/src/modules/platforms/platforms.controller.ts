@@ -294,6 +294,10 @@ function normalizeBrowserResponseCaptureInput(input: BrowserResponseCaptureInput
     runId,
     rawText,
     modelName: input.modelName?.trim(),
-    citations: input.citations?.map((citation) => citation.trim()).filter(Boolean)
+    citations: input.citations?.map((citation) => citation.trim()).filter(Boolean),
+    searchEnabled: input.searchEnabled ?? null,
+    market: input.market?.trim(),
+    language: input.language?.trim(),
+    manualConfirmed: input.manualConfirmed ?? null
   };
 }

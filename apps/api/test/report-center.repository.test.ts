@@ -122,4 +122,21 @@ describe('report center repository', () => {
     expect(report?.content).toContain('## 高优先级问题');
     expect(report?.snapshot).toHaveProperty('ranking');
   });
+
+  it('keeps generated report content and snapshot stable after later business changes', () => {
+    const repository = new PermissionsRepository();
+    const report = repository.createReport('user_demo', 'brand_demo', { type: 'weekly' });
+    const frozenContent = report?.content;
+    const frozenSnapshot = JSON.stringify(report?.snapshot);
+
+    repository.createOptimizationTask('user_demo', 'brand_demo', {
+      title: `报告生成后的任务 ${Date.now()}`,
+      type: 'manual',
+      priority: 'high'
+    });
+    const detail = repository.getReport('user_demo', 'brand_demo', report?.id ?? '');
+
+    expect(detail?.content).toBe(frozenContent);
+    expect(JSON.stringify(detail?.snapshot)).toBe(frozenSnapshot);
+  });
 });

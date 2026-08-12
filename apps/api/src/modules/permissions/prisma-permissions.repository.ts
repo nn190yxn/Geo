@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { AIPlatformRuntimeConfig } from '../platforms/adapters/ai-platform.adapter';
 import { getMissingApiConfigMessage, getModeValidationMessage } from '../platforms/platform-validation-message';
 import { applyBrowserConnectionEvent } from '../platforms/browser-session-state';
+import { isComparableMeasurementScope, resolveBaselineVersion } from '../monitoring/measurement-baseline';
+import { classifyPromptKind } from '../monitoring/prompt-measurement';
 import type {
   AccessibleBrand,
   AIPlatformCallAudit,
@@ -62,6 +64,7 @@ import type {
   CompetitorCandidate,
   CompetitorCandidateConfirmationResult,
   CompetitorCandidateDecisionInput,
+  CompetitorCandidateEvidenceInput,
   CompetitorCandidateSourceProvider,
   CompetitorConfirmationLabel,
   CompetitorDashboard,
@@ -74,6 +77,7 @@ import type {
   ContentAssetFilter,
   ContentAssetInput,
   ContentAssetPageItem,
+  CreateTechnicalAssetInput,
   ContentAssetStatus,
   ContentCenterDashboard,
   ContentExportRecord,
@@ -106,12 +110,18 @@ import type {
   ContentStrategyType,
   ContentVersion,
   ContentVersionInput,
+  TechnicalAssetRecord,
   DeniedAccessLog,
   GEOMetricSnapshot,
   KnowledgeSource,
   KnowledgeSourceInput,
+  KnowledgeChunk,
+  KnowledgeChunkInput,
   KnowledgeSourceStatus,
   ManualResponseInput,
+  MeasurementAttributionInput,
+  MeasurementAttributionRecord,
+  MeasurementScope,
   ManualTestAnswerInput,
   ManualTestAnswerBatchInput,
   ManualTestAnswerBatchResult,
@@ -149,6 +159,7 @@ import type {
   PublishingMode,
   PublishingModeInput,
   PublishingRecord,
+  PublishingRecordConfirmationInput,
   PublishingRecordInput,
   PublishingRecordStatus,
   PromptBatchGenerateInput,
@@ -158,6 +169,7 @@ import type {
   ReportDataGap,
   ReportInput,
   ReportRecord,
+  ReportScopePreview,
   ReportStatus,
   ReportType,
   RetestPlanInput,
@@ -188,6 +200,11 @@ import type {
   BrandStandardAnswerEvidence,
   BrandStandardAnswerInput,
   BrandStandardAnswerStatus,
+  CitationAbsorptionEvidence,
+  CitationAuthorityLevel,
+  CitationDashboard,
+  CitationSource,
+  CitationSourceType,
   VisibilitySprint,
   VisibilitySprintMetricSummary,
   VisibilitySprintStatus,
@@ -195,6 +212,7 @@ import type {
   VisibilitySprintStepCode,
   UserSummary
 } from '@geo-platform/shared-types';
+import { PeriodReportSnapshotService, type ReportPeriod } from '../reports/period-report-snapshot.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AIPlatformAdapterRegistry, AIPlatformAdapterSelectionError, createDefaultAIPlatformAdapters } from '../platforms/adapters/ai-platform-adapter.registry';
 import {
@@ -206,6 +224,7 @@ import {
   renderSingleBrandReport
 } from './report-renderer';
 import { buildAnalysisResultFields } from './analysis-result-builder';
+import { buildRetestNextSuggestion, evaluateRetestEvidence } from '../tasks/retest-evidence';
 import type {
   BrandStandardAnswerUpdateInput,
   VisibilitySprintCreateInput,
@@ -216,6 +235,7 @@ import type {
 
 type PrismaBrand = {
   id: string;
+  organizationId: string;
   name: string;
   status: string;
   aliases: unknown;
@@ -303,6 +323,20 @@ type PrismaKnowledgeSource = {
   updatedAt: Date;
 };
 
+type PrismaKnowledgeChunk = {
+  id: string;
+  brandId: string;
+  sourceId: string;
+  sourceUrl: string | null;
+  sourceVersion: number;
+  chunkIndex: number;
+  content: string;
+  contentHash: string;
+  reviewStatus: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 type PrismaOptimizationUnit = {
   id: string;
   brandId: string;
@@ -335,10 +369,18 @@ type PrismaTestQuestionCandidate = {
   themeId: string;
   promptId: string | null;
   question: string;
+  promptKind: string;
   purposes: unknown;
   targetPlatforms: unknown;
   priority: string;
   estimatedValue: string;
+  discoveryDimension: string | null;
+  businessValue: string | null;
+  recommendationProbability: number | null;
+  userStage: string | null;
+  generationRationale: string | null;
+  generationMethod: string | null;
+  mergedFrom: unknown;
   editable: boolean;
   selected: boolean;
   createdAt: Date;
@@ -393,6 +435,7 @@ type PrismaBrandPrompt = {
   intentId: string;
   templateId: string | null;
   text: string;
+  promptKind: string;
   category: string;
   targetKeywords: unknown;
   platformCodes: unknown;
@@ -459,6 +502,10 @@ type PrismaAsyncJob = {
   jobType: string;
   status: string;
   entityId: string;
+  idempotencyKey: string | null;
+  stepCode: string | null;
+  progress: unknown;
+  resultSummary: unknown | null;
   attemptCount: number;
   maxAttempts: number;
   nextRunAt: Date | null;
@@ -526,8 +573,18 @@ type PrismaMonitoringRun = {
   optimizationUnitId: string;
   intentId: string;
   promptId: string;
+  promptKind: string;
   testPlanId: string | null;
   platformCode: string;
+  modelName: string;
+  collectionMethod: string;
+  clientSurface: string;
+  searchEnabled: boolean | null;
+  market: string;
+  language: string;
+  evidenceLevel: string;
+  manualConfirmed: boolean | null;
+  baselineVersion: string;
   status: string;
   startedAt: Date | null;
   completedAt: Date | null;
@@ -542,7 +599,16 @@ type PrismaAIResponse = {
   brandId: string;
   rawText: string;
   citations: unknown;
-  modelName: string | null;
+  platformCode: string;
+  modelName: string;
+  collectionMethod: string;
+  clientSurface: string;
+  searchEnabled: boolean | null;
+  market: string;
+  language: string;
+  evidenceLevel: string;
+  manualConfirmed: boolean | null;
+  baselineVersion: string;
   respondedAt: Date;
   parseStatus: string;
   createdAt: Date;
@@ -565,6 +631,22 @@ type PrismaAnalysisResult = {
   expressionDeviation: string;
   competitorMentions: unknown;
   reviewRequired: boolean;
+  updatedAt: Date;
+};
+
+type PrismaMeasurementAttribution = {
+  id: string;
+  brandId: string;
+  baselineWindowStart: Date;
+  baselineWindowEnd: Date;
+  observationWindowStart: Date;
+  observationWindowEnd: Date;
+  controlQuestions: unknown;
+  externalEvents: unknown;
+  conclusionType: string;
+  conclusion: string;
+  updatedBy: string;
+  createdAt: Date;
   updatedAt: Date;
 };
 
@@ -599,10 +681,26 @@ type PrismaContentAsset = {
   targetKeywords: unknown;
   reuseOfAssetId: string | null;
   brandAdaptation: string | null;
+  sourceFacts: unknown;
+  reviewStatus: string;
   status: string;
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type PrismaCitationSource = {
+  id: string;
+  brandId: string;
+  responseId: string;
+  contentAssetId: string | null;
+  title: string;
+  url: string;
+  sourceType: string;
+  authorityLevel: string;
+  citationCount: number;
+  absorptionEvidence: unknown;
+  createdAt: Date;
 };
 
 type PrismaBrandMediaAsset = {
@@ -726,6 +824,10 @@ type PrismaCompetitorCandidate = {
   confidence: string;
   isCampusFocus: boolean;
   decisionStatus: string;
+  lifecycleStatus: string;
+  evidenceSampleIds: unknown;
+  sampleConfirmedAt: Date | null;
+  confirmedAt: Date | null;
   excludedReason: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -819,6 +921,10 @@ type PrismaPublishingRecord = {
   platform: string;
   accountName: string | null;
   publishingMode: string;
+  contentVersion: string | null;
+  materialRequirementsConfirmed: boolean;
+  retestPlanAt: Date | null;
+  confirmedAt: Date | null;
   status: string;
   externalPlatformId: string | null;
   publishedUrl: string | null;
@@ -918,6 +1024,7 @@ const prismaCompetitorCandidateCache = new Map<string, PrismaCompetitorCandidate
 @Injectable()
 export class PrismaPermissionsRepository {
   private readonly aiAdapters = new AIPlatformAdapterRegistry(createDefaultAIPlatformAdapters());
+  private readonly periodReportSnapshotService = new PeriodReportSnapshotService();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -1089,9 +1196,11 @@ export class PrismaPermissionsRepository {
   }
 
   async createBrand(userId: string, input: BrandMutationInput, role: UserBrandRole = 'owner'): Promise<BrandDetail> {
+    const organizationId = input.organizationId ?? (await this.listOrganizationMemberships(userId))[0]?.organizationId;
+    if (!organizationId) throw new Error('当前用户没有可用组织');
     const brand = await this.prisma.$transaction(async (transaction) => {
       const createdBrand = await transaction.brand.create({
-        data: this.toBrandCreateData(input)
+        data: { ...this.toBrandCreateData(input), organizationId }
       });
 
       await transaction.userBrandPermission.create({
@@ -1285,6 +1394,92 @@ export class PrismaPermissionsRepository {
     });
 
     return toKnowledgeSource(updated);
+  }
+
+  async listKnowledgeChunks(userId: string, brandId: BrandId, sourceId?: string): Promise<KnowledgeChunk[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const chunks = await this.prisma.knowledgeChunk.findMany({
+      where: { brandId, ...(sourceId ? { sourceId } : {}) },
+      orderBy: [{ sourceId: 'asc' }, { sourceVersion: 'desc' }, { chunkIndex: 'asc' }]
+    });
+    return chunks.map(toKnowledgeChunk);
+  }
+
+  async searchKnowledgeChunks(userId: string, brandId: BrandId, query: string, limit: number): Promise<KnowledgeChunk[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const normalizedLimit = Math.min(100, Math.max(1, Math.trunc(limit)));
+    const rows = await this.prisma.$queryRaw<Array<{
+      id: string;
+      brand_id: string;
+      source_id: string;
+      source_url: string | null;
+      source_version: number;
+      chunk_index: number;
+      content: string;
+      content_hash: string;
+      review_status: string;
+      created_at: Date;
+      updated_at: Date;
+    }>>(Prisma.sql`
+      WITH latest_sources AS (
+        SELECT source_id, MAX(source_version) AS source_version
+        FROM knowledge_chunks
+        WHERE brand_id = ${brandId}
+        GROUP BY source_id
+      )
+      SELECT chunk.id, chunk.brand_id, chunk.source_id, chunk.source_url, chunk.source_version,
+        chunk.chunk_index, chunk.content, chunk.content_hash, chunk.review_status,
+        chunk.created_at, chunk.updated_at
+      FROM knowledge_chunks AS chunk
+      INNER JOIN latest_sources AS latest
+        ON latest.source_id = chunk.source_id AND latest.source_version = chunk.source_version
+      WHERE chunk.brand_id = ${brandId}
+        AND (
+          chunk.search_vector @@ websearch_to_tsquery('simple', ${query})
+          OR chunk.content ILIKE ${`%${query.replace(/[\\%_]/g, '\\$&')}%`} ESCAPE '\\'
+        )
+      ORDER BY ts_rank_cd(chunk.search_vector, websearch_to_tsquery('simple', ${query})) DESC,
+        chunk.updated_at DESC, chunk.chunk_index ASC
+      LIMIT ${normalizedLimit}
+    `);
+    return rows.map((row) => ({
+      id: row.id,
+      brandId: row.brand_id,
+      sourceId: row.source_id,
+      sourceUrl: row.source_url ?? undefined,
+      sourceVersion: row.source_version,
+      chunkIndex: row.chunk_index,
+      content: row.content,
+      contentHash: row.content_hash,
+      reviewStatus: row.review_status as KnowledgeChunk['reviewStatus'],
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString()
+    }));
+  }
+
+  async appendKnowledgeChunkVersion(userId: string, brandId: BrandId, sourceId: string, chunks: KnowledgeChunkInput[]): Promise<KnowledgeChunk[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const source = await this.prisma.knowledgeSource.findFirst({ where: { id: sourceId, brandId } });
+    if (!source) return null;
+    const latest = await this.prisma.knowledgeChunk.aggregate({ where: { brandId, sourceId }, _max: { sourceVersion: true } });
+    const sourceVersion = (latest._max.sourceVersion ?? 0) + 1;
+    await this.prisma.knowledgeChunk.createMany({
+      data: chunks.map((input) => ({
+        brandId,
+        sourceId,
+        sourceUrl: input.sourceUrl,
+        sourceVersion,
+        chunkIndex: input.chunkIndex,
+        content: input.content,
+        contentHash: input.contentHash,
+        reviewStatus: input.reviewStatus
+      }))
+    });
+    const created = await this.prisma.knowledgeChunk.findMany({
+      where: { brandId, sourceId, sourceVersion },
+      orderBy: { chunkIndex: 'asc' }
+    });
+    return created.map(toKnowledgeChunk);
   }
 
   async listBrandMediaAssets(userId: string, brandId: BrandId): Promise<BrandMediaAsset[] | null> {
@@ -1503,7 +1698,8 @@ export class PrismaPermissionsRepository {
   }
 
   async createTestQuestionCandidate(userId: string, brandId: BrandId, input: TestQuestionCandidateInput): Promise<TestQuestionCandidate | null> {
-    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+    const brand = await this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) {
       return null;
     }
 
@@ -1519,10 +1715,18 @@ export class PrismaPermissionsRepository {
         themeId: normalized.themeId,
         promptId: normalized.promptId,
         question: normalized.question,
+        promptKind: normalized.promptKind ?? classifyPromptKind(normalized.question, brand),
         purposes: normalized.purposes,
         targetPlatforms: normalized.targetPlatforms,
         priority: normalized.priority,
         estimatedValue: normalized.estimatedValue,
+        discoveryDimension: normalized.discoveryDimension,
+        businessValue: normalized.businessValue,
+        recommendationProbability: normalized.recommendationProbability,
+        userStage: normalized.userStage,
+        generationRationale: normalized.generationRationale,
+        generationMethod: normalized.generationMethod,
+        mergedFrom: normalized.mergedFrom,
         editable: normalized.editable,
         selected: normalized.selected
       }
@@ -1532,7 +1736,8 @@ export class PrismaPermissionsRepository {
   }
 
   async updateTestQuestionCandidate(userId: string, brandId: BrandId, candidateId: string, input: TestQuestionCandidateUpdateInput): Promise<TestQuestionCandidate | null> {
-    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+    const brand = await this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) {
       return null;
     }
 
@@ -1552,10 +1757,20 @@ export class PrismaPermissionsRepository {
         ...(normalized.themeId !== undefined ? { themeId: normalized.themeId } : {}),
         ...(normalized.promptId !== undefined ? { promptId: normalized.promptId } : {}),
         ...(normalized.question !== undefined ? { question: normalized.question } : {}),
+        ...(normalized.promptKind !== undefined
+          ? { promptKind: normalized.promptKind }
+          : normalized.question !== undefined ? { promptKind: classifyPromptKind(normalized.question, brand) } : {}),
         ...(normalized.purposes !== undefined ? { purposes: normalized.purposes } : {}),
         ...(normalized.targetPlatforms !== undefined ? { targetPlatforms: normalized.targetPlatforms } : {}),
         ...(normalized.priority !== undefined ? { priority: normalized.priority } : {}),
         ...(normalized.estimatedValue !== undefined ? { estimatedValue: normalized.estimatedValue } : {}),
+        ...(normalized.discoveryDimension !== undefined ? { discoveryDimension: normalized.discoveryDimension } : {}),
+        ...(normalized.businessValue !== undefined ? { businessValue: normalized.businessValue } : {}),
+        ...(normalized.recommendationProbability !== undefined ? { recommendationProbability: normalized.recommendationProbability } : {}),
+        ...(normalized.userStage !== undefined ? { userStage: normalized.userStage } : {}),
+        ...(normalized.generationRationale !== undefined ? { generationRationale: normalized.generationRationale } : {}),
+        ...(normalized.generationMethod !== undefined ? { generationMethod: normalized.generationMethod } : {}),
+        ...(normalized.mergedFrom !== undefined ? { mergedFrom: normalized.mergedFrom } : {}),
         ...(normalized.editable !== undefined ? { editable: normalized.editable } : {}),
         ...(normalized.selected !== undefined ? { selected: normalized.selected } : {})
       }
@@ -1860,7 +2075,8 @@ export class PrismaPermissionsRepository {
   }
 
   async updateBrandPrompt(userId: string, brandId: BrandId, promptId: string, input: Partial<BrandPromptInput>): Promise<BrandPrompt | null> {
-    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+    const brand = await this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) {
       return null;
     }
 
@@ -1874,6 +2090,9 @@ export class PrismaPermissionsRepository {
       where: { id: promptId },
       data: {
         ...(normalized.text !== undefined ? { text: normalized.text } : {}),
+        ...(normalized.promptKind !== undefined
+          ? { promptKind: normalized.promptKind }
+          : normalized.text !== undefined ? { promptKind: classifyPromptKind(normalized.text, brand) } : {}),
         ...(normalized.targetKeywords !== undefined ? { targetKeywords: normalized.targetKeywords } : {}),
         ...(normalized.platformCodes !== undefined ? { platformCodes: normalized.platformCodes } : {}),
         ...(normalized.monitoringFrequency !== undefined ? { monitoringFrequency: normalized.monitoringFrequency } : {}),
@@ -2158,6 +2377,10 @@ export class PrismaPermissionsRepository {
         jobType: input.jobType,
         status: input.status ?? 'queued',
         entityId: input.entityId,
+        idempotencyKey: input.idempotencyKey?.trim(),
+        stepCode: input.stepCode?.trim(),
+        progress: (input.progress ?? {}) as Prisma.InputJsonValue,
+        resultSummary: input.resultSummary as Prisma.InputJsonValue | undefined,
         attemptCount: input.attemptCount ?? 0,
         maxAttempts: input.maxAttempts ?? 3,
         nextRunAt: input.nextRunAt ? new Date(input.nextRunAt) : undefined,
@@ -2186,6 +2409,10 @@ export class PrismaPermissionsRepository {
         ...(input.attemptCount !== undefined ? { attemptCount: input.attemptCount } : {}),
         ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
         ...(input.nextRunAt !== undefined ? { nextRunAt: input.nextRunAt ? new Date(input.nextRunAt) : null } : {}),
+        ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey?.trim() } : {}),
+        ...(input.stepCode !== undefined ? { stepCode: input.stepCode?.trim() } : {}),
+        ...(input.progress !== undefined ? { progress: input.progress as Prisma.InputJsonValue } : {}),
+        ...(input.resultSummary !== undefined ? { resultSummary: input.resultSummary as Prisma.InputJsonValue } : {}),
         ...(input.lastErrorCode !== undefined ? { lastErrorCode: input.lastErrorCode.trim() } : {}),
         ...(input.lastErrorMessage !== undefined ? { lastErrorMessage: input.lastErrorMessage.trim() } : {})
       }
@@ -2452,6 +2679,31 @@ export class PrismaPermissionsRepository {
     return Promise.all(runs.map((run) => this.toMonitoringRunDetail(run)));
   }
 
+  async getMeasurementAttribution(userId: string, brandId: BrandId): Promise<MeasurementAttributionRecord | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const record = await this.prisma.measurementAttribution.findFirst({ where: { brandId }, orderBy: { updatedAt: 'desc' } });
+    return record ? toMeasurementAttribution(record) : null;
+  }
+
+  async saveMeasurementAttribution(userId: string, brandId: BrandId, input: MeasurementAttributionInput): Promise<MeasurementAttributionRecord | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const record = await this.prisma.measurementAttribution.create({
+      data: {
+        brandId,
+        baselineWindowStart: new Date(input.baselineWindowStart),
+        baselineWindowEnd: new Date(input.baselineWindowEnd),
+        observationWindowStart: new Date(input.observationWindowStart),
+        observationWindowEnd: new Date(input.observationWindowEnd),
+        controlQuestions: toInputJsonArray(cleanStringList(input.controlQuestions)),
+        externalEvents: input.externalEvents as unknown as Prisma.InputJsonValue,
+        conclusion: input.conclusion?.trim() ?? '',
+        conclusionType: 'observational_correlation',
+        updatedBy: userId
+      }
+    });
+    return toMeasurementAttribution(record);
+  }
+
   async getMonitoringRun(userId: string, brandId: BrandId, runId: string): Promise<MonitoringRunDetail | null> {
     if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
       return null;
@@ -2480,13 +2732,28 @@ export class PrismaPermissionsRepository {
     }
 
     const timestamp = new Date();
+    const collectionMethod = input.collectionMethod ?? collectionMethodForPlatformMode(platform.mode as PlatformMode);
+    const scope = {
+      platformCode: platform.platformKey,
+      modelName: input.modelName?.trim() || platform.modelName?.trim() || 'unknown',
+      collectionMethod,
+      clientSurface: input.clientSurface ?? clientSurfaceForCollectionMethod(collectionMethod),
+      searchEnabled: input.searchEnabled ?? null,
+      market: input.market?.trim() || 'unknown',
+      language: input.language?.trim() || 'unknown',
+      evidenceLevel: input.evidenceLevel ?? evidenceLevelForCollectionMethod(collectionMethod),
+      manualConfirmed: input.manualConfirmed ?? null
+    };
+    const previousRuns = await this.prisma.monitoringRun.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } });
     const run = await this.prisma.monitoringRun.create({
       data: {
         brandId,
         optimizationUnitId: prompt.optimizationUnitId,
         intentId: prompt.intentId,
         promptId: prompt.id,
-        platformCode: platform.platformKey,
+        promptKind: prompt.promptKind,
+        ...scope,
+        baselineVersion: input.baselineVersion?.trim() || resolveBaselineVersion(previousRuns as MeasurementScope[], scope, createBaselineVersion),
         status: 'pending',
         startedAt: timestamp,
         retryStatus: 'not_retried'
@@ -2509,7 +2776,16 @@ export class PrismaPermissionsRepository {
           brandId,
           rawText: `演示回答（${platform.platformKey}）：${prompt.text}`,
           citations: [],
+          platformCode: run.platformCode,
           modelName: platform.modelName ?? 'mock-v1',
+          collectionMethod: 'mock',
+          clientSurface: run.clientSurface,
+          searchEnabled: run.searchEnabled,
+          market: run.market,
+          language: run.language,
+          evidenceLevel: 'demo',
+          manualConfirmed: null,
+          baselineVersion: run.baselineVersion,
           respondedAt: timestamp,
           parseStatus: 'pending'
         }
@@ -2588,7 +2864,9 @@ export class PrismaPermissionsRepository {
       await this.prisma.monitoringRun.update({ where: { id: run.id }, data: { testPlanId } });
       await this.addManualResponse(userId, brandId, run.id, {
         rawText: result.rawText,
-        modelName: result.modelName
+        modelName: result.modelName,
+        collectionMethod: 'api',
+        evidenceLevel: 'reproducible_api'
       });
       await this.parseAnalysisResult(userId, brandId, run.id);
       if (audit) {
@@ -2702,13 +2980,34 @@ export class PrismaPermissionsRepository {
     }
 
     const timestamp = new Date();
+    const scope = {
+      platformCode: run.platformCode,
+      modelName: input.modelName?.trim() || run.modelName || 'unknown',
+      collectionMethod: input.collectionMethod ?? 'manual',
+      clientSurface: (input.clientSurface ?? run.clientSurface) as MonitoringRunDetail['clientSurface'],
+      searchEnabled: input.searchEnabled ?? run.searchEnabled,
+      market: input.market?.trim() || run.market,
+      language: input.language?.trim() || run.language,
+      evidenceLevel: input.evidenceLevel ?? 'manual_or_browser',
+      manualConfirmed: input.manualConfirmed ?? null
+    };
+    const previousResponses = typeof this.prisma.aIResponse.findMany === 'function'
+      ? await this.prisma.aIResponse.findMany({ where: { brandId }, orderBy: { respondedAt: 'desc' } })
+      : [];
     await this.prisma.aIResponse.create({
       data: {
         runId,
         brandId,
         rawText: input.rawText.trim(),
         citations: normalizeStringList(input.citations),
-        modelName: input.modelName?.trim() || 'manual',
+        ...scope,
+        baselineVersion: input.baselineVersion?.trim() || resolveBaselineVersion(
+          previousResponses as MeasurementScope[],
+          scope,
+          () => run.baselineVersion !== 'unknown' && isComparableMeasurementScope(run as MeasurementScope, { ...scope, baselineVersion: run.baselineVersion })
+            ? run.baselineVersion
+            : createBaselineVersion()
+        ),
         respondedAt: timestamp,
         parseStatus: 'pending'
       }
@@ -2773,7 +3072,13 @@ export class PrismaPermissionsRepository {
       await this.addManualResponse(userId, brandId, run.id, {
         rawText: normalized.rawText,
         citations: normalized.citations,
-        modelName: normalized.modelName || `${normalized.platformCode}-manual`
+        modelName: normalized.modelName || `${normalized.platformCode}-manual`,
+        collectionMethod: 'manual',
+        evidenceLevel: 'manual_or_browser',
+        searchEnabled: normalized.searchEnabled,
+        market: normalized.market,
+        language: normalized.language,
+        manualConfirmed: normalized.manualConfirmed
       });
       await this.parseAnalysisResult(userId, brandId, run.id);
       const detail = await this.getMonitoringRun(userId, brandId, run.id) ?? run;
@@ -3165,7 +3470,10 @@ export class PrismaPermissionsRepository {
       suppressionRate: 0,
       averageRankGap: 0,
       highRiskIntents: [],
-      comparisons: []
+      comparisons: [],
+      candidates: [],
+      questionOpportunities: [],
+      topPlatformsByCompetitor: []
     };
   }
 
@@ -3255,6 +3563,32 @@ export class PrismaPermissionsRepository {
       .filter((candidate) => matchesPrismaCompetitorCandidateFilter(candidate, query.filter));
   }
 
+  async listCompetitorCandidates(userId: string, brandId: BrandId): Promise<CompetitorCandidate[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const candidates = await this.prisma.competitorCandidate.findMany({ where: { brandId }, orderBy: { updatedAt: 'desc' } });
+    return candidates.map((candidate) => toCompetitorCandidate(candidate as PrismaCompetitorCandidate));
+  }
+
+  async syncCompetitorCandidateEvidence(userId: string, brandId: BrandId, evidence: CompetitorCandidateEvidenceInput[]): Promise<CompetitorCandidate[] | null> {
+    const candidates = await this.listCompetitorCandidates(userId, brandId);
+    if (!candidates) return null;
+    for (const candidate of candidates) {
+      const matches = evidence.filter((item) => item.competitorName.trim().toLocaleLowerCase() === candidate.name.trim().toLocaleLowerCase());
+      if (matches.length === 0 || candidate.lifecycleStatus === 'excluded') continue;
+      const evidenceSampleIds = mergeStringLists(candidate.evidenceSampleIds, matches.map((item) => item.runId));
+      const sampleConfirmedAt = candidate.sampleConfirmedAt ?? [...matches].sort((left, right) => left.capturedAt.localeCompare(right.capturedAt))[0].capturedAt;
+      await this.prisma.competitorCandidate.update({
+        where: { id: candidate.candidateId },
+        data: {
+          evidenceSampleIds,
+          sampleConfirmedAt: new Date(sampleConfirmedAt),
+          lifecycleStatus: candidate.lifecycleStatus === 'candidate' ? 'sample_confirmed' : candidate.lifecycleStatus
+        }
+      });
+    }
+    return this.listCompetitorCandidates(userId, brandId);
+  }
+
   async decideCompetitorCandidate(userId: string, brandId: BrandId, candidateId: string, input: CompetitorCandidateDecisionInput): Promise<CompetitorCandidateConfirmationResult | null> {
     const brand = await this.findAccessibleBrandDetail(userId, brandId);
     if (!brand) {
@@ -3272,6 +3606,8 @@ export class PrismaPermissionsRepository {
       data: {
         confirmedLabel: label,
         decisionStatus: label === 'excluded' ? 'excluded' : 'confirmed',
+        lifecycleStatus: label === 'excluded' ? 'excluded' : 'user_confirmed',
+        confirmedAt: label === 'excluded' ? null : new Date(),
         excludedReason: label === 'excluded' ? input.excludedReason?.trim() || '用户排除' : null
       }
     });
@@ -3354,6 +3690,68 @@ export class PrismaPermissionsRepository {
       suggestions: buildPrismaContentStrategySuggestions(units, intents, prompts, mappedStrategies),
       coverage: buildContentCoverage(mappedAssets, units)
     };
+  }
+
+  async getCitationDashboard(userId: string, brandId: BrandId): Promise<CitationDashboard | null> {
+    const brand = await this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) return null;
+
+    const { sources, responses, contentAssets } = await this.syncCitationSources(brand);
+    const citedSampleCount = responses.filter((response) => toStringArray(response.citations).some(normalizePrismaCitationUrl)).length;
+    const totalCitations = sources.reduce((sum, source) => sum + source.citationCount, 0);
+    const contentCitationCount = sources.filter((source) => source.contentAssetId).reduce((sum, source) => sum + source.citationCount, 0);
+    const officialCitationCount = sources.filter((source) => source.sourceType === 'official_site').reduce((sum, source) => sum + source.citationCount, 0);
+    const authorityCitationCount = sources.filter((source) => source.authorityLevel === 'high').reduce((sum, source) => sum + source.citationCount, 0);
+    const absorptionEvidence = sources.flatMap((source) => source.absorptionEvidence ?? []);
+    const reviewedEvidence = absorptionEvidence.filter((item) => item.outcome !== 'unavailable');
+    const absorbedEvidence = reviewedEvidence.filter((item) => item.outcome === 'supports' || item.outcome === 'partial');
+
+    return {
+      brandId,
+      sampleCount: responses.length,
+      citedSampleCount,
+      citationRate: responses.length === 0 ? 0 : clampScore((citedSampleCount / responses.length) * 100),
+      totalCitations,
+      contentCitationRate: totalCitations === 0 ? 0 : clampScore((contentCitationCount / totalCitations) * 100),
+      officialCitationRate: totalCitations === 0 ? 0 : clampScore((officialCitationCount / totalCitations) * 100),
+      authoritySourceRate: totalCitations === 0 ? 0 : clampScore((authorityCitationCount / totalCitations) * 100),
+      citationBreadthRate: totalCitations === 0 ? 0 : clampScore((sources.filter((source) => (source.absorptionEvidence ?? []).length > 0).reduce((sum, source) => sum + source.citationCount, 0) / totalCitations) * 100),
+      answerAbsorptionDepth: reviewedEvidence.length === 0 ? 0 : clampScore((absorbedEvidence.length / reviewedEvidence.length) * 100),
+      pendingReviewCount: absorptionEvidence.filter((item) => item.reviewStatus === 'pending_review').length,
+      sourceTypeBreakdown: buildPrismaCitationTypeBreakdown(sources, totalCitations),
+      trend: buildPrismaCitationTrend(sources, responses),
+      sources,
+      contentAssets: contentAssets.map(toContentAsset)
+    };
+  }
+
+  async getCitationSource(userId: string, brandId: BrandId, citationId: string): Promise<CitationSource | null> {
+    const brand = await this.findAccessibleBrandDetail(userId, brandId);
+    if (!brand) return null;
+    const { sources } = await this.syncCitationSources(brand);
+    return sources.find((source) => source.id === citationId) ?? null;
+  }
+
+  async saveCitationAbsorptionEvidence(userId: string, brandId: BrandId, citationId: string, evidence: CitationAbsorptionEvidence[]): Promise<CitationSource | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const source = await this.prisma.citationSource.findFirst({ where: { id: citationId, brandId } });
+    if (!source) return null;
+    await this.prisma.citationSource.update({ where: { id: source.id }, data: { absorptionEvidence: evidence as Prisma.InputJsonValue } });
+    return this.getCitationSource(userId, brandId, citationId);
+  }
+
+  async reviewCitationAbsorptionEvidence(userId: string, brandId: BrandId, citationId: string, evidenceId: string): Promise<CitationSource | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const source = await this.prisma.citationSource.findFirst({ where: { id: citationId, brandId } });
+    if (!source) return null;
+    const evidence = toCitationAbsorptionEvidence(source.absorptionEvidence);
+    const target = evidence.find((item) => item.id === evidenceId);
+    if (!target) return null;
+    target.reviewStatus = 'reviewed';
+    target.reviewedAt = new Date().toISOString();
+    target.reviewedBy = userId;
+    await this.prisma.citationSource.update({ where: { id: source.id }, data: { absorptionEvidence: evidence as Prisma.InputJsonValue } });
+    return this.getCitationSource(userId, brandId, citationId);
   }
 
   async listContentAssets(userId: string, brandId: BrandId, filter: ContentAssetFilter = {}): Promise<ContentAsset[] | null> {
@@ -3466,12 +3864,44 @@ export class PrismaPermissionsRepository {
         targetKeywords: normalized.targetKeywords ?? [],
         reuseOfAssetId: normalized.reuseOfAssetId,
         brandAdaptation: normalized.brandAdaptation,
+        sourceFacts: normalized.sourceFacts ?? [],
+        reviewStatus: normalized.reviewStatus ?? 'pending',
         status: normalized.status ?? 'draft',
         publishedAt: normalized.publishedAt ? new Date(normalized.publishedAt) : undefined
       }
     });
 
     return toContentAsset(asset);
+  }
+
+  async createTechnicalContentAsset(userId: string, brandId: BrandId, input: CreateTechnicalAssetInput): Promise<TechnicalAssetRecord | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const asset = await this.prisma.contentAsset.create({
+      data: {
+        brandId,
+        title: input.title,
+        type: input.type,
+        platform: 'official_site',
+        url: input.targetPage,
+        targetKeywords: [],
+        sourceFacts: input.sourceFacts,
+        reviewStatus: input.reviewStatus ?? 'pending',
+        status: 'draft'
+      }
+    });
+    const version = await this.prisma.technicalAssetVersion.create({
+      data: { contentAssetId: asset.id, version: 1, body: input.body }
+    });
+    return {
+      asset: toContentAsset(asset),
+      version: {
+        id: version.id,
+        contentAssetId: version.contentAssetId,
+        version: version.version,
+        body: version.body,
+        createdAt: version.createdAt.toISOString()
+      }
+    };
   }
 
   async updateContentAsset(userId: string, brandId: BrandId, assetId: string, input: ContentAssetInput): Promise<ContentAsset | null> {
@@ -3499,6 +3929,8 @@ export class PrismaPermissionsRepository {
         ...(normalized.targetKeywords !== undefined ? { targetKeywords: normalized.targetKeywords } : {}),
         ...(normalized.reuseOfAssetId !== undefined ? { reuseOfAssetId: normalized.reuseOfAssetId } : {}),
         ...(normalized.brandAdaptation !== undefined ? { brandAdaptation: normalized.brandAdaptation } : {}),
+        ...(normalized.sourceFacts !== undefined ? { sourceFacts: normalized.sourceFacts } : {}),
+        ...(normalized.reviewStatus !== undefined ? { reviewStatus: normalized.reviewStatus } : {}),
         ...(normalized.status !== undefined ? { status: normalized.status } : {}),
         ...(normalized.publishedAt !== undefined ? { publishedAt: normalized.publishedAt ? new Date(normalized.publishedAt) : null } : {})
       }
@@ -4215,11 +4647,38 @@ export class PrismaPermissionsRepository {
         platform: input.targetPlatform?.trim() || account?.platform || asset.platform,
         accountName: account?.accountName,
         publishingMode: account?.publishingMode ?? 'manual',
+        contentVersion: input.versionId ?? input.confirmation?.contentVersionLabel?.trim(),
+        materialRequirementsConfirmed: input.confirmation?.materialRequirementsConfirmed ?? false,
+        retestPlanAt: input.confirmation?.retestPlanAt ? new Date(input.confirmation.retestPlanAt) : null,
+        confirmedAt: input.confirmation ? new Date() : null,
         status: input.status ? normalizePublishingRecordStatus(input.status) : 'draft'
       }
     });
 
     return toPublishingRecord(record);
+  }
+
+  async confirmPublishingRecord(userId: string, brandId: BrandId, recordId: string, input: PublishingRecordConfirmationInput): Promise<PublishingRecord | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const [record, account] = await Promise.all([
+      this.prisma.publishingRecord.findFirst({ where: { id: recordId, brandId } }),
+      this.prisma.publishingAccount.findFirst({ where: { id: input.accountId, brandId } })
+    ]);
+    if (!record || !account) return null;
+    const updated = await this.prisma.publishingRecord.update({
+      where: { id: recordId },
+      data: {
+        accountId: account.id,
+        accountName: account.accountName,
+        platform: account.platform,
+        publishingMode: account.publishingMode,
+        contentVersion: record.versionId ?? input.contentVersionLabel?.trim(),
+        materialRequirementsConfirmed: input.materialRequirementsConfirmed,
+        retestPlanAt: new Date(input.retestPlanAt),
+        confirmedAt: new Date()
+      }
+    });
+    return toPublishingRecord(updated);
   }
 
   async updatePublishingRecordStatus(userId: string, brandId: BrandId, recordId: string, input: PublishingExecutionStatusInput): Promise<PublishingRecord | null> {
@@ -4346,12 +4805,8 @@ export class PrismaPermissionsRepository {
       return null;
     }
     const sourceRunId = input.sourceRunId?.trim() || task.sourceRunId;
-    const retestRunId = input.retestRunId?.trim() || sourceRunId;
-    const [sourceRun, retestRun] = await Promise.all([
-      sourceRunId ? this.prisma.monitoringRun.findFirst({ where: { id: sourceRunId, brandId } }) : Promise.resolve(null),
-      retestRunId ? this.prisma.monitoringRun.findFirst({ where: { id: retestRunId, brandId } }) : Promise.resolve(null)
-    ]);
-    if (!sourceRun || !retestRun || !sourceRunId || !retestRunId) {
+    const sourceRun = sourceRunId ? await this.prisma.monitoringRun.findFirst({ where: { id: sourceRunId, brandId } }) : null;
+    if (!sourceRun || !sourceRunId) {
       return null;
     }
 
@@ -4360,7 +4815,8 @@ export class PrismaPermissionsRepository {
       id: `retest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       taskId,
       sourceRunId,
-      retestRunId,
+      retestRunId: '',
+      status: 'planned',
       plannedAt: input.plannedAt?.trim() || timestamp,
       targetScore: clampScore(input.targetScore ?? 80),
       notes: input.notes?.trim(),
@@ -4371,7 +4827,7 @@ export class PrismaPermissionsRepository {
       where: { id: taskId },
       data: {
         sourceRunId,
-        retestRunId,
+        retestRunId: null,
         retestPlanAt: new Date(record.plannedAt),
         status: 'retest',
         retestRecords: [record, ...toRetestRecords(task.retestRecords)]
@@ -4379,6 +4835,27 @@ export class PrismaPermissionsRepository {
     });
     await this.syncGrowthPlanRetestStatus(brandId, toOptimizationTask(updated));
 
+    return toOptimizationTask(updated);
+  }
+
+  async bindOptimizationTaskRetestRun(userId: string, brandId: BrandId, taskId: string, recordId: string, retestRunId: string): Promise<OptimizationTask | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+    const [task, retestRun] = await Promise.all([
+      this.prisma.optimizationTask.findFirst({ where: { id: taskId, brandId } }),
+      this.prisma.monitoringRun.findFirst({ where: { id: retestRunId, brandId } })
+    ]);
+    const records = task ? toRetestRecords(task.retestRecords) : [];
+    const record = records.find((item) => item.id === recordId);
+    if (!task || !record || !retestRun || retestRunId === record.sourceRunId) return null;
+
+    record.retestRunId = retestRunId;
+    record.status = 'collecting';
+    record.evidenceGap = 'missing_real_response';
+    record.updatedAt = new Date().toISOString();
+    const updated = await this.prisma.optimizationTask.update({
+      where: { id: taskId },
+      data: { retestRunId, retestRecords: records }
+    });
     return toOptimizationTask(updated);
   }
 
@@ -4395,27 +4872,31 @@ export class PrismaPermissionsRepository {
     }
 
     const targetScore = clampScore(input.targetScore ?? record.targetScore);
-    const [sourceAnalysis, retestAnalysis] = await Promise.all([
-      this.prisma.analysisResult.findFirst({ where: { brandId, runId: record.sourceRunId } }),
-      this.prisma.analysisResult.findFirst({ where: { brandId, runId: record.retestRunId } })
+    const [sourceRun, retestRun] = await Promise.all([
+      this.getMonitoringRun(userId, brandId, record.sourceRunId),
+      record.retestRunId ? this.getMonitoringRun(userId, brandId, record.retestRunId) : Promise.resolve(null)
     ]);
-    const comparison = buildRetestMetricComparison(
-      sourceAnalysis ? toAnalysisResult(sourceAnalysis) : undefined,
-      retestAnalysis ? toAnalysisResult(retestAnalysis) : undefined
-    );
-    const actualScore = clampScore(input.actualScore ?? comparison.afterMetrics.accuracyScore);
+    const evaluation = evaluateRetestEvidence(sourceRun, retestRun);
     const timestamp = new Date().toISOString();
     record.targetScore = targetScore;
-    record.actualScore = actualScore;
-    record.beforeMetrics = comparison.beforeMetrics;
-    record.afterMetrics = comparison.afterMetrics;
-    record.metricDelta = comparison.metricDelta;
-    record.improved = record.sourceRunId === record.retestRunId ? actualScore >= targetScore : comparison.improved;
-    record.passed = actualScore >= targetScore && record.improved;
-    record.completedAt = timestamp;
-    record.nextSuggestion = record.improved ? undefined : buildRetestNextSuggestion(comparison);
+    record.status = evaluation.status;
+    record.evidenceGap = evaluation.evidenceGap;
     record.notes = input.notes?.trim() || record.notes;
     record.updatedAt = timestamp;
+    if (evaluation.actualScore === undefined || !evaluation.beforeMetrics || !evaluation.afterMetrics || !evaluation.metricDelta) {
+      const pending = await this.prisma.optimizationTask.update({ where: { id: taskId }, data: { retestRecords: records } });
+      return toOptimizationTask(pending);
+    }
+
+    const actualScore = clampScore(evaluation.actualScore);
+    record.actualScore = actualScore;
+    record.beforeMetrics = evaluation.beforeMetrics;
+    record.afterMetrics = evaluation.afterMetrics;
+    record.metricDelta = evaluation.metricDelta;
+    record.improved = evaluation.improved;
+    record.passed = actualScore >= targetScore && evaluation.improved === true;
+    record.completedAt = timestamp;
+    record.nextSuggestion = record.passed ? undefined : buildRetestNextSuggestion(evaluation);
     const note = record.passed
       ? `${task.processingNote ?? ''}\n复测通过：${actualScore}/${targetScore}`.trim()
       : `${task.processingNote ?? ''}\n复测未达标，已重开并生成下一轮优化建议：${actualScore}/${targetScore}。${record.nextSuggestion ?? ''}`.trim();
@@ -4469,7 +4950,8 @@ export class PrismaPermissionsRepository {
       id: `retest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       taskId: task.id,
       sourceRunId: task.sourceRunId,
-      retestRunId: task.retestRunId ?? task.sourceRunId,
+      retestRunId: '',
+      status: 'planned',
       plannedAt: plan?.retestAt.toISOString() ?? timestamp,
       targetScore: 80,
       notes: '优化任务完成后自动进入再次监测计划',
@@ -4480,7 +4962,7 @@ export class PrismaPermissionsRepository {
     const updated = await this.prisma.optimizationTask.update({
       where: { id: task.id },
       data: {
-        retestRunId: record.retestRunId,
+        retestRunId: null,
         retestPlanAt: new Date(record.plannedAt),
         status: 'retest',
         retestRecords: [record]
@@ -4544,6 +5026,19 @@ export class PrismaPermissionsRepository {
     return { brandId, reports, latest: reports[0] };
   }
 
+  async previewReport(userId: string, brandId: BrandId, input: ReportInput): Promise<ReportScopePreview[] | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) return null;
+
+    const normalized = normalizeReportInput(input);
+    const period = this.periodReportSnapshotService.resolvePeriod(normalized.periodStart, normalized.periodEnd);
+    const brandIds = normalized.type === 'multi_brand'
+      ? (await this.listAccessibleBrandDetails(userId)).map((brand) => brand.brandId)
+      : [brandId];
+    const sources = await Promise.all(brandIds.map((scopedBrandId) => this.getPeriodReportSource(scopedBrandId, period)));
+
+    return brandIds.map((scopedBrandId, index) => this.periodReportSnapshotService.buildPreview(scopedBrandId, period, sources[index]));
+  }
+
   async createReport(userId: string, brandId: BrandId, input: ReportInput): Promise<ReportRecord | null> {
     const brand = await this.findAccessibleBrandDetail(userId, brandId);
     if (!brand) {
@@ -4551,12 +5046,14 @@ export class PrismaPermissionsRepository {
     }
 
     const normalized = normalizeReportInput(input);
-    const periodStart = normalized.periodStart ?? new Date().toISOString().slice(0, 10);
-    const periodEnd = normalized.periodEnd ?? new Date().toISOString().slice(0, 10);
+    const period = this.periodReportSnapshotService.resolvePeriod(normalized.periodStart, normalized.periodEnd);
+    const periodStart = period.periodStart;
+    const periodEnd = period.periodEnd;
     const isMultiBrand = normalized.type === 'multi_brand';
+    const scopes = await this.previewReport(userId, brandId, { ...normalized, periodStart, periodEnd }) as ReportScopePreview[];
     const snapshot = isMultiBrand
-      ? await this.buildMultiBrandReportSnapshot(userId)
-      : await this.buildSingleBrandReportSnapshot(userId, brand);
+      ? await this.buildMultiBrandReportSnapshot(userId, period, scopes)
+      : await this.buildSingleBrandReportSnapshot(userId, brand, period, scopes[0]);
     const dataGaps = isMultiBrand
       ? buildMultiBrandDataGaps(snapshot as MultiBrandReportSnapshot)
       : buildSingleBrandDataGaps(snapshot as SingleBrandReportSnapshot);
@@ -4878,7 +5375,7 @@ export class PrismaPermissionsRepository {
     return intent as PrismaUserIntent;
   }
 
-  private async buildSingleBrandReportSnapshot(userId: string, brand: BrandDetail): Promise<SingleBrandReportSnapshot> {
+  private async buildSingleBrandReportSnapshot(userId: string, brand: BrandDetail, period: ReportPeriod, scope: ReportScopePreview): Promise<SingleBrandReportSnapshot> {
     const [metrics, content, taskBoard] = await Promise.all([
       this.getBrandMetricDashboard(userId, brand.brandId),
       this.getContentCenterDashboard(userId, brand.brandId),
@@ -4892,11 +5389,14 @@ export class PrismaPermissionsRepository {
       citation: { totalCitations: 0, officialCitationRate: 0, authoritySourceRate: 0, contentCitationRate: 0 },
       evaluation: { positiveRate: 0, neutralRate: 0, negativeRate: 0, accurateRate: 0 },
       content: content?.coverage ?? { keywordCoverageRate: 0, uncoveredKeywords: [], publishedAssetCount: 0, reusableAssetCount: 0 },
-      taskProgress: taskBoard?.statusCounts ?? { todo: 0, doing: 0, review: 0, retest: 0, done: 0, reopened: 0 }
+      taskProgress: taskBoard?.statusCounts ?? { todo: 0, doing: 0, review: 0, retest: 0, done: 0, reopened: 0 },
+      scope,
+      effectEvidence: this.periodReportSnapshotService.buildEffectEvidence(brand.brandId, period, await this.getPeriodReportSource(brand.brandId, period)),
+      methodologyVersion: this.periodReportSnapshotService.methodologyVersion
     };
   }
 
-  private async buildMultiBrandReportSnapshot(userId: string): Promise<MultiBrandReportSnapshot> {
+  private async buildMultiBrandReportSnapshot(userId: string, period: ReportPeriod, scopes: ReportScopePreview[]): Promise<MultiBrandReportSnapshot> {
     const ranking = await this.listBrandMetricRanking(userId);
     const strongestPlatforms = await Promise.all(ranking.map(async (brand) => {
       const dashboard = await this.getBrandMetricDashboard(userId, brand.brandId);
@@ -4908,6 +5408,8 @@ export class PrismaPermissionsRepository {
       return tasks.map((task) => ({ brandId: brand.brandId, title: task.title, source: task.type }));
     }));
 
+    const sources = await Promise.all(scopes.map((scope) => this.getPeriodReportSource(scope.brandId, period)));
+
     return {
       ranking,
       strongestPlatforms: strongestPlatforms.filter((item): item is MultiBrandReportSnapshot['strongestPlatforms'][number] => Boolean(item)),
@@ -4916,7 +5418,44 @@ export class PrismaPermissionsRepository {
         name: brand.name,
         reason: brand.insufficientSample ? '监测样本不足' : `GEO 总分 ${brand.totalScore}，低于目标线`
       })),
-      highPriorityIssues: highPriorityTasks.flat()
+      highPriorityIssues: highPriorityTasks.flat(),
+      scopes,
+      effectEvidence: scopes.flatMap((scope, index) => this.periodReportSnapshotService.buildEffectEvidence(scope.brandId, period, sources[index])),
+      methodologyVersion: this.periodReportSnapshotService.methodologyVersion
+    };
+  }
+
+  private async getPeriodReportSource(brandId: BrandId, period: ReportPeriod) {
+    const range = { gte: period.startInclusive, lt: period.endExclusive };
+    const [periodRuns, contentAssetRecords, publishingRecordRows, taskRows] = await Promise.all([
+      this.prisma.monitoringRun.findMany({
+        where: {
+          brandId,
+          OR: [
+            { completedAt: range },
+            { completedAt: null, startedAt: range },
+            { completedAt: null, startedAt: null, createdAt: range }
+          ]
+        }
+      }),
+      this.prisma.contentAsset.findMany({ where: { brandId, createdAt: range } }),
+      this.prisma.publishingRecord.findMany({
+        where: { brandId, OR: [{ publishedAt: range }, { publishedAt: null, createdAt: range }] }
+      }),
+      this.prisma.optimizationTask.findMany({ where: { brandId, updatedAt: range } })
+    ]);
+    const tasks = taskRows.map(toOptimizationTask);
+    const evidenceRunIds = Array.from(new Set(tasks.flatMap((task) => task.retestRecords.flatMap((record) => [record.sourceRunId, record.retestRunId]).filter(Boolean))));
+    const contextRuns = evidenceRunIds.length
+      ? await this.prisma.monitoringRun.findMany({ where: { brandId, id: { in: evidenceRunIds } } })
+      : [];
+    const runRows = [...periodRuns, ...contextRuns].filter((run, index, rows) => rows.findIndex((candidate) => candidate.id === run.id) === index);
+
+    return {
+      monitoringRuns: await Promise.all(runRows.map((run) => this.toMonitoringRunDetail(run))),
+      contentAssets: contentAssetRecords.map(toContentAsset),
+      publishingRecords: publishingRecordRows.map(toPublishingRecord),
+      tasks
     };
   }
 
@@ -4947,6 +5486,62 @@ export class PrismaPermissionsRepository {
       },
       include: { brand: true }
     });
+  }
+
+  private async syncCitationSources(brand: BrandDetail): Promise<{ sources: CitationSource[]; responses: PrismaAIResponse[]; contentAssets: PrismaContentAsset[] }> {
+    const [responseRows, runRows, promptRows, assetRows, storedSourceRows] = await Promise.all([
+      this.prisma.aIResponse.findMany({ where: { brandId: brand.brandId }, orderBy: { respondedAt: 'desc' } }),
+      this.prisma.monitoringRun.findMany({ where: { brandId: brand.brandId } }),
+      this.prisma.brandPrompt.findMany({ where: { brandId: brand.brandId } }),
+      this.prisma.contentAsset.findMany({ where: { brandId: brand.brandId } }),
+      this.prisma.citationSource.findMany({ where: { brandId: brand.brandId }, orderBy: { createdAt: 'desc' } })
+    ]);
+    const responses = responseRows as PrismaAIResponse[];
+    const runs = runRows as PrismaMonitoringRun[];
+    const prompts = promptRows as Array<{ id: string; text: string }>;
+    const contentAssets = assetRows as PrismaContentAsset[];
+    const storedSources = storedSourceRows as PrismaCitationSource[];
+
+    for (const response of responses) {
+      const run = runs.find((item) => item.id === response.runId);
+      const prompt = run && prompts.find((item) => item.id === run.promptId);
+      if (!run || !prompt || run.platformCode === 'mock_ai' || !response.rawText.trim()) continue;
+
+      const counts = new Map<string, number>();
+      for (const rawCitation of toStringArray(response.citations)) {
+        const url = normalizePrismaCitationUrl(rawCitation);
+        if (url) counts.set(url, (counts.get(url) ?? 0) + 1);
+      }
+      for (const [url, citationCount] of counts) {
+        const existing = await this.prisma.citationSource.findFirst({ where: { brandId: brand.brandId, responseId: response.id, url } }) as PrismaCitationSource | null;
+        const contentAsset = contentAssets.find((asset) => asset.url === url);
+        const data = {
+          title: buildPrismaCitationTitle(url),
+          url,
+          sourceType: classifyPrismaCitationSource(url, brand.website),
+          authorityLevel: classifyPrismaCitationAuthority(classifyPrismaCitationSource(url, brand.website), url),
+          citationCount,
+          contentAssetId: existing?.contentAssetId ?? contentAsset?.id ?? null
+        };
+        if (existing) {
+          const updated = await this.prisma.citationSource.update({ where: { id: existing.id }, data });
+          const index = storedSources.findIndex((item) => item.id === existing.id);
+          if (index >= 0) storedSources[index] = updated as PrismaCitationSource;
+        } else {
+          const created = await this.prisma.citationSource.create({ data: { brandId: brand.brandId, responseId: response.id, ...data } });
+          storedSources.unshift(created as PrismaCitationSource);
+        }
+      }
+    }
+
+    return {
+      sources: storedSources.flatMap((source) => toPrismaCitationSource(source, responses, runs, prompts)),
+      responses: responses.filter((response) => {
+        const run = runs.find((item) => item.id === response.runId);
+        return Boolean(run && run.platformCode !== 'mock_ai' && response.rawText.trim());
+      }),
+      contentAssets
+    };
   }
 
   private async toMonitoringRunDetail(run: PrismaMonitoringRun): Promise<MonitoringRunDetail> {
@@ -5094,6 +5689,7 @@ export class PrismaPermissionsRepository {
       intentId: intent.id,
       templateId: template.id,
       text: ensureBrandMention(renderPromptText(template.text, brand, intent, unit), brand),
+      promptKind: 'brand_probe',
       category: intent.category,
       targetKeywords: mergeStringLists(templateKeywords, unitKeywords),
       platformCodes: toStringArray(template.platformCodes),
@@ -5160,6 +5756,7 @@ export class PrismaPermissionsRepository {
   private toBrandDetail(brand: PrismaBrand, role?: UserBrandRole): BrandDetail {
     return {
       brandId: brand.id,
+      organizationId: brand.organizationId,
       name: brand.name,
       status: brand.status as BrandStatus,
       role,
@@ -5691,6 +6288,22 @@ function toKnowledgeSource(source: PrismaKnowledgeSource): KnowledgeSource {
   };
 }
 
+function toKnowledgeChunk(chunk: PrismaKnowledgeChunk): KnowledgeChunk {
+  return {
+    id: chunk.id,
+    brandId: chunk.brandId,
+    sourceId: chunk.sourceId,
+    sourceUrl: chunk.sourceUrl ?? undefined,
+    sourceVersion: chunk.sourceVersion,
+    chunkIndex: chunk.chunkIndex,
+    content: chunk.content,
+    contentHash: chunk.contentHash,
+    reviewStatus: chunk.reviewStatus as KnowledgeChunk['reviewStatus'],
+    createdAt: chunk.createdAt.toISOString(),
+    updatedAt: chunk.updatedAt.toISOString()
+  };
+}
+
 function toOptimizationUnit(unit: PrismaOptimizationUnit): OptimizationUnit {
   return {
     id: unit.id,
@@ -5729,10 +6342,18 @@ function toTestQuestionCandidate(candidate: PrismaTestQuestionCandidate): TestQu
     themeId: candidate.themeId,
     promptId: candidate.promptId ?? undefined,
     question: candidate.question,
+    promptKind: candidate.promptKind as TestQuestionCandidate['promptKind'],
     purposes: toTestQuestionPurposes(candidate.purposes),
     targetPlatforms: toStringArray(candidate.targetPlatforms),
     priority: candidate.priority as OptimizationUnitPriority,
     estimatedValue: candidate.estimatedValue,
+    discoveryDimension: candidate.discoveryDimension ? candidate.discoveryDimension as TestQuestionCandidate['discoveryDimension'] : undefined,
+    businessValue: candidate.businessValue ? candidate.businessValue as TestQuestionCandidate['businessValue'] : undefined,
+    recommendationProbability: candidate.recommendationProbability ?? undefined,
+    userStage: candidate.userStage ? candidate.userStage as TestQuestionCandidate['userStage'] : undefined,
+    generationRationale: candidate.generationRationale ?? undefined,
+    generationMethod: candidate.generationMethod ? candidate.generationMethod as TestQuestionCandidate['generationMethod'] : undefined,
+    mergedFrom: toStringArray(candidate.mergedFrom),
     editable: candidate.editable,
     selected: candidate.selected,
     createdAt: candidate.createdAt.toISOString(),
@@ -5815,6 +6436,7 @@ function toBrandPrompt(prompt: PrismaBrandPrompt): BrandPrompt {
     intentId: prompt.intentId,
     templateId: prompt.templateId ?? undefined,
     text: prompt.text,
+    promptKind: prompt.promptKind as BrandPrompt['promptKind'],
     category: prompt.category as UserIntentCategory,
     targetKeywords: toStringArray(prompt.targetKeywords),
     platformCodes: toStringArray(prompt.platformCodes),
@@ -5884,10 +6506,18 @@ function normalizeTestQuestionCandidateInput(input: TestQuestionCandidateInput):
     themeId: input.themeId,
     promptId: input.promptId?.trim(),
     question: input.question.trim(),
+    promptKind: input.promptKind,
     purposes: normalizeTestQuestionPurposes(input.purposes),
     targetPlatforms: normalizeStringList(input.targetPlatforms),
     priority: input.priority,
     estimatedValue: input.estimatedValue.trim(),
+    discoveryDimension: input.discoveryDimension,
+    businessValue: input.businessValue ?? input.priority,
+    recommendationProbability: input.recommendationProbability,
+    userStage: input.userStage,
+    generationRationale: input.generationRationale?.trim(),
+    generationMethod: input.generationMethod,
+    mergedFrom: [...new Set(normalizeStringList(input.mergedFrom))],
     editable: input.editable ?? true,
     selected: input.selected ?? false
   };
@@ -5898,10 +6528,18 @@ function normalizePartialTestQuestionCandidateInput(input: TestQuestionCandidate
     themeId: input.themeId,
     promptId: input.promptId?.trim(),
     question: input.question?.trim(),
+    promptKind: input.promptKind,
     purposes: input.purposes ? normalizeTestQuestionPurposes(input.purposes) : undefined,
     targetPlatforms: input.targetPlatforms ? normalizeStringList(input.targetPlatforms) : undefined,
     priority: input.priority,
     estimatedValue: input.estimatedValue?.trim(),
+    discoveryDimension: input.discoveryDimension,
+    businessValue: input.businessValue,
+    recommendationProbability: input.recommendationProbability,
+    userStage: input.userStage,
+    generationRationale: input.generationRationale?.trim(),
+    generationMethod: input.generationMethod,
+    mergedFrom: input.mergedFrom ? [...new Set(normalizeStringList(input.mergedFrom))] : undefined,
     editable: input.editable,
     selected: input.selected
   };
@@ -5943,7 +6581,11 @@ function normalizeManualTestAnswerInput(input: ManualTestAnswerInput): ManualTes
     platformCode: input.platformCode?.trim() ?? '',
     rawText: input.rawText?.trim() ?? '',
     citations: normalizeStringList(input.citations),
-    modelName: input.modelName?.trim()
+    modelName: input.modelName?.trim(),
+    searchEnabled: input.searchEnabled ?? null,
+    market: input.market?.trim(),
+    language: input.language?.trim(),
+    manualConfirmed: input.manualConfirmed ?? null
   };
 }
 
@@ -6361,6 +7003,7 @@ function normalizePromptTemplateInput(input: PromptTemplateInput): Omit<PromptTe
 function normalizePartialBrandPromptInput(input: Partial<BrandPromptInput>): Partial<BrandPromptInput> {
   return {
     text: input.text?.trim(),
+    promptKind: input.promptKind,
     targetKeywords: input.targetKeywords ? normalizeStringList(input.targetKeywords) : undefined,
     platformCodes: input.platformCodes ? normalizeStringList(input.platformCodes) : undefined,
     monitoringFrequency: input.monitoringFrequency,
@@ -6512,6 +7155,10 @@ function toCompetitorCandidate(candidate: PrismaCompetitorCandidate): Competitor
     confidence: candidate.confidence as CompetitorCandidate['confidence'],
     isCampusFocus: candidate.isCampusFocus,
     decisionStatus: candidate.decisionStatus as CompetitorCandidate['decisionStatus'],
+    lifecycleStatus: candidate.lifecycleStatus as CompetitorCandidate['lifecycleStatus'],
+    evidenceSampleIds: toStringArray(candidate.evidenceSampleIds),
+    sampleConfirmedAt: dateToIso(candidate.sampleConfirmedAt),
+    confirmedAt: dateToIso(candidate.confirmedAt),
     excludedReason: candidate.excludedReason ?? undefined,
     createdAt: candidate.createdAt.toISOString(),
     updatedAt: candidate.updatedAt.toISOString()
@@ -6540,6 +7187,10 @@ function toCompetitorCandidateCreateData(candidate: CompetitorCandidate) {
     confidence: candidate.confidence,
     isCampusFocus: candidate.isCampusFocus,
     decisionStatus: candidate.decisionStatus,
+    lifecycleStatus: candidate.lifecycleStatus,
+    evidenceSampleIds: candidate.evidenceSampleIds,
+    sampleConfirmedAt: candidate.sampleConfirmedAt ? new Date(candidate.sampleConfirmedAt) : undefined,
+    confirmedAt: candidate.confirmedAt ? new Date(candidate.confirmedAt) : undefined,
     excludedReason: candidate.excludedReason
   };
 }
@@ -6588,6 +7239,10 @@ function clonePrismaCompetitorCandidatesForRun(candidates: CompetitorCandidate[]
     candidateId: `competitor_candidate_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`,
     runId,
     decisionStatus: 'pending',
+    lifecycleStatus: 'candidate',
+    evidenceSampleIds: [],
+    sampleConfirmedAt: undefined,
+    confirmedAt: undefined,
     confirmedLabel: undefined,
     excludedReason: undefined,
     createdAt: timestamp,
@@ -6668,6 +7323,8 @@ function buildPrismaLocalCompetitorCandidates(brand: BrandDetail, run: Competito
       confidence: score >= 78 ? 'high' : score >= 60 ? 'medium' : 'low',
       isCampusFocus,
       decisionStatus: 'pending',
+      lifecycleStatus: 'candidate',
+      evidenceSampleIds: [],
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -6880,11 +7537,177 @@ function toContentAsset(asset: PrismaContentAsset): ContentAsset {
     targetKeywords: toStringArray(asset.targetKeywords),
     reuseOfAssetId: asset.reuseOfAssetId ?? undefined,
     brandAdaptation: asset.brandAdaptation ?? undefined,
+    sourceFacts: toTechnicalAssetSourceFacts(asset.sourceFacts),
+    reviewStatus: asset.reviewStatus as ContentAsset['reviewStatus'],
     status: asset.status as ContentAssetStatus,
     publishedAt: dateToIso(asset.publishedAt),
     createdAt: asset.createdAt.toISOString(),
     updatedAt: asset.updatedAt.toISOString()
   };
+}
+
+function toPrismaCitationSource(
+  source: PrismaCitationSource,
+  responses: PrismaAIResponse[],
+  runs: PrismaMonitoringRun[],
+  prompts: Array<{ id: string; text: string }>
+): CitationSource[] {
+  const response = responses.find((item) => item.id === source.responseId);
+  const run = response && runs.find((item) => item.id === response.runId);
+  const prompt = run && prompts.find((item) => item.id === run.promptId);
+  if (!response || !run || !prompt) return [];
+  return [{
+    id: source.id,
+    brandId: source.brandId,
+    responseId: source.responseId,
+    runId: run.id,
+    promptId: prompt.id,
+    promptText: prompt.text,
+    platformCode: run.platformCode,
+    contentAssetId: source.contentAssetId ?? undefined,
+    title: source.title,
+    url: source.url,
+    sourceType: source.sourceType as CitationSourceType,
+    authorityLevel: source.authorityLevel as CitationAuthorityLevel,
+    citationCount: source.citationCount,
+    citedAt: response.respondedAt.toISOString(),
+    createdAt: source.createdAt.toISOString(),
+    absorptionEvidence: toCitationAbsorptionEvidence(source.absorptionEvidence)
+  }];
+}
+
+function toCitationAbsorptionEvidence(value: unknown): CitationAbsorptionEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const evidence = item as Record<string, unknown>;
+    if (
+      typeof evidence.id !== 'string' ||
+      typeof evidence.answerSentence !== 'string' ||
+      typeof evidence.answerSentenceIndex !== 'number' ||
+      typeof evidence.sourceFragment !== 'string' ||
+      typeof evidence.sourceStartOffset !== 'number' ||
+      typeof evidence.sourceEndOffset !== 'number' ||
+      !['supports', 'partial', 'conflicts', 'unavailable'].includes(String(evidence.outcome)) ||
+      typeof evidence.supportScope !== 'number' ||
+      typeof evidence.confidence !== 'number' ||
+      !['not_required', 'pending_review', 'reviewed'].includes(String(evidence.reviewStatus))
+    ) return [];
+    return [{
+      id: evidence.id,
+      answerSentence: evidence.answerSentence,
+      answerSentenceIndex: evidence.answerSentenceIndex,
+      sourceFragment: evidence.sourceFragment,
+      sourceStartOffset: evidence.sourceStartOffset,
+      sourceEndOffset: evidence.sourceEndOffset,
+      outcome: evidence.outcome as CitationAbsorptionEvidence['outcome'],
+      supportScope: evidence.supportScope,
+      confidence: evidence.confidence,
+      reviewStatus: evidence.reviewStatus as CitationAbsorptionEvidence['reviewStatus'],
+      reviewedAt: typeof evidence.reviewedAt === 'string' ? evidence.reviewedAt : undefined,
+      reviewedBy: typeof evidence.reviewedBy === 'string' ? evidence.reviewedBy : undefined
+    }];
+  });
+}
+
+function normalizePrismaCitationUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function classifyPrismaCitationSource(url: string, brandWebsite?: string): CitationSourceType {
+  const hostname = prismaCitationHostname(url);
+  const brandHostname = brandWebsite ? prismaCitationHostname(brandWebsite) : '';
+  if (brandHostname && (hostname === brandHostname || hostname.endsWith(`.${brandHostname}`))) return 'official_site';
+  if (hostname.includes('baike') || hostname.includes('wikipedia') || hostname.includes('wikidata')) return 'encyclopedia';
+  if (['weixin', 'wechat', 'xiaohongshu', 'douyin', 'weibo', 'zhihu', 'bilibili'].some((value) => hostname.includes(value))) return 'social';
+  if (['news', 'media', '36kr', 'huxiu', 'sina', 'sohu', 'qq.com', 'ifeng', 'people', 'xinhuanet'].some((value) => hostname.includes(value))) return 'media';
+  return 'third_party';
+}
+
+function classifyPrismaCitationAuthority(sourceType: CitationSourceType, url: string): CitationAuthorityLevel {
+  if (sourceType === 'official_site' || sourceType === 'encyclopedia') return 'high';
+  if (sourceType === 'social') return 'medium';
+  if (sourceType === 'media') return ['people', 'xinhuanet', 'sina', 'qq.com', 'ifeng'].some((value) => prismaCitationHostname(url).includes(value)) ? 'high' : 'medium';
+  return 'low';
+}
+
+function prismaCitationHostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function buildPrismaCitationTitle(url: string): string {
+  const hostname = prismaCitationHostname(url);
+  try {
+    const pathname = new URL(url).pathname.split('/').filter(Boolean).at(-1);
+    return pathname ? `${hostname}/${decodeURIComponent(pathname)}` : hostname;
+  } catch {
+    return hostname || url;
+  }
+}
+
+function buildPrismaCitationTypeBreakdown(sources: CitationSource[], totalCitations: number): CitationDashboard['sourceTypeBreakdown'] {
+  const types: CitationSourceType[] = ['official_site', 'media', 'social', 'encyclopedia', 'third_party'];
+  return types.map((sourceType) => {
+    const citationCount = sources.filter((source) => source.sourceType === sourceType).reduce((sum, source) => sum + source.citationCount, 0);
+    return { sourceType, citationCount, rate: totalCitations === 0 ? 0 : clampScore((citationCount / totalCitations) * 100) };
+  });
+}
+
+function buildPrismaCitationTrend(sources: CitationSource[], responses: PrismaAIResponse[]): CitationDashboard['trend'] {
+  const dates = new Set([...sources.map((source) => source.citedAt.slice(0, 10)), ...responses.map((response) => response.respondedAt.toISOString().slice(0, 10))]);
+  return [...dates].sort().map((date) => {
+    const daySources = sources.filter((source) => source.citedAt.startsWith(date));
+    const dayResponses = responses.filter((response) => response.respondedAt.toISOString().startsWith(date));
+    const citedSampleCount = dayResponses.filter((response) => toStringArray(response.citations).some(normalizePrismaCitationUrl)).length;
+    const citationCount = daySources.reduce((sum, source) => sum + source.citationCount, 0);
+    const contentCitationCount = daySources.filter((source) => source.contentAssetId).reduce((sum, source) => sum + source.citationCount, 0);
+    return {
+      date,
+      sampleCount: dayResponses.length,
+      citedSampleCount,
+      citationRate: dayResponses.length === 0 ? 0 : clampScore((citedSampleCount / dayResponses.length) * 100),
+      citationCount,
+      contentCitationRate: citationCount === 0 ? 0 : clampScore((contentCitationCount / citationCount) * 100)
+    };
+  });
+}
+
+function toTechnicalAssetSourceFacts(value: unknown): NonNullable<ContentAsset['sourceFacts']> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const fact = item as Record<string, unknown>;
+    if (
+      typeof fact.candidateId !== 'string' ||
+      typeof fact.fieldKey !== 'string' ||
+      typeof fact.value !== 'string' ||
+      (fact.status !== 'confirmed' && fact.status !== 'edited') ||
+      typeof fact.sourceId !== 'string' ||
+      typeof fact.excerpt !== 'string'
+    ) return [];
+    return [{
+      candidateId: fact.candidateId,
+      fieldKey: fact.fieldKey,
+      value: fact.value,
+      status: fact.status,
+      sourceId: fact.sourceId,
+      url: typeof fact.url === 'string' ? fact.url : undefined,
+      title: typeof fact.title === 'string' ? fact.title : undefined,
+      excerpt: fact.excerpt
+    }];
+  });
 }
 
 function toContentStrategy(strategy: PrismaContentStrategy): ContentStrategy {
@@ -7056,6 +7879,10 @@ function toPublishingRecord(record: PrismaPublishingRecord): PublishingRecord {
     platform: record.platform,
     accountName: record.accountName ?? undefined,
     publishingMode: record.publishingMode as PublishingMode,
+    contentVersion: record.contentVersion ?? undefined,
+    materialRequirementsConfirmed: record.materialRequirementsConfirmed,
+    retestPlanAt: dateToIso(record.retestPlanAt),
+    confirmedAt: dateToIso(record.confirmedAt),
     status: record.status as PublishingRecordStatus,
     externalPlatformId: record.externalPlatformId ?? undefined,
     publishedUrl: record.publishedUrl ?? undefined,
@@ -7164,6 +7991,8 @@ function normalizeContentAssetInput(input: ContentAssetInput): ContentAssetInput
     targetKeywords: input.targetKeywords ? normalizeStringList(input.targetKeywords) : undefined,
     reuseOfAssetId: input.reuseOfAssetId?.trim(),
     brandAdaptation: input.brandAdaptation?.trim(),
+    sourceFacts: input.sourceFacts ? structuredClone(input.sourceFacts) : undefined,
+    reviewStatus: input.reviewStatus,
     status: input.status,
     publishedAt: input.publishedAt?.trim()
   };
@@ -7444,38 +8273,6 @@ function buildGrowthContentReferenceSources(plan: GrowthOptimizationPlan, recomm
   );
 }
 
-function buildRetestMetricComparison(sourceAnalysis?: AnalysisResult, retestAnalysis?: AnalysisResult) {
-  const beforeMetrics = toRetestMetricSnapshot(sourceAnalysis);
-  const afterMetrics = toRetestMetricSnapshot(retestAnalysis);
-  const sourceRank = beforeMetrics.brandRank ?? Number.MAX_SAFE_INTEGER;
-  const retestRank = afterMetrics.brandRank ?? Number.MAX_SAFE_INTEGER;
-  const metricDelta = {
-    mentionRate: afterMetrics.mentionRate - beforeMetrics.mentionRate,
-    rankImproved: retestRank < sourceRank,
-    accuracyScore: afterMetrics.accuracyScore - beforeMetrics.accuracyScore
-  };
-  const improved = metricDelta.mentionRate > 0 || metricDelta.rankImproved || metricDelta.accuracyScore > 0;
-
-  return { beforeMetrics, afterMetrics, metricDelta, improved };
-}
-
-function toRetestMetricSnapshot(analysis?: AnalysisResult) {
-  return {
-    mentionRate: analysis?.brandMentioned ? 100 : 0,
-    brandRank: analysis?.brandRank ?? null,
-    accuracyScore: analysis?.accuracyScore ?? 0
-  };
-}
-
-function buildRetestNextSuggestion(comparison: ReturnType<typeof buildRetestMetricComparison>): string {
-  const suggestions = [];
-  if (comparison.metricDelta.mentionRate <= 0) suggestions.push('继续补充品牌名称、别名和高频问法内容');
-  if (!comparison.metricDelta.rankImproved) suggestions.push('强化本地化证据、权威背书和竞品对比内容');
-  if (comparison.metricDelta.accuracyScore <= 0) suggestions.push('补齐标准表达、FAQ 和可引用事实');
-
-  return suggestions.join('；') || '继续补充可被 AI 引用的品牌内容，并在下一轮复测中观察变化。';
-}
-
 function slugify(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '') || 'content';
 }
@@ -7751,6 +8548,10 @@ function toAsyncJob(job: PrismaAsyncJob): AsyncJob {
     jobType: job.jobType as AsyncJobType,
     status: job.status as AsyncJobStatus,
     entityId: job.entityId,
+    idempotencyKey: job.idempotencyKey ?? undefined,
+    stepCode: job.stepCode ?? undefined,
+    progress: toRecord(job.progress),
+    resultSummary: job.resultSummary ? toRecord(job.resultSummary) : undefined,
     attemptCount: job.attemptCount,
     maxAttempts: job.maxAttempts,
     nextRunAt: job.nextRunAt?.toISOString(),
@@ -7825,6 +8626,38 @@ function toPlatformValidationResult(value: unknown): PlatformValidationResult | 
     : undefined;
 }
 
+function collectionMethodForPlatformMode(mode: PlatformMode): MonitoringRunDetail['collectionMethod'] {
+  if (mode === 'mock') return 'mock';
+  if (mode === 'api') return 'api';
+  if (mode === 'semi_auto') return 'browser';
+  return 'manual';
+}
+
+function evidenceLevelForCollectionMethod(method: MonitoringRunDetail['collectionMethod']): MonitoringRunDetail['evidenceLevel'] {
+  if (method === 'mock') return 'demo';
+  if (method === 'api') return 'reproducible_api';
+  if (method === 'manual' || method === 'browser') return 'manual_or_browser';
+  return 'unknown';
+}
+
+function clientSurfaceForCollectionMethod(method: MonitoringRunDetail['collectionMethod']): MonitoringRunDetail['clientSurface'] {
+  if (method === 'api') return 'api';
+  if (method === 'browser') return 'web';
+  return 'unknown';
+}
+
+function isMonitoringCollectionMethod(value: string): value is MonitoringRunDetail['collectionMethod'] {
+  return ['api', 'browser', 'manual', 'mock', 'unknown'].includes(value);
+}
+
+function isMonitoringEvidenceLevel(value: string): value is MonitoringRunDetail['evidenceLevel'] {
+  return ['manual_or_browser', 'reproducible_api', 'demo', 'unknown'].includes(value);
+}
+
+function isMonitoringClientSurface(value: string): value is MonitoringRunDetail['clientSurface'] {
+  return ['api', 'web', 'app', 'unknown'].includes(value);
+}
+
 function toMonitoringRun(run: PrismaMonitoringRun): MonitoringRunDetail {
   return {
     id: run.id,
@@ -7832,7 +8665,17 @@ function toMonitoringRun(run: PrismaMonitoringRun): MonitoringRunDetail {
     optimizationUnitId: run.optimizationUnitId,
     intentId: run.intentId,
     promptId: run.promptId,
+    promptKind: run.promptKind as MonitoringRunDetail['promptKind'],
     platformCode: run.platformCode,
+    modelName: run.modelName || 'unknown',
+    collectionMethod: isMonitoringCollectionMethod(run.collectionMethod) ? run.collectionMethod : 'unknown',
+    clientSurface: isMonitoringClientSurface(run.clientSurface) ? run.clientSurface : 'unknown',
+    searchEnabled: run.searchEnabled ?? null,
+    market: run.market || 'unknown',
+    language: run.language || 'unknown',
+    evidenceLevel: isMonitoringEvidenceLevel(run.evidenceLevel) ? run.evidenceLevel : 'unknown',
+    manualConfirmed: run.manualConfirmed ?? null,
+    baselineVersion: run.baselineVersion || 'unknown',
     status: run.status as MonitoringRunStatus,
     startedAt: run.startedAt?.toISOString(),
     completedAt: run.completedAt?.toISOString(),
@@ -7850,7 +8693,16 @@ function toAIResponse(response: PrismaAIResponse): AIResponse {
     brandId: response.brandId,
     rawText: response.rawText,
     citations: toStringArray(response.citations),
-    modelName: response.modelName ?? undefined,
+    platformCode: response.platformCode || 'unknown',
+    modelName: response.modelName || 'unknown',
+    collectionMethod: isMonitoringCollectionMethod(response.collectionMethod) ? response.collectionMethod : 'unknown',
+    clientSurface: isMonitoringClientSurface(response.clientSurface) ? response.clientSurface : 'unknown',
+    searchEnabled: response.searchEnabled ?? null,
+    market: response.market || 'unknown',
+    language: response.language || 'unknown',
+    evidenceLevel: isMonitoringEvidenceLevel(response.evidenceLevel) ? response.evidenceLevel : 'unknown',
+    manualConfirmed: response.manualConfirmed ?? null,
+    baselineVersion: response.baselineVersion || 'unknown',
     respondedAt: response.respondedAt.toISOString(),
     parseStatus: response.parseStatus as AIResponseParseStatus,
     createdAt: response.createdAt.toISOString()
@@ -8196,6 +9048,24 @@ function toAnalysisResultUpdateData(input: AnalysisResultInput) {
   };
 }
 
+function toMeasurementAttribution(record: PrismaMeasurementAttribution): MeasurementAttributionRecord {
+  return {
+    id: record.id,
+    brandId: record.brandId,
+    baselineWindowStart: record.baselineWindowStart.toISOString(),
+    baselineWindowEnd: record.baselineWindowEnd.toISOString(),
+    observationWindowStart: record.observationWindowStart.toISOString(),
+    observationWindowEnd: record.observationWindowEnd.toISOString(),
+    controlQuestions: toStringArray(record.controlQuestions),
+    externalEvents: Array.isArray(record.externalEvents) ? record.externalEvents as MeasurementAttributionRecord['externalEvents'] : [],
+    conclusionType: 'observational_correlation',
+    conclusion: record.conclusion || undefined,
+    updatedBy: record.updatedBy,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString()
+  };
+}
+
 function toMetricSnapshot(snapshot: PrismaMetricSnapshot): GEOMetricSnapshot {
   return {
     id: snapshot.id,
@@ -8217,6 +9087,10 @@ function toMetricSnapshot(snapshot: PrismaMetricSnapshot): GEOMetricSnapshot {
     insufficientSample: snapshot.insufficientSample,
     calculatedAt: snapshot.calculatedAt.toISOString()
   };
+}
+
+function createBaselineVersion(): string {
+  return `baseline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function createEmptyMetricSnapshot(brandId: BrandId): PrismaMetricSnapshot {

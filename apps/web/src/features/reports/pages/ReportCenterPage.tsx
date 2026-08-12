@@ -1,13 +1,15 @@
 import { Alert, Button, Card, Form, Input, Modal, Select, Space, Statistic, Tag, Typography, message } from 'antd';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ReportDashboard, ReportInput, ReportRecord, ReportStatus, ReportType } from '@geo-platform/shared-types';
+import type { EffectEvidence, ReportDashboard, ReportInput, ReportRecord, ReportScopePreview, ReportStatus, ReportType } from '@geo-platform/shared-types';
 import { apiGet, apiPost } from '../../../api/http';
+import { useBrandWriteCapability } from '../../../access-control/BrandCapabilityContext';
 import { useBrandContextStore } from '../../../stores/brandContextStore';
 import { EmptyState, GuidedEmptyState, PageErrorAlert, PageSkeleton, RegionErrorState } from '../../../components/PageState';
 import { ManagementListPage, ManagementRowActions } from '../../../components/ManagementListPage';
 import { ProductPageSection } from '../../../components/ProductPage';
 import { UnifiedFilterBar } from '../../../components/UnifiedFilterBar';
+import { EffectEvidencePanel } from '../../../components/EffectEvidencePanel';
 
 const reportTypeLabels: Record<ReportRecord['type'], string> = {
   weekly: '单品牌周报',
@@ -23,12 +25,14 @@ const statusLabels: Record<ReportRecord['status'], string> = {
 };
 
 export function ReportCenterPage() {
+  const reportCapability = useBrandWriteCapability('report');
   const [messageApi, contextHolder] = message.useMessage();
   const queryClient = useQueryClient();
   const activeBrandId = useBrandContextStore((state) => state.activeBrandId);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string>();
   const [filters, setFilters] = useState<ReportFilters>(defaultReportFilters);
+  const [previewInput, setPreviewInput] = useState<ReportInput>();
   const [form] = Form.useForm<ReportInput>();
   const dashboardQuery = useQuery({
     queryKey: ['report-dashboard', activeBrandId],
@@ -52,11 +56,25 @@ export function ReportCenterPage() {
         ? 'empty'
         : 'ready';
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['report-dashboard', activeBrandId] });
+  const previewQuery = useQuery({
+    queryKey: ['report-preview', activeBrandId, previewInput],
+    queryFn: () => apiPost<ReportScopePreview[]>(`/brands/${activeBrandId}/reports/preview`, previewInput!),
+    enabled: createOpen && Boolean(previewInput?.periodStart && previewInput?.periodEnd)
+  });
+  const previewScopes = previewQuery.data?.success ? previewQuery.data.data : [];
+  const openCreate = () => {
+    const period = getDefaultReportPeriod();
+    const initialInput: ReportInput = { type: 'weekly', ...period };
+    form.setFieldsValue(initialInput);
+    setPreviewInput(initialInput);
+    setCreateOpen(true);
+  };
   const createMutation = useMutation({
     mutationFn: (values: ReportInput) => apiPost<ReportRecord>(`/brands/${activeBrandId}/reports`, values),
     onSuccess: (response) => {
       if (response.success) {
         setCreateOpen(false);
+        setPreviewInput(undefined);
         form.resetFields();
         setSelectedReportId(response.data.id);
         void invalidate();
@@ -74,7 +92,7 @@ export function ReportCenterPage() {
         title="报告中心"
         description="统一管理品牌周报、月报、多品牌对比和客户交付报告，并在同一页面完成阅读、缺口确认与导出。"
         context={<Tag>当前品牌报告</Tag>}
-        primaryAction={reports.length > 0 ? <Button type="primary" onClick={() => setCreateOpen(true)}>生成报告</Button> : undefined}
+        primaryAction={reports.length > 0 ? <Button type="primary" disabled={!reportCapability.canWrite} title={reportCapability.reason} onClick={openCreate}>生成报告</Button> : undefined}
         summary={(
           <Space size={24} wrap>
             <Statistic title="报告总数" value={reports.length} />
@@ -99,7 +117,7 @@ export function ReportCenterPage() {
         state={listState}
         loadingState={<PageSkeleton rows={4} />}
         errorState={<RegionErrorState description="报告列表加载失败，请重新加载后继续管理。" onRetry={() => void dashboardQuery.refetch()} />}
-        emptyState={<GuidedEmptyState title="还没有品牌报告" reason="当前品牌尚未生成可交付的统计报告。" impact="团队暂时缺少可复盘、分享和交付的统一结果。" benefit="生成后可集中阅读结论、确认数据缺口并导出 Markdown。" actionLabel="生成首份品牌报告" onAction={() => setCreateOpen(true)} />}
+        emptyState={<GuidedEmptyState title="还没有品牌报告" reason="当前品牌尚未生成可交付的统计报告。" impact="团队暂时缺少可复盘、分享和交付的统一结果。" benefit="生成后可集中阅读结论、确认数据缺口并导出 Markdown。" actionLabel="生成首份品牌报告" onAction={openCreate} />}
         tableTitle="报告列表"
         tableDescription="按报告类型、品牌、统计周期和生成状态查看已有交付记录。"
         tableAriaLabel="报告管理列表"
@@ -125,13 +143,17 @@ export function ReportCenterPage() {
         <ReportDetailArea report={selectedReport} onExport={() => exportReportMarkdown(selectedReport)} detailResponse={detailQuery.data} />
       ) : null}
 
-      <Modal title="生成报告" open={createOpen} okText="生成" cancelText="取消" onCancel={() => setCreateOpen(false)} onOk={() => form.submit()} confirmLoading={createMutation.isPending}>
-        <Form form={form} layout="vertical" initialValues={{ type: 'weekly' }} onFinish={(values) => createMutation.mutate(values)}>
+      <Modal width={720} title="生成报告" open={createOpen} okText="生成" cancelText="取消" okButtonProps={{ disabled: !reportCapability.canWrite || previewQuery.isLoading, title: reportCapability.reason }} onCancel={() => { setCreateOpen(false); setPreviewInput(undefined); }} onOk={() => form.submit()} confirmLoading={createMutation.isPending}>
+        <Form form={form} layout="vertical" onValuesChange={() => {
+          const values = form.getFieldsValue();
+          setPreviewInput(values.periodStart && values.periodEnd ? values : undefined);
+        }} onFinish={(values) => createMutation.mutate(values)}>
           <Form.Item name="type" label="报告类型" rules={[{ required: true, message: '请选择报告类型' }]}><Select options={reportTypeOptions} /></Form.Item>
           <Form.Item name="title" label="报告名称"><Input placeholder="留空时自动生成" /></Form.Item>
-          <Form.Item name="periodStart" label="统计开始日期" rules={[{ required: true, message: '请输入统计开始日期' }]}><Input placeholder="2026-07-01" /></Form.Item>
-          <Form.Item name="periodEnd" label="统计结束日期" rules={[{ required: true, message: '请输入统计结束日期' }]}><Input placeholder="2026-07-07" /></Form.Item>
+          <Form.Item name="periodStart" label="统计开始日期" rules={[{ required: true, message: '请输入统计开始日期' }]}><Input type="date" /></Form.Item>
+          <Form.Item name="periodEnd" label="统计结束日期" rules={[{ required: true, message: '请输入统计结束日期' }]}><Input type="date" /></Form.Item>
         </Form>
+        <ReportScopePreviewArea scopes={previewScopes} loading={previewQuery.isLoading} error={previewQuery.isError || Boolean(previewQuery.data && !previewQuery.data.success)} />
       </Modal>
 
     </Space>
@@ -167,6 +189,8 @@ export function getFilteredReports(reports: ReportRecord[], filters: ReportFilte
 }
 
 export function ReportDetailArea({ report, onExport, detailResponse }: { report: ReportRecord; onExport: () => void; detailResponse?: Awaited<ReturnType<typeof apiGet<ReportRecord>>> }) {
+  const scopes = getReportScopes(report);
+  const effectEvidence = getReportEffectEvidence(report);
   return (
     <ProductPageSection
       title="报告详情"
@@ -190,12 +214,69 @@ export function ReportDetailArea({ report, onExport, detailResponse }: { report:
             <Alert key={`${gap.section}-${gap.reason}`} type="warning" showIcon message={`${gap.section}：${gap.reason}`} style={{ marginBottom: 8 }} />
           )) : <Alert type="success" showIcon message="当前报告暂无关键数据缺口" />}
         </Card>
+        <ReportScopePreviewArea scopes={scopes} />
+        <EffectEvidenceArea evidence={effectEvidence} periodStart={report.periodStart} periodEnd={report.periodEnd} dataGaps={report.dataGaps} />
         <Card size="small" title="报告正文">
           <Typography.Paragraph className="report-markdown-content">{report.content}</Typography.Paragraph>
         </Card>
       </Space>
     </ProductPageSection>
   );
+}
+
+export function ReportScopePreviewArea({ scopes, loading = false, error = false }: { scopes: ReportScopePreview[]; loading?: boolean; error?: boolean }) {
+  if (loading) return <Card size="small" title="统计范围预览"><Typography.Text type="secondary">正在计算统计范围与有效样本...</Typography.Text></Card>;
+  if (error) return <Alert type="error" showIcon message="统计范围预览失败，请检查日期后重试" />;
+  if (!scopes.length) return null;
+
+  const totals = scopes.reduce((result, scope) => ({
+    monitoring: result.monitoring + scope.monitoringRunCount,
+    samples: result.samples + scope.validSampleCount,
+    content: result.content + scope.contentAssetCount,
+    publishing: result.publishing + scope.publishingRecordCount,
+    tasks: result.tasks + scope.taskChangeCount,
+    retests: result.retests + scope.completedRetestCount
+  }), { monitoring: 0, samples: 0, content: 0, publishing: 0, tasks: 0, retests: 0 });
+  const gaps = scopes.flatMap((scope) => scope.dataGaps).filter((gap, index, all) => all.findIndex((item) => item.section === gap.section && item.reason === gap.reason) === index);
+
+  return (
+    <Card size="small" title="统计范围与有效样本">
+      <Space direction="vertical" size={12} className="page-stack">
+        <Typography.Text>统计周期：{scopes[0].periodStart} 至 {scopes[0].periodEnd}，覆盖 {scopes.length} 个品牌范围</Typography.Text>
+        <Space size={20} wrap>
+          <Statistic title="监测运行" value={totals.monitoring} />
+          <Statistic title="有效样本" value={totals.samples} />
+          <Statistic title="内容资产" value={totals.content} />
+          <Statistic title="发布记录" value={totals.publishing} />
+          <Statistic title="任务变化" value={totals.tasks} />
+          <Statistic title="完成复测" value={totals.retests} />
+        </Space>
+        {gaps.length ? gaps.map((gap) => <Alert key={`${gap.section}-${gap.reason}`} type="warning" showIcon message={`${gap.section}：${gap.reason}`} />) : <Alert type="success" showIcon message="当前统计范围具备有效样本和效果证据" />}
+      </Space>
+    </Card>
+  );
+}
+
+export function EffectEvidenceArea({ evidence, periodStart, periodEnd, dataGaps }: { evidence: EffectEvidence[]; periodStart?: string; periodEnd?: string; dataGaps?: ReportRecord['dataGaps'] }) {
+  return <EffectEvidencePanel evidence={evidence} periodStart={periodStart} periodEnd={periodEnd} dataGaps={dataGaps} />;
+}
+
+export function getReportScopes(report: ReportRecord): ReportScopePreview[] {
+  return 'scope' in report.snapshot ? [report.snapshot.scope] : report.snapshot.scopes;
+}
+
+export function getReportEffectEvidence(report: ReportRecord): EffectEvidence[] {
+  return report.snapshot.effectEvidence;
+}
+
+export function getDefaultReportPeriod(now = new Date()): Pick<ReportInput, 'periodStart' | 'periodEnd'> {
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const start = new Date(end.getTime() - 6 * 24 * 60 * 60 * 1000);
+  return { periodStart: start.toISOString().slice(0, 10), periodEnd: end.toISOString().slice(0, 10) };
+}
+
+function formatEvidenceMetric(value?: number): string {
+  return value === undefined ? '待补充' : `${value}%`;
 }
 
 export function getReportExportFilename(report: Pick<ReportRecord, 'title' | 'periodStart' | 'periodEnd'>): string {
