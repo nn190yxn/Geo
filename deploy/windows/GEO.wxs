@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="GEO Platform" Language="1033" Version="$(var.ReleaseVersion)" Manufacturer="GEO Platform" UpgradeCode="2BFF3D4C-9EBB-4F49-8C2D-7F81D24F5585">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of GEO Platform is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="GEO Platform">
+          <Directory Id="RELEASEDIR" Name="release" />
+          <Directory Id="WINDOWSDIR" Name="windows" />
+        </Directory>
+      </Directory>
+    </Directory>
+    <DirectoryRef Id="RELEASEDIR">
+      <Component Id="ReleasePayload" Guid="*">
+        <File Id="ImageArchive" Source="$(var.ReleaseStage)\payload\release\geo-platform-images.tar" KeyPath="yes" />
+        <File Id="ComposeFile" Source="$(var.ReleaseStage)\payload\release\compose.release.yaml" />
+        <File Id="EnvironmentFile" Source="$(var.ReleaseStage)\payload\release\.env" />
+      </Component>
+    </DirectoryRef>
+    <DirectoryRef Id="WINDOWSDIR">
+      <Component Id="ControlScripts" Guid="*">
+        <File Id="StartScript" Source="$(var.ReleaseStage)\payload\windows\Start-GEO.ps1" />
+        <File Id="StopScript" Source="$(var.ReleaseStage)\payload\windows\Stop-GEO.ps1" />
+      </Component>
+    </DirectoryRef>
+    <Feature Id="MainFeature" Title="GEO Platform" Level="1">
+      <ComponentRef Id="ReleasePayload" />
+      <ComponentRef Id="ControlScripts" />
+    </Feature>
+  </Product>
+</Wix>

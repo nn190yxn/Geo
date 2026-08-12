@@ -1,0 +1,76 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npm run package:check
+      - run: docker build --target api-test --tag geo-platform-api:${{ steps.version.outputs.value }} .
+      - run: docker build --target web-test --tag geo-platform-web:${{ steps.version.outputs.value }} .
+      - run: docker image save --output geo-platform-images.tar geo-platform-api:${{ steps.version.outputs.value }} geo-platform-web:${{ steps.version.outputs.value }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geo-images
+          path: geo-platform-images.tar
+          if-no-files-found: error
+
+  package-windows:
+    needs: build-images
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: geo-images
+          path: release/payload/release
+      - name: Prepare release payload
+        shell: pwsh
+        env:
+          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path release/payload/windows, release/output
+          Copy-Item deploy/compose.release.yaml release/payload/release/compose.release.yaml
+          Copy-Item deploy/compose.env.example release/payload/release/.env
+          Add-Content release/payload/release/.env "GEO_RELEASE_VERSION=$env:GEO_RELEASE_VERSION"
+          Copy-Item deploy/windows/Start-GEO.ps1 release/payload/windows/Start-GEO.ps1
+          Copy-Item deploy/windows/Stop-GEO.ps1 release/payload/windows/Stop-GEO.ps1
+      - name: Install Windows packagers
+        shell: pwsh
+        run: choco install innosetup wixtoolset --yes --no-progress
+      - name: Build EXE and MSI
+        shell: pwsh
+        env:
+          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
+          GEO_RELEASE_STAGE: ${{ github.workspace }}\release
+        run: |
+          iscc deploy/windows/GEO.iss
+          candle -dReleaseVersion=$env:GEO_RELEASE_VERSION -dReleaseStage=$env:GEO_RELEASE_STAGE -out release/output/GEO.wixobj deploy/windows/GEO.wxs
+          light -out release/output/GEO-Platform-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
+      - name: Verify installer assets
+        shell: pwsh
+        run: |
+          Get-ChildItem release/output/*.exe, release/output/*.msi | Format-Table Name, Length
+          if ((Get-ChildItem release/output/*.exe).Count -ne 1 -or (Get-ChildItem release/output/*.msi).Count -ne 1) { throw 'Expected one EXE and one MSI installer.' }
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            Windows 单机安装包包含 GEO 的 API、Web 与 PostgreSQL Docker 部署内容。
+            安装前请安装并启动 Docker Desktop。当前安装包未进行 Windows 代码签名。
+          files: |
+            release/output/*.exe
+            release/output/*.msi
