@@ -50,16 +50,18 @@ jobs:
           Copy-Item deploy/windows/Stop-GEO.ps1 release/payload/windows/Stop-GEO.ps1
       - name: Install Windows packagers
         shell: pwsh
-        run: choco install innosetup wixtoolset --yes --no-progress
+        run: choco install innosetup wixtoolset --version=3.11.2.4516 --yes --no-progress
       - name: Build EXE and MSI
         shell: pwsh
         env:
           GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
           GEO_RELEASE_STAGE: ${{ github.workspace }}\release
         run: |
-          iscc deploy/windows/GEO.iss
-          candle -dReleaseVersion=$env:GEO_RELEASE_VERSION -dReleaseStage=$env:GEO_RELEASE_STAGE -out release/output/GEO.wixobj deploy/windows/GEO.wxs
-          light -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
+          $innoSetup = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          $wixBin = Join-Path ${env:ProgramFiles(x86)} 'WiX Toolset v3.11\bin'
+          & $innoSetup deploy/windows/GEO.iss
+          & (Join-Path $wixBin 'candle.exe') -dReleaseVersion=$env:GEO_RELEASE_VERSION -dReleaseStage=$env:GEO_RELEASE_STAGE -out release/output/GEO.wixobj deploy/windows/GEO.wxs
+          & (Join-Path $wixBin 'light.exe') -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
       - name: Verify installer assets
         shell: pwsh
         run: |
