@@ -54,8 +54,8 @@ jobs:
       - name: Build EXE and MSI
         shell: pwsh
         env:
-        GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
-        GEO_RELEASE_STAGE: ${{ github.workspace }}\release
+          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
+          GEO_RELEASE_STAGE: ${{ github.workspace }}\release
         run: |
           $innoSetup = (Get-Command ISCC.exe -ErrorAction Stop).Source
           $candle = (Get-Command candle.exe -ErrorAction Stop).Source
