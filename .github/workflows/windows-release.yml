@@ -21,7 +21,8 @@ jobs:
       - run: npm run package:check
       - run: docker build --target api-test --tag geo-platform-api:${{ steps.version.outputs.value }} .
       - run: docker build --build-arg VITE_APP_VERSION=${{ steps.version.outputs.value }} --target web-test --tag geo-platform-web:${{ steps.version.outputs.value }} .
-      - run: docker image save --output geo-platform-images.tar geo-platform-api:${{ steps.version.outputs.value }} geo-platform-web:${{ steps.version.outputs.value }}
+      - run: docker pull postgres:16-alpine
+      - run: docker image save --output geo-platform-images.tar geo-platform-api:${{ steps.version.outputs.value }} geo-platform-web:${{ steps.version.outputs.value }} postgres:16-alpine
       - uses: actions/upload-artifact@v4
         with:
           name: geo-images
