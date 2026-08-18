@@ -35,9 +35,28 @@ function Assert-DockerReady {
   }
 
   docker info *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if ($LASTEXITCODE -eq 0) {
+    return
+  }
+
+  $dockerDesktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+  if (-not (Test-Path $dockerDesktop)) {
     throw 'Docker Desktop 当前未运行。请启动 Docker Desktop 并等待引擎就绪后重新运行 AI品牌曝光助手。'
   }
+
+  Write-StartupLog 'Docker Desktop 未运行，正在启动并等待引擎就绪。'
+  Start-Process -FilePath $dockerDesktop
+  $deadline = (Get-Date).AddSeconds(90)
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds 3
+    docker info *> $null
+    if ($LASTEXITCODE -eq 0) {
+      Write-StartupLog 'Docker Desktop 引擎已就绪。'
+      return
+    }
+  }
+
+  throw 'Docker Desktop 启动超时。请确认 Docker Desktop 可以正常启动后重新运行 AI品牌曝光助手。'
 }
 
 try {
