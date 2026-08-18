@@ -30,14 +30,18 @@ jobs:
           $app = Join-Path $payload 'app'
           New-Item -ItemType Directory -Force -Path $app, (Join-Path $app 'apps\api'), (Join-Path $app 'apps\web'), (Join-Path $app 'packages\shared-types'), (Join-Path $payload 'runtime\electron'), (Join-Path $payload 'runtime\postgres'), (Join-Path $payload 'windows'), (Join-Path $env:GITHUB_WORKSPACE 'release\output')
           Copy-Item package.json, package-lock.json -Destination $app
-          Copy-Item desktop -Destination $app -Recurse
-          Copy-Item node_modules -Destination $app -Recurse
-          Copy-Item apps\api\dist -Destination (Join-Path $app 'apps\api') -Recurse
-          Copy-Item apps\api\prisma -Destination (Join-Path $app 'apps\api') -Recurse
           Copy-Item apps\api\package.json -Destination (Join-Path $app 'apps\api')
+          Copy-Item apps\web\package.json -Destination (Join-Path $app 'apps\web')
+          Copy-Item packages\shared-types\package.json -Destination (Join-Path $app 'packages\shared-types')
+          Copy-Item apps\api\prisma -Destination (Join-Path $app 'apps\api') -Recurse
+          Push-Location $app
+          npm ci --ignore-scripts
+          npm run prisma:generate
+          Pop-Location
+          Copy-Item desktop -Destination $app -Recurse
+          Copy-Item apps\api\dist -Destination (Join-Path $app 'apps\api') -Recurse
           Copy-Item apps\web\dist -Destination (Join-Path $app 'apps\web') -Recurse
           Copy-Item packages\shared-types\dist -Destination (Join-Path $app 'packages\shared-types') -Recurse
-          Copy-Item packages\shared-types\package.json -Destination (Join-Path $app 'packages\shared-types')
           Copy-Item node_modules\electron\dist\* -Destination (Join-Path $payload 'runtime\electron') -Recurse
           Copy-Item deploy\windows\Start-GEO.ps1, deploy\windows\Stop-GEO.ps1 -Destination (Join-Path $payload 'windows')
           $postgresZip = Join-Path $env:RUNNER_TEMP 'postgresql.zip'
