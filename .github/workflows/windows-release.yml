@@ -20,12 +20,10 @@ jobs:
           npm run prisma:generate
           npm run build
           npm run desktop:test
-      - name: Prepare desktop payload
+      - name: Create desktop payload
         shell: pwsh
-        env:
-          GEO_RELEASE_VERSION: ${{ github.ref_name }}
         run: |
-          $version = $env:GEO_RELEASE_VERSION.TrimStart('v')
+          $ErrorActionPreference = 'Stop'
           $payload = Join-Path $env:GITHUB_WORKSPACE 'release\payload'
           $app = Join-Path $payload 'app'
           New-Item -ItemType Directory -Force -Path $app, (Join-Path $app 'apps\api'), (Join-Path $app 'apps\web'), (Join-Path $app 'packages\shared-types'), (Join-Path $payload 'runtime\electron'), (Join-Path $payload 'runtime\postgres'), (Join-Path $payload 'windows'), (Join-Path $env:GITHUB_WORKSPACE 'release\output')
@@ -34,21 +32,38 @@ jobs:
           Copy-Item apps\web\package.json -Destination (Join-Path $app 'apps\web')
           Copy-Item packages\shared-types\package.json -Destination (Join-Path $app 'packages\shared-types')
           Copy-Item apps\api\prisma -Destination (Join-Path $app 'apps\api') -Recurse
+      - name: Install desktop payload dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Join-Path $env:GITHUB_WORKSPACE 'release\payload\app'
           Push-Location $app
           npm ci --ignore-scripts
           npm run prisma:generate
           Pop-Location
+      - name: Copy desktop application files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = Join-Path $env:GITHUB_WORKSPACE 'release\payload'
+          $app = Join-Path $payload 'app'
           Copy-Item desktop -Destination $app -Recurse
           Copy-Item apps\api\dist -Destination (Join-Path $app 'apps\api') -Recurse
           Copy-Item apps\web\dist -Destination (Join-Path $app 'apps\web') -Recurse
           Copy-Item packages\shared-types\dist -Destination (Join-Path $app 'packages\shared-types') -Recurse
           Copy-Item node_modules\electron\dist\* -Destination (Join-Path $payload 'runtime\electron') -Recurse
           Copy-Item deploy\windows\Start-GEO.ps1, deploy\windows\Stop-GEO.ps1 -Destination (Join-Path $payload 'windows')
+      - name: Download PostgreSQL runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           $postgresZip = Join-Path $env:RUNNER_TEMP 'postgresql.zip'
+          $postgresExtract = Join-Path $env:RUNNER_TEMP 'postgresql'
           Invoke-WebRequest -Uri 'https://get.enterprisedb.com/postgresql/postgresql-16.4-1-windows-x64-binaries.zip' -OutFile $postgresZip
-          Expand-Archive -Path $postgresZip -DestinationPath (Join-Path $env:RUNNER_TEMP 'postgresql') -Force
-          $postgresRoot = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'postgresql') -Directory | Select-Object -First 1
-          Copy-Item (Join-Path $postgresRoot.FullName '*') -Destination (Join-Path $payload 'runtime\postgres') -Recurse
+          Expand-Archive -Path $postgresZip -DestinationPath $postgresExtract -Force
+          $postgresRoot = Get-ChildItem $postgresExtract -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'bin\initdb.exe') } | Select-Object -First 1
+          if (-not $postgresRoot) { throw 'PostgreSQL archive does not contain initdb.exe.' }
+          Copy-Item (Join-Path $postgresRoot.FullName '*') -Destination (Join-Path $env:GITHUB_WORKSPACE 'release\payload\runtime\postgres') -Recurse
       - name: Install Windows packager
         shell: pwsh
         run: choco install innosetup --yes --no-progress
