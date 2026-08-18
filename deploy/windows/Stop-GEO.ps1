@@ -2,8 +2,11 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$installRoot = Split-Path -Parent $PSScriptRoot
-$releaseRoot = Join-Path $installRoot 'release'
+$appRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'app'
+$processes = Get-CimInstance Win32_Process | Where-Object {
+  $_.Name -eq 'electron.exe' -and $_.CommandLine -like "*$appRoot*"
+}
 
-docker compose --env-file (Join-Path $releaseRoot '.env') --project-name geo-platform -f (Join-Path $releaseRoot 'compose.release.yaml') down
-if ($LASTEXITCODE -ne 0) { throw 'Application service shutdown failed.' }
+foreach ($process in $processes) {
+  Stop-Process -Id $process.ProcessId -Force
+}

@@ -9,100 +9,68 @@ permissions:
   contents: write
 
 jobs:
-  build-images:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.value }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: version
-        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - run: npm ci
-      - run: npm run package:check
-      - run: docker build --target api-test --tag geo-platform-api:${{ steps.version.outputs.value }} .
-      - run: docker build --build-arg VITE_APP_VERSION=${{ steps.version.outputs.value }} --target web-test --tag geo-platform-web:${{ steps.version.outputs.value }} .
-      - run: docker pull postgres:16-alpine
-      - run: docker image save --output geo-platform-images.tar geo-platform-api:${{ steps.version.outputs.value }} geo-platform-web:${{ steps.version.outputs.value }} postgres:16-alpine
-      - uses: actions/upload-artifact@v4
-        with:
-          name: geo-images
-          path: geo-platform-images.tar
-          if-no-files-found: error
-
   package-windows:
-    needs: build-images
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: geo-images
-          path: release/payload/release
-      - name: Prepare release payload
+      - name: Prepare Node dependencies and builds
+        shell: pwsh
+        run: |
+          npm ci
+          npm run prisma:generate
+          npm run build
+          npm run desktop:test
+      - name: Prepare desktop payload
         shell: pwsh
         env:
-          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
+          GEO_RELEASE_VERSION: ${{ github.ref_name }}
         run: |
-          New-Item -ItemType Directory -Force -Path release/payload/windows, release/output
-          Copy-Item deploy/compose.release.yaml release/payload/release/compose.release.yaml
-          Copy-Item deploy/compose.env.example release/payload/release/.env
-          Add-Content release/payload/release/.env "GEO_RELEASE_VERSION=$env:GEO_RELEASE_VERSION"
-          Copy-Item deploy/windows/Start-GEO.ps1 release/payload/windows/Start-GEO.ps1
-          Copy-Item deploy/windows/Stop-GEO.ps1 release/payload/windows/Stop-GEO.ps1
-      - name: Install Windows packagers
+          $version = $env:GEO_RELEASE_VERSION.TrimStart('v')
+          $payload = Join-Path $env:GITHUB_WORKSPACE 'release\payload'
+          $app = Join-Path $payload 'app'
+          New-Item -ItemType Directory -Force -Path $app, (Join-Path $payload 'runtime\electron'), (Join-Path $payload 'runtime\postgres'), (Join-Path $payload 'windows'), (Join-Path $env:GITHUB_WORKSPACE 'release\output')
+          Copy-Item package.json, package-lock.json -Destination $app
+          Copy-Item desktop -Destination $app -Recurse
+          Copy-Item node_modules -Destination $app -Recurse
+          Copy-Item apps\api\dist -Destination (Join-Path $app 'apps\api') -Recurse
+          Copy-Item apps\api\prisma -Destination (Join-Path $app 'apps\api') -Recurse
+          Copy-Item apps\api\package.json -Destination (Join-Path $app 'apps\api')
+          Copy-Item apps\web\dist -Destination (Join-Path $app 'apps\web') -Recurse
+          Copy-Item packages\shared-types\dist -Destination (Join-Path $app 'packages\shared-types') -Recurse
+          Copy-Item packages\shared-types\package.json -Destination (Join-Path $app 'packages\shared-types')
+          Copy-Item node_modules\electron\dist\* -Destination (Join-Path $payload 'runtime\electron') -Recurse
+          Copy-Item deploy\windows\Start-GEO.ps1, deploy\windows\Stop-GEO.ps1 -Destination (Join-Path $payload 'windows')
+          $postgresZip = Join-Path $env:RUNNER_TEMP 'postgresql.zip'
+          Invoke-WebRequest -Uri 'https://get.enterprisedb.com/postgresql/postgresql-16.4-1-windows-x64-binaries.zip' -OutFile $postgresZip
+          Expand-Archive -Path $postgresZip -DestinationPath (Join-Path $env:RUNNER_TEMP 'postgresql') -Force
+          $postgresRoot = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'postgresql') -Directory | Select-Object -First 1
+          Copy-Item (Join-Path $postgresRoot.FullName '*') -Destination (Join-Path $payload 'runtime\postgres') -Recurse
+      - name: Install Windows packager
         shell: pwsh
-        run: choco install innosetup wixtoolset --yes --no-progress
+        run: choco install innosetup --yes --no-progress
       - name: Build EXE
         shell: pwsh
         env:
-          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
+          GEO_RELEASE_VERSION: ${{ github.ref_name }}
           GEO_RELEASE_STAGE: ${{ github.workspace }}\release
         run: |
           $innoSetup = (Get-Command ISCC.exe -ErrorAction Stop).Source
           & $innoSetup deploy/windows/GEO.iss
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed.' }
-      - name: Build MSI
-        id: msi
-        continue-on-error: true
-        shell: pwsh
-        env:
-          GEO_RELEASE_VERSION: ${{ needs.build-images.outputs.version }}
-          GEO_RELEASE_STAGE: ${{ github.workspace }}\release
-        run: |
-          $candle = (Get-Command candle.exe -ErrorAction Stop).Source
-          $light = (Get-Command light.exe -ErrorAction Stop).Source
-          $releaseVersionDefine = "-dReleaseVersion=$($env:GEO_RELEASE_VERSION)"
-          $releaseStageDefine = "-dReleaseStage=$($env:GEO_RELEASE_STAGE)"
-          & $candle $releaseVersionDefine $releaseStageDefine -out release/output/GEO.wixobj deploy/windows/GEO.wxs
-          if ($LASTEXITCODE -ne 0) { throw 'WiX compilation failed.' }
-          & $light -out release/output/AI品牌曝光助手-$env:GEO_RELEASE_VERSION.msi release/output/GEO.wixobj
-          if ($LASTEXITCODE -ne 0) { throw 'WiX linking failed.' }
-      - name: Verify EXE installer
+      - name: Verify installer
         shell: pwsh
         run: |
-          Get-ChildItem release/output/*.exe | Format-Table Name, Length
-          if ((Get-ChildItem release/output/*.exe).Count -ne 1) { throw 'Expected one EXE installer.' }
-      - name: Upload MSI diagnostics
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer-diagnostics
-          path: release/output/
-          if-no-files-found: warn
+          $installers = Get-ChildItem release/output/*.exe
+          if ($installers.Count -ne 1) { throw 'Expected one EXE installer.' }
+          if ($installers[0].Length -lt 1000000) { throw 'Installer is unexpectedly small.' }
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: AI品牌曝光助手 ${{ github.ref_name }}
           generate_release_notes: true
           body: |
-            AI品牌曝光助手 Windows 单机安装包包含 API、Web 与 PostgreSQL Docker 部署内容。
-            安装前请安装并启动 Docker Desktop。当前安装包未进行 Windows 代码签名。
-          files: |
-            release/output/*.exe
-      - name: Upload MSI to release
-        if: ${{ steps.msi.outcome == 'success' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            release/output/*.msi
+            AI品牌曝光助手 Windows 独立桌面应用包含 API、Web、Electron 和 PostgreSQL 本地运行时。
+            安装后从开始菜单或桌面快捷方式打开应用，无需 Docker Desktop。
+            用户数据和日志位于 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data`。
+            当前安装包未进行 Windows 代码签名。
+          files: release/output/*.exe

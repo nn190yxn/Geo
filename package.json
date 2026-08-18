@@ -2,6 +2,7 @@
   "name": "geo-platform",
   "version": "0.1.0",
   "private": true,
+  "main": "desktop/main.cjs",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -19,7 +20,11 @@
     "prisma:generate": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:generate --workspace @geo-platform/api",
     "prisma:migrate:deploy": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:migrate:deploy --workspace @geo-platform/api",
     "prisma:seed": "DATABASE_URL=\"${DATABASE_URL:-postgresql://geo:geo@localhost:5432/geo_platform?schema=public}\" npm run prisma:seed --workspace @geo-platform/api",
-    "db:prepare": "npm run prisma:generate && npm run prisma:seed"
+    "db:prepare": "npm run prisma:generate && npm run prisma:seed",
+    "desktop:test": "node --test desktop/*.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "37.2.6"
   },
   "overrides": {
     "brace-expansion": "1.1.18",

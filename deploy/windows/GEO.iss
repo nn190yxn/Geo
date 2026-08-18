@@ -13,7 +13,7 @@ OutputBaseFilename=AI品牌曝光助手-{#ProductVersion}-安装程序
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
-UninstallDisplayIcon={app}\windows\Start-GEO.ps1
+UninstallDisplayIcon={app}\runtime\electron\electron.exe
 
 [Files]
 Source: "{#ReleaseRoot}\payload\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
@@ -21,6 +21,7 @@ Source: "{#ReleaseRoot}\payload\*"; DestDir: "{app}"; Flags: recursesubdirs igno
 [Icons]
 Name: "{group}\启动 AI品牌曝光助手"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows\Start-GEO.ps1"""
 Name: "{group}\停止 AI品牌曝光助手"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows\Stop-GEO.ps1"""
+Name: "{autodesktop}\AI品牌曝光助手"; Filename: "{app}\runtime\electron\electron.exe"; Parameters: """{app}\app"""; WorkingDir: "{app}\app"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows\Start-GEO.ps1"""; Description: "启动 AI品牌曝光助手"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\runtime\electron\electron.exe"; Parameters: """{app}\app"""; WorkingDir: "{app}\app"; Description: "启动 AI品牌曝光助手"; Flags: postinstall nowait skipifsilent

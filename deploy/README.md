@@ -2,23 +2,22 @@
 
 ## Windows 单机发布
 
-推送 `v<major>.<minor>.<patch>` 格式标签后，GitHub Actions 会构建 API 和 Web 镜像，并在 Windows Runner 中发布 MSI 与 EXE 安装包到对应 GitHub Release。封装发生在 GitHub，开发机只需提交代码和推送发布标签。
+推送 `v<major>.<minor>.<patch>` 格式标签后，GitHub Actions 会构建 API、Web、Electron 和 PostgreSQL Windows runtime，并在 Windows Runner 中发布 EXE 安装包到对应 GitHub Release。
 
-Windows 安装包通过 Docker Desktop 在本机运行 PostgreSQL、API 和 Web。安装前安装并启动 Docker Desktop；安装后从开始菜单运行“启动 AI品牌曝光助手”，浏览器会打开 `http://localhost:4173`。停止服务使用“停止 AI品牌曝光助手”，该操作保留数据库和上传文件卷，升级安装包后会继续使用既有数据。
+Windows 安装包以独立桌面窗口运行 PostgreSQL、API 和 Web。安装后从开始菜单或桌面快捷方式打开“AI品牌曝光助手”，无需安装 Docker Desktop。用户数据和日志位于 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data`，升级安装包会继续使用既有数据。
 
 首版安装包未进行 Windows 代码签名。发布资产包含：
 
 - `AI品牌曝光助手-<version>-安装程序.exe`
-- `AI品牌曝光助手-<version>.msi`
 
 Windows 自动发布的实现位于 `.github/workflows/windows-release.yml`，单机启动和停止脚本位于 `deploy/windows/`。
 
 ## 组成
 
-- `database`：PostgreSQL 16，使用 `postgres_data` 持久卷
-- `api`：NestJS API，启动前自动执行 Prisma 迁移和可选的幂等 Seed
-- `web`：Vite 生产构建预览服务
-- `geo_uploads`：品牌资料上传文件持久卷
+- `desktop`：Electron 独立窗口与本地服务生命周期管理
+- `database`：PostgreSQL 16，本地数据目录位于用户数据目录
+- `api`：NestJS API，启动前自动执行 Prisma 迁移
+- `web`：本地静态资源服务
 
 测试版镜像保留构建工具链，方便迁移、Seed 和问题排查。正式交付版可在测试收口后进一步裁剪运行时依赖与镜像体积。
 
