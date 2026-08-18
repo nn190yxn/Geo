@@ -7,7 +7,7 @@ $releaseRoot = Join-Path $installRoot 'release'
 $envFile = Join-Path $releaseRoot '.env'
 $composeFile = Join-Path $releaseRoot 'compose.release.yaml'
 $imageArchive = Join-Path $releaseRoot 'geo-platform-images.tar'
-$logDirectory = Join-Path $env:LOCALAPPDATA 'AI品牌曝光助手'
+$logDirectory = Join-Path $env:LOCALAPPDATA 'AI-Brand-Visibility-Assistant'
 $logFile = Join-Path $logDirectory 'startup.log'
 
 function Write-StartupLog {
@@ -22,8 +22,8 @@ function Show-StartupError {
 
   Add-Type -AssemblyName System.Windows.Forms
   [System.Windows.Forms.MessageBox]::Show(
-    "$Message`n`n详细日志：$logFile",
-    'AI品牌曝光助手启动失败',
+    "$Message`n`nLog file: $logFile",
+    'AI Brand Visibility Assistant startup failed',
     [System.Windows.Forms.MessageBoxButtons]::OK,
     [System.Windows.Forms.MessageBoxIcon]::Error
   ) | Out-Null
@@ -31,7 +31,7 @@ function Show-StartupError {
 
 function Assert-DockerReady {
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    throw '未检测到 Docker Desktop。请安装并启动 Docker Desktop 后重新运行 AI品牌曝光助手。'
+    throw 'Docker Desktop was not found. Install and start Docker Desktop, then run the application again.'
   }
 
   docker info *> $null
@@ -41,46 +41,46 @@ function Assert-DockerReady {
 
   $dockerDesktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
   if (-not (Test-Path $dockerDesktop)) {
-    throw 'Docker Desktop 当前未运行。请启动 Docker Desktop 并等待引擎就绪后重新运行 AI品牌曝光助手。'
+    throw 'Docker Desktop is not running. Start Docker Desktop and wait for its engine to become ready.'
   }
 
-  Write-StartupLog 'Docker Desktop 未运行，正在启动并等待引擎就绪。'
+  Write-StartupLog 'Docker Desktop is not running. Starting it and waiting for the engine.'
   Start-Process -FilePath $dockerDesktop
   $deadline = (Get-Date).AddSeconds(90)
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 3
     docker info *> $null
     if ($LASTEXITCODE -eq 0) {
-      Write-StartupLog 'Docker Desktop 引擎已就绪。'
+      Write-StartupLog 'Docker Desktop engine is ready.'
       return
     }
   }
 
-  throw 'Docker Desktop 启动超时。请确认 Docker Desktop 可以正常启动后重新运行 AI品牌曝光助手。'
+  throw 'Docker Desktop startup timed out. Confirm that Docker Desktop can start normally, then run the application again.'
 }
 
 try {
   Remove-Item -Path $logFile -Force -ErrorAction SilentlyContinue
-  Write-StartupLog '开始启动 AI品牌曝光助手。'
+  Write-StartupLog 'Starting AI Brand Visibility Assistant.'
   Assert-DockerReady
 
   if (-not (Test-Path $envFile) -or -not (Test-Path $composeFile) -or -not (Test-Path $imageArchive)) {
-    throw 'AI品牌曝光助手安装内容不完整。请重新安装对应版本的安装包。'
+    throw 'The application installation is incomplete. Reinstall the matching installer version.'
   }
 
   $imageLoadOutput = docker image load --input $imageArchive 2>&1
   $imageLoadOutput | ForEach-Object { Write-StartupLog $_ }
-  if ($LASTEXITCODE -ne 0) { throw 'AI品牌曝光助手离线镜像导入失败。' }
+  if ($LASTEXITCODE -ne 0) { throw 'Offline Docker image import failed.' }
 
   $composeOutput = docker compose --env-file $envFile --project-name geo-platform -f $composeFile up -d --wait 2>&1
   $composeOutput | ForEach-Object { Write-StartupLog $_ }
-  if ($LASTEXITCODE -ne 0) { throw 'AI品牌曝光助手服务启动失败。' }
+  if ($LASTEXITCODE -ne 0) { throw 'Application service startup failed.' }
 
-  Write-StartupLog '服务启动成功，正在打开浏览器。'
+  Write-StartupLog 'Services are ready. Opening the browser.'
   Start-Process 'http://localhost:4173'
 } catch {
   $message = $_.Exception.Message
-  Write-StartupLog "启动失败：$message"
+  Write-StartupLog "Startup failed: $message"
   Show-StartupError $message
   exit 1
 }

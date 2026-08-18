@@ -17,7 +17,7 @@ AI品牌曝光助手帮助企业了解品牌在 AI 搜索回答中的出现情�
 
 程序使用本机 Docker 运行数据库、API 和网页服务。安装包包含运行所需的离线 Docker 镜像，首次启动无需从 Docker Hub 下载 PostgreSQL。停止服务时数据仍保留，安装新版本后会继续使用已有数据库和上传文件。
 
-启动失败时，程序会显示原因，并将 Docker 输出写入 `%LOCALAPPDATA%\AI品牌曝光助手\startup.log`。
+启动失败时，程序会显示原因，并将 Docker 输出写入 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\startup.log`。
 
 当前发布包为未签名安装包。Windows 出现安全提示时，请在确认下载来源为本仓库 Release 后继续安装。
 
