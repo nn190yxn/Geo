@@ -15,9 +15,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare Node dependencies and builds
         shell: pwsh
+        env:
+          DATABASE_URL: postgresql://geo:geo@localhost:5432/geo_platform?schema=public
         run: |
           npm ci
-          npm run prisma:generate
+          npm run prisma:generate --workspace @geo-platform/api
           npm run build --workspace @geo-platform/shared-types
           npm run build --workspace @geo-platform/api
           npm run build --workspace @geo-platform/web
