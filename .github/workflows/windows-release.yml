@@ -39,7 +39,6 @@ jobs:
           $app = Join-Path $env:GITHUB_WORKSPACE 'release\payload\app'
           Push-Location $app
           npm ci --ignore-scripts
-          npm run prisma:generate
           Pop-Location
       - name: Copy desktop application files
         shell: pwsh
@@ -51,6 +50,8 @@ jobs:
           Copy-Item apps\api\dist -Destination (Join-Path $app 'apps\api') -Recurse
           Copy-Item apps\web\dist -Destination (Join-Path $app 'apps\web') -Recurse
           Copy-Item packages\shared-types\dist -Destination (Join-Path $app 'packages\shared-types') -Recurse
+          Copy-Item node_modules\@prisma\client\* -Destination (Join-Path $app 'node_modules\@prisma\client') -Recurse -Force
+          Copy-Item node_modules\.prisma\client -Destination (Join-Path $app 'node_modules\.prisma') -Recurse -Force
           Copy-Item node_modules\electron\dist\* -Destination (Join-Path $payload 'runtime\electron') -Recurse
           Copy-Item deploy\windows\Start-GEO.ps1, deploy\windows\Stop-GEO.ps1 -Destination (Join-Path $payload 'windows')
       - name: Download PostgreSQL runtime
