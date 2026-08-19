@@ -58,3 +58,6 @@ Expand-Archive -Path $postgresZip -DestinationPath $postgresExtract -Force
 $postgresRoot = Get-ChildItem $postgresExtract -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'bin\initdb.exe') } | Select-Object -First 1
 if (-not $postgresRoot) { throw 'PostgreSQL archive does not contain initdb.exe.' }
 Copy-DirectoryContents $postgresRoot.FullName (Join-Path $payload 'runtime\postgres')
+
+# robocopy returns 1 when it successfully copies files; normalize the script result for Actions.
+exit 0
