@@ -54,15 +54,27 @@ jobs:
           $payload = Join-Path $env:GITHUB_WORKSPACE 'release\payload'
           $app = Join-Path $payload 'app'
           Copy-Item desktop -Destination $app -Recurse
-      - name: Copy compiled application files
+      - name: Copy compiled API
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $payload = Join-Path $env:GITHUB_WORKSPACE 'release\payload'
-          $app = Join-Path $payload 'app'
-          Copy-Item apps\api\dist -Destination (Join-Path $app 'apps\api') -Recurse
-          Copy-Item apps\web\dist -Destination (Join-Path $app 'apps\web') -Recurse
-          Copy-Item packages\shared-types\dist -Destination (Join-Path $app 'packages\shared-types') -Recurse
+          $app = Join-Path $env:GITHUB_WORKSPACE 'release\payload\app'
+          New-Item -ItemType Directory -Force -Path (Join-Path $app 'apps\api\dist')
+          Copy-Item apps\api\dist\* -Destination (Join-Path $app 'apps\api\dist') -Recurse -Force
+      - name: Copy compiled Web
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Join-Path $env:GITHUB_WORKSPACE 'release\payload\app'
+          New-Item -ItemType Directory -Force -Path (Join-Path $app 'apps\web\dist')
+          Copy-Item apps\web\dist\* -Destination (Join-Path $app 'apps\web\dist') -Recurse -Force
+      - name: Copy compiled shared types
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Join-Path $env:GITHUB_WORKSPACE 'release\payload\app'
+          New-Item -ItemType Directory -Force -Path (Join-Path $app 'packages\shared-types\dist')
+          Copy-Item packages\shared-types\dist\* -Destination (Join-Path $app 'packages\shared-types\dist') -Recurse -Force
       - name: Copy Prisma runtime
         shell: pwsh
         run: |
