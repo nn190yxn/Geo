@@ -30,13 +30,12 @@ New-Item -ItemType Directory -Force -Path $app, (Join-Path $app 'apps\api'), (Jo
 
 Copy-Item (Join-Path $Workspace 'package.json'), (Join-Path $Workspace 'package-lock.json') -Destination $app
 Copy-Item (Join-Path $Workspace 'apps\api\package.json') -Destination (Join-Path $app 'apps\api')
-Copy-Item (Join-Path $Workspace 'apps\web\package.json') -Destination (Join-Path $app 'apps\web')
 Copy-Item (Join-Path $Workspace 'packages\shared-types\package.json') -Destination (Join-Path $app 'packages\shared-types')
 Copy-DirectoryContents (Join-Path $Workspace 'apps\api\prisma') (Join-Path $app 'apps\api\prisma')
 
 Push-Location $app
 try {
-  # Electron is packaged separately; the app payload only needs production dependencies.
+  # Electron and the built Web bundle are packaged separately; only API production dependencies are needed.
   npm ci --omit=dev --ignore-scripts
   if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
 } finally {
