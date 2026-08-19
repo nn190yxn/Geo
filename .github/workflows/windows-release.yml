@@ -54,6 +54,12 @@ jobs:
           $payload = Join-Path $env:GITHUB_WORKSPACE 'release\payload'
           $app = Join-Path $payload 'app'
           Copy-Item desktop -Destination $app -Recurse
+      - name: Copy compiled application files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = Join-Path $env:GITHUB_WORKSPACE 'release\payload'
+          $app = Join-Path $payload 'app'
           Copy-Item apps\api\dist -Destination (Join-Path $app 'apps\api') -Recurse
           Copy-Item apps\web\dist -Destination (Join-Path $app 'apps\web') -Recurse
           Copy-Item packages\shared-types\dist -Destination (Join-Path $app 'packages\shared-types') -Recurse
