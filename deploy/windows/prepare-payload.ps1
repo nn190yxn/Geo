@@ -36,7 +36,8 @@ Copy-DirectoryContents (Join-Path $Workspace 'apps\api\prisma') (Join-Path $app 
 
 Push-Location $app
 try {
-  npm ci --ignore-scripts
+  # Electron is packaged separately; the app payload only needs production dependencies.
+  npm ci --omit=dev --ignore-scripts
   if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
