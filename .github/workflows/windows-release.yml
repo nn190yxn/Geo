@@ -23,9 +23,9 @@ jobs:
       - name: Assemble desktop payload
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
+          $ErrorActionPreference = 'Stop'
           $logFile = Join-Path $env:GITHUB_WORKSPACE 'release\assembly.log'
-          & ./deploy/windows/prepare-payload.ps1 -Workspace $env:GITHUB_WORKSPACE -RuntimeDirectory $env:RUNNER_TEMP *>&1 | Tee-Object -FilePath $logFile
+          & pwsh -NoProfile -File ./deploy/windows/prepare-payload.ps1 -Workspace $env:GITHUB_WORKSPACE -RuntimeDirectory $env:RUNNER_TEMP *>&1 | Tee-Object -FilePath $logFile
           $assemblyExitCode = $LASTEXITCODE
           if ($assemblyExitCode -ne 0) {
             $details = (Get-Content $logFile -Tail 30) -join ' | '
