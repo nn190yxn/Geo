@@ -18,8 +18,18 @@ jobs:
         run: |
           npm ci
           npm run prisma:generate
-          npm run build
+          npm run build --workspace @geo-platform/shared-types
+          npm run build --workspace @geo-platform/api
+          npm run build --workspace @geo-platform/web
           npm run desktop:test
+          $requiredOutputs = @(
+            'packages\shared-types\dist',
+            'apps\api\dist',
+            'apps\web\dist'
+          )
+          foreach ($output in $requiredOutputs) {
+            if (-not (Test-Path $output)) { throw "Required build output is missing: $output" }
+          }
       - name: Assemble desktop payload
         shell: pwsh
         run: |
