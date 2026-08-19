@@ -10,8 +10,9 @@ DefaultDirName={autopf}\AI品牌曝光助手
 DefaultGroupName={#ProductName}
 OutputDir={#ReleaseRoot}\output
 OutputBaseFilename=AI品牌曝光助手-{#ProductVersion}-安装程序
-Compression=lzma2
-SolidCompression=yes
+; ZIP compression favors installation speed for the bundled PostgreSQL runtime.
+Compression=zip
+SolidCompression=no
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\runtime\electron\electron.exe
 
