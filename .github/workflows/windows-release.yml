@@ -23,7 +23,22 @@ jobs:
       - name: Assemble desktop payload
         shell: pwsh
         run: |
-          ./deploy/windows/prepare-payload.ps1 -Workspace $env:GITHUB_WORKSPACE -RuntimeDirectory $env:RUNNER_TEMP
+          $ErrorActionPreference = 'Continue'
+          $logFile = Join-Path $env:GITHUB_WORKSPACE 'release\assembly.log'
+          & ./deploy/windows/prepare-payload.ps1 -Workspace $env:GITHUB_WORKSPACE -RuntimeDirectory $env:RUNNER_TEMP *>&1 | Tee-Object -FilePath $logFile
+          $assemblyExitCode = $LASTEXITCODE
+          if ($assemblyExitCode -ne 0) {
+            $details = (Get-Content $logFile -Tail 30) -join ' | '
+            Write-Output "::error title=Desktop payload assembly failed::$details"
+            exit $assemblyExitCode
+          }
+      - name: Upload assembly log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-payload-assembly-log
+          path: release/assembly.log
+          if-no-files-found: warn
       - name: Install Windows packager
         shell: pwsh
         run: choco install innosetup --yes --no-progress
