@@ -18,12 +18,26 @@ jobs:
         env:
           DATABASE_URL: postgresql://geo:geo@localhost:5432/geo_platform?schema=public
         run: |
-          npm ci
-          npm run prisma:generate --workspace @geo-platform/api
-          npm run build --workspace @geo-platform/shared-types
-          npm run build --workspace @geo-platform/api
-          npm run build --workspace @geo-platform/web
-          npm run desktop:test
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          $logFile = Join-Path $env:GITHUB_WORKSPACE 'release\node-build.log'
+          function Invoke-LoggedCommand {
+            param(
+              [string]$Label,
+              [scriptblock]$Command
+            )
+            Write-Output "::group::$Label"
+            & $Command *>&1 | Tee-Object -FilePath $logFile -Append
+            $exitCode = $LASTEXITCODE
+            Write-Output '::endgroup::'
+            if ($exitCode -ne 0) { throw "$Label failed with exit code $exitCode." }
+          }
+          Invoke-LoggedCommand 'Install Node dependencies' { npm ci }
+          Invoke-LoggedCommand 'Generate Prisma Client' { npm run prisma:generate --workspace @geo-platform/api }
+          Invoke-LoggedCommand 'Build shared types' { npm run build --workspace @geo-platform/shared-types }
+          Invoke-LoggedCommand 'Build API' { npm run build --workspace @geo-platform/api }
+          Invoke-LoggedCommand 'Build Web' { npm run build --workspace @geo-platform/web }
+          Invoke-LoggedCommand 'Run desktop tests' { npm run desktop:test }
           $requiredOutputs = @(
             'packages\shared-types\dist',
             'apps\api\dist',
@@ -32,6 +46,13 @@ jobs:
           foreach ($output in $requiredOutputs) {
             if (-not (Test-Path $output)) { throw "Required build output is missing: $output" }
           }
+      - name: Upload Node build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-node-build-log
+          path: release/node-build.log
+          if-no-files-found: warn
       - name: Assemble desktop payload
         shell: pwsh
         run: |
