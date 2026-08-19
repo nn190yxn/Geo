@@ -9,7 +9,10 @@ test('resolves portable runtime paths under the app and user data roots', () => 
   assert.equal(paths.databaseRoot, path.join('C:\\Users\\Test\\Data', 'postgres-data'));
   assert.equal(paths.apiEntry, path.join('C:\\App', 'apps', 'api', 'dist', 'apps', 'api', 'src', 'main.js'));
   assert.equal(paths.webRoot, path.join('C:\\App', 'apps', 'web', 'dist'));
-  assert.equal(getRuntimePaths('/opt/Geo/app', '/tmp/data').postgresRoot, '/opt/Geo/runtime/postgres');
+  assert.equal(
+    getRuntimePaths('/opt/Geo/app', '/tmp/data').postgresRoot,
+    path.join('/opt/Geo', 'runtime', 'postgres'),
+  );
 });
 
 test('waits for an HTTP readiness endpoint to return success', async () => {
