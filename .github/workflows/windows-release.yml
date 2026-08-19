@@ -37,9 +37,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $app = Join-Path $env:GITHUB_WORKSPACE 'release\payload\app'
+          $npmLog = Join-Path $env:RUNNER_TEMP 'desktop-payload-npm.log'
           Push-Location $app
-          npm ci --ignore-scripts
+          npm ci --ignore-scripts *>&1 | Tee-Object -FilePath $npmLog
+          $npmExitCode = $LASTEXITCODE
           Pop-Location
+          if ($npmExitCode -ne 0) {
+            $details = (Get-Content $npmLog -Tail 20) -join ' | '
+            Write-Output "::error title=Desktop payload dependency installation failed::$details"
+            exit $npmExitCode
+          }
       - name: Copy desktop application files
         shell: pwsh
         run: |
