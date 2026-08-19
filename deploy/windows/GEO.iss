@@ -15,6 +15,7 @@ Compression=zip
 SolidCompression=no
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\runtime\electron\electron.exe
+CloseApplications=yes
 
 [Files]
 Source: "{#ReleaseRoot}\payload\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
@@ -26,3 +27,19 @@ Name: "{autodesktop}\AI品牌曝光助手"; Filename: "{app}\runtime\electron\el
 
 [Run]
 Filename: "{app}\runtime\electron\electron.exe"; Parameters: """{app}\app"""; WorkingDir: "{app}\app"; Description: "启动 AI品牌曝光助手"; Flags: postinstall nowait skipifsilent
+
+[UninstallRun]
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows\Stop-GEO.ps1"""; Flags: runhidden waituntilterminated
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  dataRoot: String;
+begin
+  if CurUninstallStep = usPostUninstall then begin
+    if MsgBox('是否保留本地业务数据和日志？选择“否”将删除该 Windows 用户的本地数据。', mbConfirmation, MB_YESNO) = IDNO then begin
+      dataRoot := ExpandConstant('{localappdata}\AI-Brand-Visibility-Assistant');
+      DelTree(dataRoot, True, True, True);
+    end;
+  end;
+end;

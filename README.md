@@ -12,12 +12,12 @@ AI品牌曝光助手帮助企业了解品牌在 AI 搜索回答中的出现情�
 ## Windows 安装与使用
 
 1. 在仓库的 Releases 页面下载最新的 `.exe` 或 `.msi` 安装包。
-2. 安装并启动 Docker Desktop。
-3. 运行“启动 AI品牌曝光助手”，浏览器会打开 `http://localhost:4173`。
+2. 运行安装程序完成安装。
+3. 从开始菜单或桌面快捷方式启动“AI品牌曝光助手”，应用会打开独立桌面窗口。
 
-程序使用本机 Docker 运行数据库、API 和网页服务。安装包包含运行所需的离线 Docker 镜像，首次启动无需从 Docker Hub 下载 PostgreSQL。停止服务时数据仍保留，安装新版本后会继续使用已有数据库和上传文件。
+程序在本机独立运行 PostgreSQL、API、Web 和 Electron 窗口，无需 Docker Desktop。用户数据和日志位于 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data`，停止服务和覆盖升级会继续保留已有数据。
 
-启动失败时，程序会显示原因，并将 Docker 输出写入 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\startup.log`。
+启动失败时，程序会显示失败阶段和日志位置，日志写入 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data\logs\desktop.log`。
 
 当前发布包为未签名安装包。Windows 出现安全提示时，请在确认下载来源为本仓库 Release 后继续安装。
 

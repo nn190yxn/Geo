@@ -51,6 +51,24 @@ Copy-DirectoryContents (Join-Path $Workspace 'node_modules\.prisma\client') (Joi
 Copy-DirectoryContents (Join-Path $Workspace 'node_modules\electron\dist') (Join-Path $payload 'runtime\electron')
 Copy-Item (Join-Path $Workspace 'deploy\windows\Start-GEO.ps1'), (Join-Path $Workspace 'deploy\windows\Stop-GEO.ps1') -Destination (Join-Path $payload 'windows')
 
+$requiredPayloadFiles = @(
+  (Join-Path $app 'desktop\main.cjs'),
+  (Join-Path $app 'desktop\runtime.cjs'),
+  (Join-Path $app 'apps\api\dist\apps\api\src\main.js'),
+  (Join-Path $app 'apps\api\prisma\schema.prisma'),
+  (Join-Path $app 'node_modules\prisma\build\index.js'),
+  (Join-Path $app 'node_modules\@prisma\client\default.js'),
+  (Join-Path $app 'node_modules\.prisma\client\default.js'),
+  (Join-Path $app 'apps\web\dist\index.html'),
+  (Join-Path $payload 'runtime\electron\electron.exe'),
+  (Join-Path $payload 'windows\Start-GEO.ps1')
+)
+foreach ($requiredFile in $requiredPayloadFiles) {
+  if (-not (Test-Path $requiredFile -PathType Leaf)) {
+    throw "Required desktop payload file is missing: $requiredFile"
+  }
+}
+
 $postgresZip = Join-Path $RuntimeDirectory 'postgresql.zip'
 $postgresExtract = Join-Path $RuntimeDirectory 'postgresql'
 Invoke-WebRequest -Uri 'https://get.enterprisedb.com/postgresql/postgresql-16.4-1-windows-x64-binaries.zip' -OutFile $postgresZip

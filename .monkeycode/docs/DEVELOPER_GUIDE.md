@@ -59,7 +59,7 @@ npm run db:prepare
 
 ## Windows 单机发布
 
-对外产品名为“AI品牌曝光助手”。推送 `v<major>.<minor>.<patch>` 标签时，GitHub Actions 使用 Linux Runner 构建 API/Web 离线镜像，并使用 Windows Runner 生成 MSI 与 EXE 安装包及 GitHub Release。Windows 安装包依赖 Docker Desktop，运行数据保留在 Docker 命名卷中，升级安装包后继续复用数据库和上传文件。
+对外产品名为“AI品牌曝光助手”。推送 `v<major>.<minor>.<patch>` 标签时，GitHub Actions 使用 Windows Runner 生成包含 API、Web、Electron 和 PostgreSQL runtime 的 EXE 安装包及 GitHub Release。Windows 安装包独立运行，运行数据保留在 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data`，升级安装包后继续复用数据库和日志。
 
 发布配置位于 `当前工作区/.github/workflows/windows-release.yml`，安装程序与控制脚本位于 `当前工作区/deploy/windows/`。
 
