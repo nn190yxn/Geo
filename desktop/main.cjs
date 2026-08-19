@@ -6,6 +6,9 @@ let mainWindow;
 let services;
 let stopping = false;
 
+// Keep user data outside the installation directory so upgrades preserve it.
+app.setPath('userData', path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'AI-Brand-Visibility-Assistant'));
+
 function getLogFile() {
   return services?.logFile || path.join(app.getPath('userData'), 'data', 'logs', 'desktop.log');
 }

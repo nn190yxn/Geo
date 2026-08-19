@@ -5,7 +5,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 function getRuntimePaths(appRoot, dataRoot) {
-  const postgresRoot = path.join(appRoot, 'runtime', 'postgres');
+  const installRoot = path.dirname(appRoot);
+  const postgresRoot = path.join(installRoot, 'runtime', 'postgres');
   return {
     appRoot,
     dataRoot,
