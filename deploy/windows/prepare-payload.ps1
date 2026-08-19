@@ -58,7 +58,11 @@ Invoke-WebRequest -Uri 'https://get.enterprisedb.com/postgresql/postgresql-16.4-
 Expand-Archive -Path $postgresZip -DestinationPath $postgresExtract -Force
 $postgresRoot = Get-ChildItem $postgresExtract -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'bin\initdb.exe') } | Select-Object -First 1
 if (-not $postgresRoot) { throw 'PostgreSQL archive does not contain initdb.exe.' }
-Copy-DirectoryContents $postgresRoot.FullName (Join-Path $payload 'runtime\postgres')
+
+# pgAdmin 4 bundles a large Python environment that the embedded database server never uses.
+foreach ($directory in @('bin', 'lib', 'share')) {
+  Copy-DirectoryContents (Join-Path $postgresRoot.FullName $directory) (Join-Path $payload "runtime\postgres\$directory")
+}
 
 # robocopy returns 1 when it successfully copies files; normalize the script result for Actions.
 exit 0
