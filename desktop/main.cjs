@@ -20,6 +20,7 @@ function focusMainWindow() {
 }
 
 async function showStartupFailure(error) {
+  if (process.env.CI) return false;
   const response = await dialog.showMessageBox({
     type: 'error',
     title: 'AI Brand Visibility Assistant startup failed',

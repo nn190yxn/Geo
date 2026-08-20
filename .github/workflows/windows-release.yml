@@ -148,6 +148,9 @@ jobs:
             while ((Get-Date) -lt $deadline) {
               if (Test-Path $stateFile) {
                 $state = Get-Content $stateFile -Raw | ConvertFrom-Json
+                if ($state.status -eq 'failed') {
+                  throw "Desktop application startup failed: $($state.error)"
+                }
                 if ($state.status -eq 'running' -and $state.apiProcessId -and $state.databasePort) {
                   try {
                     $response = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$($state.apiPort)/api/v1/health/ready" -TimeoutSec 5

@@ -137,9 +137,10 @@ function waitForCommandExit(child, timeoutMs, errorMessage) {
   });
 }
 
-function writeRuntimeState(state, status) {
+function writeRuntimeState(state, status, error) {
   fs.writeFileSync(path.join(state.paths.dataRoot, 'runtime-state.json'), `${JSON.stringify({
     status,
+    error: error || null,
     processId: process.pid,
     apiProcessId: state.api?.pid || null,
     apiPort: state.apiPort || null,
@@ -249,7 +250,8 @@ async function startServices(appRoot, dataRoot) {
   ensureDirectories(paths);
   const logFile = path.join(paths.logRoot, 'desktop.log');
   fs.appendFileSync(logFile, `${new Date().toISOString()} Starting local services.\n`);
-  let state;
+  let state = { paths, logFile };
+  writeRuntimeState(state, 'starting');
   try {
     const databaseState = await prepareDatabase(paths, logFile);
     state = { paths, database: databaseState.database, databasePort: databaseState.databasePort, pgCtl: databaseState.pgCtl, databaseRoot: paths.databaseRoot, logFile };
@@ -291,6 +293,8 @@ async function startServices(appRoot, dataRoot) {
     return state;
   } catch (error) {
     await stopServices(state);
+    appendLog(logFile, `Local services failed to start: ${error.message}`);
+    writeRuntimeState(state, 'failed', error.message);
     throw error;
   }
 }
