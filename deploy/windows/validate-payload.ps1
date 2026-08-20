@@ -21,6 +21,7 @@ $requiredFiles = @(
   'app\apps\api\prisma\migrations',
   'app\apps\web\dist\index.html',
   'app\node_modules\prisma\build\index.js',
+  'app\node_modules\@prisma\engines\schema-engine-windows.exe',
   'app\node_modules\@prisma\client\default.js',
   'app\node_modules\.prisma\client\default.js',
   'runtime\electron\electron.exe',

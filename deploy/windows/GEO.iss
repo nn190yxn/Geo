@@ -37,7 +37,7 @@ var
   dataRoot: String;
 begin
   if CurUninstallStep = usPostUninstall then begin
-    if MsgBox('是否保留本地业务数据和日志？选择“否”将删除该 Windows 用户的本地数据。', mbConfirmation, MB_YESNO) = IDNO then begin
+    if (not WizardSilent) and (MsgBox('是否保留本地业务数据和日志？选择“否”将删除该 Windows 用户的本地数据。', mbConfirmation, MB_YESNO) = IDNO) then begin
       dataRoot := ExpandConstant('{localappdata}\AI-Brand-Visibility-Assistant');
       DelTree(dataRoot, True, True, True);
     end;

@@ -60,19 +60,26 @@ function waitForHttpReady(port, requestPath, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     const attempt = () => {
+      let finished = false;
+      const retry = () => {
+        if (finished) return;
+        finished = true;
+        if (Date.now() >= deadline) reject(new Error(`HTTP service ${requestPath} did not become ready.`));
+        else setTimeout(attempt, 250);
+      };
       const request = http.get({ host: '127.0.0.1', port, path: requestPath }, response => {
         response.resume();
         if (response.statusCode === 200) {
+          finished = true;
           resolve();
           return;
         }
         retry();
       });
       request.once('error', retry);
-      function retry() {
-        if (Date.now() >= deadline) reject(new Error(`HTTP service ${requestPath} did not become ready.`));
-        else setTimeout(attempt, 250);
-      }
+      request.setTimeout(Math.min(5000, Math.max(1, deadline - Date.now())), () => {
+        request.destroy(new Error(`HTTP request to ${requestPath} timed out.`));
+      });
     };
     attempt();
   });
@@ -112,6 +119,35 @@ function appendLog(logFile, message) {
   fs.appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`);
 }
 
+function waitForCommandExit(child, timeoutMs, errorMessage) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      error ? reject(error) : resolve();
+    };
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(new Error(`${errorMessage} timed out.`));
+    }, timeoutMs);
+    child.once('error', () => finish(new Error(errorMessage)));
+    child.once('close', code => finish(code === 0 ? undefined : new Error(errorMessage)));
+  });
+}
+
+function writeRuntimeState(state, status) {
+  fs.writeFileSync(path.join(state.paths.dataRoot, 'runtime-state.json'), `${JSON.stringify({
+    status,
+    processId: process.pid,
+    apiProcessId: state.api?.pid || null,
+    apiPort: state.apiPort || null,
+    databasePort: state.databasePort || null,
+    updatedAt: new Date().toISOString()
+  }, null, 2)}\n`);
+}
+
 function waitForChildExit(child, timeoutMs, logFile, label) {
   if (!child || child.exitCode !== null || child.killed) return Promise.resolve();
   return new Promise(resolve => {
@@ -142,22 +178,42 @@ function closeWebServer(server, timeoutMs, logFile) {
 }
 
 function stopDatabase(state) {
-  if (!state?.database || state.database.killed) return Promise.resolve();
+  if (!state?.pgCtl || !state?.databaseRoot) return Promise.resolve();
   return new Promise(resolve => {
-    const stop = spawn(state.pgCtl, ['-D', state.databaseRoot, '-w', 'stop'], { windowsHide: true });
+    const stop = spawn(state.pgCtl, ['-D', state.databaseRoot, '-m', 'fast', '-w', 'stop'], { windowsHide: true });
+    let settled = false;
+    let immediateStarted = false;
+    const finish = message => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (message) appendLog(state.logFile, message);
+      resolve();
+    };
+    const requestImmediateShutdown = () => {
+      if (immediateStarted || settled) return;
+      immediateStarted = true;
+      const immediate = spawn(state.pgCtl, ['-D', state.databaseRoot, '-m', 'immediate', '-w', 'stop'], { windowsHide: true });
+      const immediateTimeout = setTimeout(() => {
+        immediate.kill('SIGKILL');
+        finish('PostgreSQL immediate shutdown did not complete within 10000ms.');
+      }, 10000);
+      immediate.once('error', () => {
+        clearTimeout(immediateTimeout);
+        finish('PostgreSQL immediate shutdown command could not start.');
+      });
+      immediate.once('close', code => {
+        clearTimeout(immediateTimeout);
+        finish(code === 0 ? undefined : 'PostgreSQL immediate shutdown command failed.');
+      });
+    };
     const timeout = setTimeout(() => {
-      appendLog(state.logFile, 'PostgreSQL did not stop within 10000ms; terminating pg_ctl.');
+      appendLog(state.logFile, 'PostgreSQL did not stop within 10000ms; terminating pg_ctl and requesting immediate shutdown.');
       stop.kill('SIGKILL');
-      resolve();
+      requestImmediateShutdown();
     }, 10000);
-    stop.once('error', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-    stop.once('close', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
+    stop.once('error', requestImmediateShutdown);
+    stop.once('close', code => code === 0 ? finish() : requestImmediateShutdown());
   });
 }
 
@@ -167,7 +223,7 @@ async function prepareDatabase(paths, logFile) {
   if (!fs.existsSync(initdb) || !fs.existsSync(pgCtl)) throw new Error('The bundled PostgreSQL runtime is missing.');
   if (!fs.existsSync(path.join(paths.databaseRoot, 'PG_VERSION'))) {
     const init = spawnLogged(initdb, ['-D', paths.databaseRoot, '-U', 'geo', '-A', 'trust', '--encoding=UTF8'], { cwd: paths.appRoot }, logFile);
-    await new Promise((resolve, reject) => init.once('close', code => code === 0 ? resolve() : reject(new Error('Local database initialization failed.'))));
+    await waitForCommandExit(init, 60000, 'Local database initialization failed.');
   }
   const databasePort = await findFreePort();
   const database = spawnLogged(pgCtl, ['-D', paths.databaseRoot, '-w', '-o', `-p ${databasePort}`, 'start'], { cwd: paths.appRoot }, logFile);
@@ -196,7 +252,7 @@ async function startServices(appRoot, dataRoot) {
   let state;
   try {
     const databaseState = await prepareDatabase(paths, logFile);
-    state = { paths, database: databaseState.database, pgCtl: databaseState.pgCtl, databaseRoot: paths.databaseRoot, logFile };
+    state = { paths, database: databaseState.database, databasePort: databaseState.databasePort, pgCtl: databaseState.pgCtl, databaseRoot: paths.databaseRoot, logFile };
     const prismaCli = path.join(appRoot, 'node_modules', 'prisma', 'build', 'index.js');
     if (!fs.existsSync(prismaCli)) throw new Error('The bundled Prisma CLI is missing from the production payload.');
     await runCommand(process.execPath, [prismaCli, 'migrate', 'deploy', '--schema', paths.prismaSchema], {
@@ -231,6 +287,7 @@ async function startServices(appRoot, dataRoot) {
     const web = require('./web-server.cjs').start(paths.webRoot, webPort, apiPort, logFile);
     state.web = web;
     await waitForPort(webPort);
+    writeRuntimeState(state, 'running');
     return state;
   } catch (error) {
     await stopServices(state);
@@ -247,7 +304,8 @@ async function stopServices(state) {
     await waitForChildExit(child, 10000, state.logFile, 'API service');
   }
   await stopDatabase(state);
+  writeRuntimeState(state, 'stopped');
   appendLog(state.logFile, 'Local services stopped.');
 }
 
-module.exports = { findFreePort, getRuntimePaths, startServices, stopServices, waitForPort, waitForHttpReady };
+module.exports = { findFreePort, getRuntimePaths, startServices, stopServices, waitForPort, waitForHttpReady, waitForCommandExit, writeRuntimeState };

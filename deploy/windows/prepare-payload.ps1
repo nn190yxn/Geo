@@ -48,6 +48,8 @@ Copy-DirectoryContents (Join-Path $Workspace 'apps\web\dist') (Join-Path $app 'a
 Copy-DirectoryContents (Join-Path $Workspace 'packages\shared-types\dist') (Join-Path $app 'packages\shared-types\dist')
 Copy-DirectoryContents (Join-Path $Workspace 'node_modules\@prisma\client') (Join-Path $app 'node_modules\@prisma\client')
 Copy-DirectoryContents (Join-Path $Workspace 'node_modules\.prisma\client') (Join-Path $app 'node_modules\.prisma\client')
+# npm ci uses --ignore-scripts for a deterministic payload, so copy the Windows schema engine explicitly.
+Copy-DirectoryContents (Join-Path $Workspace 'node_modules\@prisma\engines') (Join-Path $app 'node_modules\@prisma\engines')
 Copy-DirectoryContents (Join-Path $Workspace 'node_modules\electron\dist') (Join-Path $payload 'runtime\electron')
 Copy-Item (Join-Path $Workspace 'deploy\windows\Start-GEO.ps1'), (Join-Path $Workspace 'deploy\windows\Stop-GEO.ps1') -Destination (Join-Path $payload 'windows')
 
@@ -57,6 +59,7 @@ $requiredPayloadFiles = @(
   (Join-Path $app 'apps\api\dist\apps\api\src\main.js'),
   (Join-Path $app 'apps\api\prisma\schema.prisma'),
   (Join-Path $app 'node_modules\prisma\build\index.js'),
+  (Join-Path $app 'node_modules\@prisma\engines\schema-engine-windows.exe'),
   (Join-Path $app 'node_modules\@prisma\client\default.js'),
   (Join-Path $app 'node_modules\.prisma\client\default.js'),
   (Join-Path $app 'apps\web\dist\index.html'),

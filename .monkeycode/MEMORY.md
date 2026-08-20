@@ -36,10 +36,10 @@
 
 ## 依赖验证排障
 
-- Date: 2026-08-09
+- Date: 2026-08-19
 - Category: 排障与调试
-- Context: 执行 GEO 管理平台仓库级 `npm run verify` 时发现
+- Context: 执行 GEO 管理平台仓库级 `npm run verify` 时确认
 - Instructions:
   - `npm run verify` 首步会执行 `npm audit`，依赖审计失败时会阻断后续 Prisma、类型检查、测试和构建步骤。
-  - 当前审计报告包含 2 个 high severity 依赖告警；处理前需要单独评估依赖升级影响，不自动执行 `npm audit fix`。
-  - 2026-08-09 的再次执行还出现 npm registry TLS 连接中断；网络恢复后重试 `npm run verify` 以完成完整门禁。
+  - Prisma CLI 仅解析自 API workspace；根脚本通过 `npm run prisma:validate --workspace @geo-platform/api` 运行 schema 校验。
+  - 当前受控依赖组合为 Prisma `6.12.0` 和 Electron `43.4.1`，`npm audit --audit-level=high` 返回零漏洞。

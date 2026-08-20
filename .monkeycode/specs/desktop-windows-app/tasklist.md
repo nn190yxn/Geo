@@ -16,7 +16,7 @@
 - [x] 2.2 复制 Prisma schema、migration、API 构建产物、Web 构建产物和 shared-types 构建产物。
 - [x] 2.3 复制 PostgreSQL `bin`、`lib`、`share` 运行时目录。
 - [x] 2.4 排除 Web 开发依赖和 PostgreSQL pgAdmin 运行时。
-- [x] 2.5 增加载荷文件存在性校验，覆盖 Electron、PostgreSQL、Prisma CLI、schema、migration 和入口文件。
+- [x] 2.5 增加载荷文件存在性校验，覆盖 Electron、PostgreSQL、Prisma CLI、schema、migration、Windows schema engine 和入口文件。
 
 ## 3. Windows 安装与升级
 
@@ -30,20 +30,27 @@
 - [x] 4.1 增加运行时路径解析和 readiness 轮询单元测试。
 - [ ] 4.2 增加数据库重复启动、迁移失败和子进程清理测试。
 - [x] 4.3 增加生产载荷依赖检查和缺失文件检查。
-- [ ] 4.4 运行 `npm run verify`。
+- [x] 4.4 运行 `npm run verify`。
 - [ ] 4.5 在 Windows CI 中构建安装包并校验单个 EXE 输出。
 - [ ] 4.6 下载 Release 安装包并完成安装后启动验收。
 
-## 5. 发布
+## 5. 审计修复
 
-- [ ] 5.1 提交代码和规格任务清单。
-- [ ] 5.2 创建新的版本标签并触发 Windows Release workflow。
-- [ ] 5.3 核对 Actions 日志、安装包大小、校验结果和 Release 附件。
+- [x] 5.1 显式复制并校验 Windows Prisma schema engine，确保 `prisma migrate deploy` 可离线执行。
+- [x] 5.2 为 HTTP readiness 和 `initdb` 子进程增加有界超时、错误处理和单元测试。
+- [x] 5.3 为 PostgreSQL 采用 fast shutdown，并在超时后请求 immediate shutdown。
+- [x] 5.4 通过运行时状态文件精确定位应用 PID，停止脚本优先关闭窗口后再回收残留进程。
+- [x] 5.5 在 Windows Release workflow 增加安装、启动、升级、卸载和数据保留门禁。
+- [x] 5.6 将 Prisma 固定到 `6.12.0`、Electron 升级到 `43.4.1`，完整依赖审计返回零漏洞。
+
+## 6. 发布
+
+- [ ] 6.1 提交代码和规格任务清单。
+- [ ] 6.2 创建新的版本标签并触发 Windows Release workflow。
+- [ ] 6.3 核对 Actions 日志、安装包大小、校验结果和 Release 附件。
 
 ## 当前验收状态
 
-- `npm run desktop:test` 通过，桌面运行时测试 2 项全部通过。
-- `npm run test` 通过，API 606 项和 Web 419 项全部通过。
-- `npm run typecheck` 和 `npm run build` 通过。
-- `npm run verify` 被 `npm audit` 阶段阻断，当前依赖审计仍有 high severity 告警，待单独评估升级方案。
-- PowerShell、Inno Setup、真实安装升级和卸载验收需要在 Windows CI 或 Windows 真机执行。
+- `npm run desktop:test` 通过，桌面运行时测试 4 项全部通过。
+- `npm run verify` 通过，包含完整依赖审计、Prisma schema 校验与 Client 生成、类型检查、API/Web 测试和构建。
+- PowerShell、Inno Setup、真实安装升级和卸载验收由 Windows Release workflow 或 Windows 真机完成。

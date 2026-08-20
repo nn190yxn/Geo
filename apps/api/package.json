@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate --schema prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "node prisma/seed.js"
   },
@@ -18,8 +19,8 @@
     "@nestjs/common": "latest",
     "@nestjs/core": "latest",
     "@nestjs/platform-express": "latest",
-    "@prisma/client": "6.19.3",
-    "prisma": "6.19.3",
+    "@prisma/client": "6.12.0",
+    "prisma": "6.12.0",
     "mammoth": "1.12.0",
     "multer": "2.2.0",
     "pdf-parse": "2.4.5",
