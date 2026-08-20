@@ -123,8 +123,17 @@ jobs:
           $dataRoot = Join-Path $env:LOCALAPPDATA 'AI-Brand-Visibility-Assistant\data'
           $stateFile = Join-Path $dataRoot 'runtime-state.json'
           $sentinel = Join-Path $dataRoot 'release-e2e.txt'
+          $installerLog = Join-Path $env:GITHUB_WORKSPACE 'release\installer.log'
           trap {
             Write-Output "Desktop E2E failure: $($_.Exception.Message)"
+            if (Test-Path $installerLog) {
+              Write-Output "--- $installerLog ---"
+              Get-Content $installerLog -Raw
+            }
+            if (Test-Path $installRoot) {
+              Write-Output "--- installed files ---"
+              Get-ChildItem $installRoot -Recurse | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize | Out-String | Write-Output
+            }
             foreach ($diagnosticFile in @($stateFile, (Join-Path $dataRoot 'logs\desktop.log'))) {
               if (Test-Path $diagnosticFile) {
                 Write-Output "--- $diagnosticFile ---"
@@ -151,14 +160,14 @@ jobs:
             throw 'Desktop application did not reach the readiness endpoint within two minutes.'
           }
 
-          & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          & $installer "/LOG=$installerLog" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
           if ($LASTEXITCODE -ne 0) { throw "Initial installer failed with exit code $LASTEXITCODE" }
           & (Join-Path $installRoot 'windows\Start-GEO.ps1')
           Wait-ForReady
           New-Item -ItemType File -Path $sentinel -Force | Out-Null
           & (Join-Path $installRoot 'windows\Stop-GEO.ps1')
 
-          & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          & $installer "/LOG=$installerLog" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
           if ($LASTEXITCODE -ne 0) { throw "Upgrade installer failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path $sentinel)) { throw 'Upgrade removed persisted user data.' }
           & (Join-Path $installRoot 'windows\Start-GEO.ps1')
@@ -175,8 +184,19 @@ jobs:
         run: |
           $source = Join-Path $env:LOCALAPPDATA 'AI-Brand-Visibility-Assistant\data'
           $destination = Join-Path $env:GITHUB_WORKSPACE 'release\e2e-diagnostics'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
           if (Test-Path $source) {
             Copy-Item $source $destination -Recurse -Force
+          }
+          $installerLog = Join-Path $env:GITHUB_WORKSPACE 'release\installer.log'
+          if (Test-Path $installerLog) {
+            Copy-Item $installerLog (Join-Path $destination 'installer.log') -Force
+          }
+          $installRoot = Join-Path $env:ProgramFiles 'AI品牌曝光助手'
+          if (Test-Path $installRoot) {
+            Get-ChildItem $installRoot -Recurse | Select-Object FullName, Length, LastWriteTime |
+              ConvertTo-Json -Depth 2 |
+              Set-Content (Join-Path $destination 'installed-files.json') -Encoding utf8
           }
       - name: Upload Windows E2E diagnostics
         if: always()
