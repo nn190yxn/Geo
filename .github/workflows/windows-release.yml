@@ -38,6 +38,10 @@ jobs:
           }
            # The installer embeds Electron, which is a root devDependency.
            Invoke-LoggedCommand 'Install Node dependencies' { npm ci --include=dev }
+          Invoke-LoggedCommand 'Download Electron runtime' { node ./node_modules/electron/install.js }
+          if (-not (Test-Path 'node_modules\electron\dist\electron.exe')) {
+            throw 'Electron runtime download did not produce electron.exe.'
+          }
           Invoke-LoggedCommand 'Generate Prisma Client' { npm run prisma:generate --workspace @geo-platform/api }
           Invoke-LoggedCommand 'Build shared types' { npm run build --workspace @geo-platform/shared-types }
           Invoke-LoggedCommand 'Build API' { npm run build --workspace @geo-platform/api }
