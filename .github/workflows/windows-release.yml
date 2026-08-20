@@ -36,7 +36,8 @@ jobs:
             Write-Output '::endgroup::'
             if ($exitCode -ne 0) { throw "$Label failed with exit code $exitCode." }
           }
-          Invoke-LoggedCommand 'Install Node dependencies' { npm ci }
+           # The installer embeds Electron, which is a root devDependency.
+           Invoke-LoggedCommand 'Install Node dependencies' { npm ci --include=dev }
           Invoke-LoggedCommand 'Generate Prisma Client' { npm run prisma:generate --workspace @geo-platform/api }
           Invoke-LoggedCommand 'Build shared types' { npm run build --workspace @geo-platform/shared-types }
           Invoke-LoggedCommand 'Build API' { npm run build --workspace @geo-platform/api }
