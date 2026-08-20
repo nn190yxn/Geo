@@ -99,13 +99,18 @@ jobs:
       - name: Install Windows packager
         shell: pwsh
         run: |
-          $attempts = 3
-          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
-            choco install innosetup --yes --no-progress --no-color 2>&1 | Out-Host
-            if ($LASTEXITCODE -eq 0) { break }
-            Write-Output "choco install innosetup attempt $attempt failed with exit code $LASTEXITCODE"
-            if ($attempt -lt $attempts) { Start-Sleep -Seconds 15 }
-            if ($attempt -eq $attempts) { throw "choco install innosetup failed after $attempts attempts." }
+          $ErrorActionPreference = 'Stop'
+          $installerUrl = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
+          $expectedHash = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
+          $installer = Join-Path $env:TEMP 'innosetup-7.1.0-x64.exe'
+          Invoke-WebRequest -UseBasicParsing $installerUrl -OutFile $installer
+          $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) { throw "Inno Setup installer SHA256 mismatch: $actualHash" }
+          $installLog = Join-Path $env:GITHUB_WORKSPACE 'release\inno-install.log'
+          $installProcess = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',"/LOG=$installLog" -Wait -PassThru
+          if ($installProcess.ExitCode -ne 0) {
+            if (Test-Path $installLog) { Get-Content $installLog -Tail 30 }
+            throw "Inno Setup installation failed with exit code $($installProcess.ExitCode)"
           }
       - name: Build EXE
         shell: pwsh
@@ -113,8 +118,20 @@ jobs:
           GEO_RELEASE_VERSION: ${{ github.ref_name }}
           GEO_RELEASE_STAGE: ${{ github.workspace }}\release
         run: |
-          $innoSetup = (Get-Command ISCC.exe -ErrorAction Stop).Source
-          & $innoSetup deploy/windows/GEO.iss
+          $resolvedIscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          $isccPath = $null
+          if ($resolvedIscc) {
+            $isccPath = $resolvedIscc.Source
+          } else {
+            $isccPath = @(
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+              (Join-Path ${env:ProgramFiles} 'Inno Setup 7\ISCC.exe'),
+              (Join-Path ${env:ProgramFiles} 'Inno Setup 6\ISCC.exe')
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $isccPath) { throw 'ISCC.exe was not found after Inno Setup installation.' }
+          & $isccPath deploy/windows/GEO.iss
           if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed.' }
       - name: Verify installer
         shell: pwsh
