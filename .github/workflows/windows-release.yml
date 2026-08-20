@@ -84,6 +84,7 @@ jobs:
       - name: Validate Windows payload and scripts
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $scriptFiles = @(
             './deploy/windows/prepare-payload.ps1',
             './deploy/windows/validate-payload.ps1',
@@ -95,7 +96,24 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $scriptFile), [ref]$null, [ref]$parseErrors) | Out-Null
             if ($parseErrors.Count -gt 0) { throw "PowerShell syntax validation failed: $scriptFile" }
           }
-          & pwsh -NoProfile -File ./deploy/windows/validate-payload.ps1 -PayloadRoot "$env:GITHUB_WORKSPACE\release\payload"
+          $validateLog = Join-Path $env:GITHUB_WORKSPACE 'release\validate.log'
+          try {
+            & pwsh -NoProfile -File ./deploy/windows/validate-payload.ps1 -PayloadRoot "$env:GITHUB_WORKSPACE\release\payload" 2>&1 | Tee-Object -FilePath $validateLog
+            if ($LASTEXITCODE -ne 0) { throw "validate-payload.ps1 exited with code $LASTEXITCODE" }
+          } catch {
+            Write-Output "::error::Windows payload validation failed: $($_.Exception.Message)"
+            if (Test-Path $validateLog) {
+              Get-Content $validateLog -Tail 25 | ForEach-Object { Write-Output "::error::$_" }
+            }
+            exit 1
+          }
+      - name: Upload payload validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-payload-validation-log
+          path: release/validate.log
+          if-no-files-found: warn
       - name: Install Windows packager
         shell: pwsh
         run: |

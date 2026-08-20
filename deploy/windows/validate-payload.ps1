@@ -61,13 +61,21 @@ $env:DATABASE_URL = 'postgresql://geo:geo@127.0.0.1:5432/geo_platform?schema=pub
 $electron = Join-Path $PayloadRoot 'runtime\electron\electron.exe'
 $prismaCli = Join-Path $PayloadRoot 'app\apps\api\node_modules\prisma\build\index.js'
 $prismaSchema = Join-Path $PayloadRoot 'app\apps\api\prisma\schema.prisma'
-& $electron $prismaCli 'validate' '--schema' $prismaSchema
-if ($LASTEXITCODE -ne 0) {
-  throw "Bundled Prisma CLI could not validate the schema from the final payload with exit code $LASTEXITCODE"
+
+$electronProbe = & $electron -e "console.log('ELECTRON_NODE_OK')" 2>&1
+if ($LASTEXITCODE -ne 0 -or (($electronProbe -join ' ') -notmatch 'ELECTRON_NODE_OK')) {
+  throw "Electron runtime did not start in Node mode (exit $LASTEXITCODE): $($electronProbe -join ' | ')"
 }
-& $electron $prismaCli '--version'
+
+$validateOutput = & $electron $prismaCli 'validate' '--schema' $prismaSchema 2>&1
 if ($LASTEXITCODE -ne 0) {
-  throw "Bundled Prisma CLI could not load from the final payload with exit code $LASTEXITCODE"
+  throw "Bundled Prisma CLI failed to validate the schema from the final payload (exit $LASTEXITCODE): $($validateOutput -join ' | ')"
 }
+
+$versionOutput = & $electron $prismaCli '--version' 2>&1
+if ($LASTEXITCODE -ne 0) {
+  throw "Bundled Prisma CLI failed to load from the final payload (exit $LASTEXITCODE): $($versionOutput -join ' | ')"
+}
+Write-Output "Bundled Prisma CLI reported: $($versionOutput -join ' ')"
 
 Write-Output "Validated Windows payload at $PayloadRoot"
