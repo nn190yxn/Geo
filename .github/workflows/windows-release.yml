@@ -160,15 +160,25 @@ jobs:
             throw 'Desktop application did not reach the readiness endpoint within two minutes.'
           }
 
-          & $installer "/LOG=$installerLog" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Initial installer failed with exit code $LASTEXITCODE" }
+          $installerArguments = @(
+            "/DIR=`"$installRoot`"",
+            "/LOG=$installerLog",
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            '/SP-',
+            '/NOCANCEL',
+            '/CLOSEAPPLICATIONS'
+          )
+          $installProcess = Start-Process -FilePath $installer -ArgumentList $installerArguments -Wait -PassThru
+          if ($installProcess.ExitCode -ne 0) { throw "Initial installer failed with exit code $($installProcess.ExitCode)" }
           & (Join-Path $installRoot 'windows\Start-GEO.ps1')
           Wait-ForReady
           New-Item -ItemType File -Path $sentinel -Force | Out-Null
           & (Join-Path $installRoot 'windows\Stop-GEO.ps1')
 
-          & $installer "/LOG=$installerLog" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Upgrade installer failed with exit code $LASTEXITCODE" }
+          $upgradeProcess = Start-Process -FilePath $installer -ArgumentList $installerArguments -Wait -PassThru
+          if ($upgradeProcess.ExitCode -ne 0) { throw "Upgrade installer failed with exit code $($upgradeProcess.ExitCode)" }
           if (-not (Test-Path $sentinel)) { throw 'Upgrade removed persisted user data.' }
           & (Join-Path $installRoot 'windows\Start-GEO.ps1')
           Wait-ForReady
