@@ -26,6 +26,15 @@ function Copy-DirectoryContents {
   }
 }
 
+function Resolve-FirstExistingDirectory {
+  param([string[]]$Candidates)
+
+  foreach ($candidate in $Candidates) {
+    if (Test-Path $candidate -PathType Container) { return $candidate }
+  }
+  throw "Required release source is missing: $($Candidates -join ', ')"
+}
+
 New-Item -ItemType Directory -Force -Path $app, (Join-Path $app 'apps\api'), (Join-Path $app 'apps\web'), (Join-Path $app 'packages\shared-types'), (Join-Path $payload 'runtime\electron'), (Join-Path $payload 'runtime\postgres'), (Join-Path $payload 'windows'), (Join-Path $Workspace 'release\output') | Out-Null
 
 Copy-Item (Join-Path $Workspace 'package.json'), (Join-Path $Workspace 'package-lock.json') -Destination $app
@@ -46,10 +55,22 @@ Copy-DirectoryContents (Join-Path $Workspace 'desktop') (Join-Path $app 'desktop
 Copy-DirectoryContents (Join-Path $Workspace 'apps\api\dist') (Join-Path $app 'apps\api\dist')
 Copy-DirectoryContents (Join-Path $Workspace 'apps\web\dist') (Join-Path $app 'apps\web\dist')
 Copy-DirectoryContents (Join-Path $Workspace 'packages\shared-types\dist') (Join-Path $app 'packages\shared-types\dist')
-Copy-DirectoryContents (Join-Path $Workspace 'node_modules\@prisma\client') (Join-Path $app 'node_modules\@prisma\client')
-Copy-DirectoryContents (Join-Path $Workspace 'node_modules\.prisma\client') (Join-Path $app 'node_modules\.prisma\client')
+$prismaClient = Resolve-FirstExistingDirectory @(
+  (Join-Path $Workspace 'apps\api\node_modules\@prisma\client'),
+  (Join-Path $Workspace 'node_modules\@prisma\client')
+)
+$generatedPrismaClient = Resolve-FirstExistingDirectory @(
+  (Join-Path $Workspace 'apps\api\node_modules\.prisma\client'),
+  (Join-Path $Workspace 'node_modules\.prisma\client')
+)
+$prismaEngines = Resolve-FirstExistingDirectory @(
+  (Join-Path $Workspace 'apps\api\node_modules\@prisma\engines'),
+  (Join-Path $Workspace 'node_modules\@prisma\engines')
+)
+Copy-DirectoryContents $prismaClient (Join-Path $app 'node_modules\@prisma\client')
+Copy-DirectoryContents $generatedPrismaClient (Join-Path $app 'node_modules\.prisma\client')
 # npm ci uses --ignore-scripts for a deterministic payload, so copy the Windows schema engine explicitly.
-Copy-DirectoryContents (Join-Path $Workspace 'node_modules\@prisma\engines') (Join-Path $app 'node_modules\@prisma\engines')
+Copy-DirectoryContents $prismaEngines (Join-Path $app 'node_modules\@prisma\engines')
 Copy-DirectoryContents (Join-Path $Workspace 'node_modules\electron\dist') (Join-Path $payload 'runtime\electron')
 Copy-Item (Join-Path $Workspace 'deploy\windows\Start-GEO.ps1'), (Join-Path $Workspace 'deploy\windows\Stop-GEO.ps1') -Destination (Join-Path $payload 'windows')
 
