@@ -123,6 +123,16 @@ jobs:
           $dataRoot = Join-Path $env:LOCALAPPDATA 'AI-Brand-Visibility-Assistant\data'
           $stateFile = Join-Path $dataRoot 'runtime-state.json'
           $sentinel = Join-Path $dataRoot 'release-e2e.txt'
+          trap {
+            Write-Output "Desktop E2E failure: $($_.Exception.Message)"
+            foreach ($diagnosticFile in @($stateFile, (Join-Path $dataRoot 'logs\desktop.log'))) {
+              if (Test-Path $diagnosticFile) {
+                Write-Output "--- $diagnosticFile ---"
+                Get-Content $diagnosticFile -Raw
+              }
+            }
+            exit 1
+          }
 
           function Wait-ForReady {
             $deadline = (Get-Date).AddMinutes(2)
@@ -159,6 +169,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Uninstaller failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path $sentinel)) { throw 'Uninstall removed persisted user data.' }
           if (Test-Path $installRoot) { throw 'Uninstall left the application installation directory behind.' }
+      - name: Collect Windows E2E diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:LOCALAPPDATA 'AI-Brand-Visibility-Assistant\data'
+          $destination = Join-Path $env:GITHUB_WORKSPACE 'release\e2e-diagnostics'
+          if (Test-Path $source) {
+            Copy-Item $source $destination -Recurse -Force
+          }
+      - name: Upload Windows E2E diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-e2e-diagnostics
+          path: release/e2e-diagnostics
+          if-no-files-found: warn
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
