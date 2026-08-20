@@ -67,10 +67,15 @@ $prismaEngines = Resolve-FirstExistingDirectory @(
   (Join-Path $Workspace 'apps\api\node_modules\@prisma\engines'),
   (Join-Path $Workspace 'node_modules\@prisma\engines')
 )
+$prismaCli = Resolve-FirstExistingDirectory @(
+  (Join-Path $Workspace 'apps\api\node_modules\prisma'),
+  (Join-Path $Workspace 'node_modules\prisma')
+)
 Copy-DirectoryContents $prismaClient (Join-Path $app 'node_modules\@prisma\client')
 Copy-DirectoryContents $generatedPrismaClient (Join-Path $app 'node_modules\.prisma\client')
 # npm ci uses --ignore-scripts for a deterministic payload, so copy the Windows schema engine explicitly.
 Copy-DirectoryContents $prismaEngines (Join-Path $app 'node_modules\@prisma\engines')
+Copy-DirectoryContents $prismaCli (Join-Path $app 'node_modules\prisma')
 Copy-DirectoryContents (Join-Path $Workspace 'node_modules\electron\dist') (Join-Path $payload 'runtime\electron')
 Copy-Item (Join-Path $Workspace 'deploy\windows\Start-GEO.ps1'), (Join-Path $Workspace 'deploy\windows\Stop-GEO.ps1') -Destination (Join-Path $payload 'windows')
 
