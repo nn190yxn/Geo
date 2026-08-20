@@ -16,7 +16,8 @@ function getRuntimePaths(appRoot, dataRoot) {
     postgresBin: path.join(postgresRoot, 'bin'),
     apiEntry: path.join(appRoot, 'apps', 'api', 'dist', 'apps', 'api', 'src', 'main.js'),
     prismaSchema: path.join(appRoot, 'apps', 'api', 'prisma', 'schema.prisma'),
-    webRoot: path.join(appRoot, 'apps', 'web', 'dist')
+    webRoot: path.join(appRoot, 'apps', 'web', 'dist'),
+    prismaCli: path.join(appRoot, 'apps', 'api', 'node_modules', 'prisma', 'build', 'index.js')
   };
 }
 
@@ -255,9 +256,8 @@ async function startServices(appRoot, dataRoot) {
   try {
     const databaseState = await prepareDatabase(paths, logFile);
     state = { paths, database: databaseState.database, databasePort: databaseState.databasePort, pgCtl: databaseState.pgCtl, databaseRoot: paths.databaseRoot, logFile };
-    const prismaCli = path.join(appRoot, 'node_modules', 'prisma', 'build', 'index.js');
-    if (!fs.existsSync(prismaCli)) throw new Error('The bundled Prisma CLI is missing from the production payload.');
-    await runCommand(process.execPath, [prismaCli, 'migrate', 'deploy', '--schema', paths.prismaSchema], {
+    if (!fs.existsSync(paths.prismaCli)) throw new Error('The bundled Prisma CLI is missing from the production payload.');
+    await runCommand(process.execPath, [paths.prismaCli, 'migrate', 'deploy', '--schema', paths.prismaSchema], {
       cwd: paths.appRoot,
       env: {
         ...process.env,

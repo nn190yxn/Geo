@@ -11,7 +11,7 @@ try {
   if (-not (Test-Path $electron) -or -not (Test-Path (Join-Path $appRoot 'package.json'))) {
     throw 'The desktop application installation is incomplete. Reinstall the application.'
   }
-  Start-Process -FilePath $electron -ArgumentList "`"$appRoot`"" -WorkingDirectory $appRoot
+  Start-Process -FilePath $electron -ArgumentList @($appRoot) -WorkingDirectory $appRoot
 } catch {
   Add-Type -AssemblyName System.Windows.Forms
   [System.Windows.Forms.MessageBox]::Show(

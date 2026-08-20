@@ -10,6 +10,7 @@ test('resolves portable runtime paths under the app and user data roots', () => 
   assert.equal(paths.databaseRoot, path.join('C:\\Users\\Test\\Data', 'postgres-data'));
   assert.equal(paths.apiEntry, path.join('C:\\App', 'apps', 'api', 'dist', 'apps', 'api', 'src', 'main.js'));
   assert.equal(paths.webRoot, path.join('C:\\App', 'apps', 'web', 'dist'));
+  assert.equal(paths.prismaCli, path.join('C:\\App', 'apps', 'api', 'node_modules', 'prisma', 'build', 'index.js'));
   assert.equal(
     getRuntimePaths('/opt/Geo/app', '/tmp/data').postgresRoot,
     path.join('/opt/Geo', 'runtime', 'postgres'),
