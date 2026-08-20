@@ -98,7 +98,15 @@ jobs:
           & pwsh -NoProfile -File ./deploy/windows/validate-payload.ps1 -PayloadRoot "$env:GITHUB_WORKSPACE\release\payload"
       - name: Install Windows packager
         shell: pwsh
-        run: choco install innosetup --yes --no-progress
+        run: |
+          $attempts = 3
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            choco install innosetup --yes --no-progress --no-color 2>&1 | Out-Host
+            if ($LASTEXITCODE -eq 0) { break }
+            Write-Output "choco install innosetup attempt $attempt failed with exit code $LASTEXITCODE"
+            if ($attempt -lt $attempts) { Start-Sleep -Seconds 15 }
+            if ($attempt -eq $attempts) { throw "choco install innosetup failed after $attempts attempts." }
+          }
       - name: Build EXE
         shell: pwsh
         env:
