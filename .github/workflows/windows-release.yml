@@ -180,7 +180,7 @@ jobs:
               $diagnostics += '--- desktop.log (head 30) ---'
               $diagnostics += ($truncated | Select-Object -First 30)
               $diagnostics += '--- desktop.log (key lines) ---'
-              $diagnostics += ($truncated | Where-Object { $_ -match 'Starting local services|Stopping local services|Local services failed|psql|inspection|createdb|Prisma|migration|Migration|Nest|FATAL|ERROR|error|Error|failed|Failed|shutdown|connection|refused|EADDR|ECONN|listening|ready|exit|WARNING|warning' } | Select-Object -First 200)
+              $diagnostics += ($truncated | Where-Object { $_ -match 'Starting local services|Stopping local services|Local services failed|psql|inspection|createdb|Prisma|Migration|Nest|FATAL|ERROR|error|Error|failed|Failed|shutdown|connection|refused|EADDR|ECONN|listening|ready|exit|WARNING|warning' -and $_ -notmatch 'Applying migration|RouterExplorer|RoutesResolver' } | Select-Object -First 250)
               $diagnostics += '--- desktop.log (tail 30) ---'
               $diagnostics += ($truncated | Select-Object -Last 30)
             }
