@@ -176,13 +176,13 @@ jobs:
             $desktopLog = Join-Path $dataRoot 'logs\desktop.log'
             if (Test-Path $desktopLog) {
               $desktopLines = Get-Content $desktopLog
-              $truncated = $desktopLines | ForEach-Object { if ($_.Length -gt 500) { $_.Substring(0, 500) } else { $_ } }
-              $diagnostics += '--- desktop.log (head 30) ---'
-              $diagnostics += ($truncated | Select-Object -First 30)
+              $truncated = $desktopLines | ForEach-Object { if ($_.Length -gt 400) { $_.Substring(0, 400) } else { $_ } }
+              $diagnostics += '--- desktop.log (head 15) ---'
+              $diagnostics += ($truncated | Select-Object -First 15)
               $diagnostics += '--- desktop.log (key lines) ---'
-              $diagnostics += ($truncated | Where-Object { $_ -match 'Starting local services|Stopping local services|Local services failed|psql|inspection|createdb|Prisma|Migration|Nest|FATAL|ERROR|error|Error|failed|Failed|shutdown|connection|refused|EADDR|ECONN|listening|ready|exit|WARNING|warning' -and $_ -notmatch 'Applying migration|RouterExplorer|RoutesResolver' } | Select-Object -First 250)
-              $diagnostics += '--- desktop.log (tail 30) ---'
-              $diagnostics += ($truncated | Select-Object -Last 30)
+              $diagnostics += ($truncated | Where-Object { $_ -match 'Starting local services|Stopping local services|Local services failed|psql|inspection|createdb|Prisma|Nest|FATAL|ERROR|error|Error|failed|Failed|shutdown|connection|refused|EADDR|ECONN|ready|exit|WARNING|warning' -and $_ -notmatch 'Applying migration|RouterExplorer|RoutesResolver|InstanceLoader' } | Select-Object -First 80)
+              $diagnostics += '--- desktop.log (tail 80) ---'
+              $diagnostics += ($truncated | Select-Object -Last 80)
             }
             if (Test-Path $installerLog) {
               $diagnostics += '--- installer.log (tail 10) ---'
