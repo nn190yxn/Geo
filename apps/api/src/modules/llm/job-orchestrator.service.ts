@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import type { AsyncJob, AsyncJobInput, AsyncJobStatus, AsyncJobType, BrandId } from '@geo-platform/shared-types';
 import { PermissionsService } from '../permissions/permissions.service';
 import { QuotaService } from './quota.service';
@@ -6,7 +6,7 @@ import { QuotaService } from './quota.service';
 @Injectable()
 export class JobOrchestratorService {
   private readonly retrying = new Set<string>();
-  constructor(private readonly permissionsService: PermissionsService, private readonly quota?: QuotaService, private readonly dispatcher?: { dispatch(job: AsyncJob): Promise<void> }) {}
+  constructor(private readonly permissionsService: PermissionsService, @Optional() private readonly quota?: QuotaService, @Optional() private readonly dispatcher?: { dispatch(job: AsyncJob): Promise<void> }) {}
 
   async enqueue(userId: string, brandId: BrandId, input: AsyncJobInput): Promise<AsyncJob | null> {
     const jobs = await Promise.resolve(this.permissionsService.listAsyncJobs(userId, brandId));
