@@ -49,9 +49,12 @@ function waitForRenderer() {
 
 async function close() {
   if (window && !window.isDestroyed()) window.destroy();
-  if (webServer) await new Promise(resolve => webServer.close(resolve));
-  if (apiServer) await new Promise(resolve => apiServer.close(resolve));
-  app.quit();
+  for (const server of [webServer, apiServer]) {
+    if (!server) continue;
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+  }
+  app.exit(process.exitCode || 0);
 }
 
 app.whenReady().then(async () => {
@@ -61,6 +64,8 @@ app.whenReady().then(async () => {
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ success: true, data: {} }));
   });
+  apiServer.keepAliveTimeout = 1000;
+  apiServer.headersTimeout = 2000;
   apiServer.listen(0, '127.0.0.1');
   await waitForListening(apiServer);
   const apiPort = apiServer.address().port;
