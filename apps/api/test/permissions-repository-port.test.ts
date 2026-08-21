@@ -42,11 +42,11 @@ describe('permissions repository port', () => {
     expect([finding, assetStats, channelStats, platformRule, recordPerformance].every((record) => record.brandId === 'brand_demo')).toBe(true);
   });
 
-  it('keeps the memory repository assignable to the service-facing port', () => {
+  it('keeps the memory repository assignable to the service-facing port', async () => {
     const repository: PermissionsRepositoryPort = new PermissionsRepository();
 
     expect(repository.findUser('user_demo')?.userId).toBe('user_demo');
-    expect(repository.listAccessibleBrands('user_demo').length).toBeGreaterThan(0);
+    expect((await repository.listAccessibleBrands('user_demo')).length).toBeGreaterThan(0);
     expect(repository.listDeniedAccessLogs('user_demo')).toEqual(expect.any(Array));
   });
 

@@ -163,8 +163,9 @@ export class PermissionsService {
     return this.permissionsRepository.findUser(userId);
   }
 
-  listAccessibleBrands(userId: string): AccessibleBrand[] {
-    return this.permissionsRepository.listAccessibleBrands(userId).map((brand) => ({
+  async listAccessibleBrands(userId: string): Promise<AccessibleBrand[]> {
+    const brands = await this.permissionsRepository.listAccessibleBrands(userId);
+    return brands.map((brand) => ({
       ...brand,
       capabilities: buildBrandCapabilitySummary(brand.role)
     }));

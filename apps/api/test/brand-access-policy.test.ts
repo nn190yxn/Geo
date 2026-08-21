@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import { buildBrandCapabilitySummary, resolveBrandAccessPolicy, satisfiesRole } from '../src/common/access-control/brand-access.policy';
 import { BrandAccessMiddleware } from '../src/common/middleware/brand-access.middleware';
 import type { PermissionsRepositoryPort } from '../src/modules/permissions/permissions.repository.port';
+import { PermissionsService } from '../src/modules/permissions/permissions.service';
 
 function createRequest(method: string, path: string, brandId = 'brand_demo'): Request {
   return {
@@ -84,6 +85,18 @@ describe('brand access policy', () => {
     expect(operator.resources.find((item) => item.resource === 'quick_start')).toMatchObject({ canWrite: true, minimumWriteRole: 'operator' });
     expect(operator.resources.find((item) => item.resource === 'brand')).toMatchObject({ canWrite: false, minimumWriteRole: 'admin' });
     expect(admin.resources.find((item) => item.resource === 'platform_config')).toMatchObject({ canWrite: true, minimumWriteRole: 'admin' });
+  });
+
+  it('builds capabilities when the repository loads brands asynchronously', async () => {
+    const service = new PermissionsService(createRepository('owner'));
+
+    await expect(service.listAccessibleBrands('user_demo')).resolves.toEqual([
+      expect.objectContaining({
+        brandId: 'brand_demo',
+        role: 'owner',
+        capabilities: expect.objectContaining({ resources: expect.any(Array) })
+      })
+    ]);
   });
 
   it('Property P8 keeps every public capability consistent with route authorization', () => {

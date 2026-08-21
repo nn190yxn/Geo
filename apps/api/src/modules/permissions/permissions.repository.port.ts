@@ -200,7 +200,7 @@ export type BrandStandardAnswerUpdateInput = Partial<BrandStandardAnswerInput> &
 export interface PermissionsRepositoryPort {
   findUser(userId: string): UserSummary | null;
   listOrganizationMemberships(userId: string): OrganizationMember[];
-  listAccessibleBrands(userId: string): AccessibleBrand[];
+  listAccessibleBrands(userId: string): MaybePromise<AccessibleBrand[]>;
   canAccessBrand(userId: string, brandId: BrandId): boolean;
   listAccessibleBrandDetails(userId: string): BrandDetail[];
   findAccessibleBrandDetail?(userId: string, brandId: BrandId): MaybePromise<BrandDetail | null>;
