@@ -188,6 +188,10 @@ jobs:
               $diagnostics += '--- installer.log (tail 10) ---'
               $diagnostics += (Get-Content $installerLog -Tail 10)
             }
+            if (Test-Path $installRoot) {
+              $diagnostics += '--- leftover installation directory ---'
+              $diagnostics += (Get-ChildItem $installRoot -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { if ($_.PSIsContainer) { $_.FullName + '\' } else { $_.FullName + ' [' + $_.Length + ']' } })
+            }
             Write-Output ('::error::' + (($diagnostics -join "`n") -replace "`n", '%0A'))
             exit 1
           }

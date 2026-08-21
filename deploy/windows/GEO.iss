@@ -31,6 +31,9 @@ Filename: "{app}\runtime\electron\electron.exe"; Parameters: """{app}\app"""; Wo
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\windows\Stop-GEO.ps1"""; Flags: runhidden waituntilterminated
 
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"
+
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
