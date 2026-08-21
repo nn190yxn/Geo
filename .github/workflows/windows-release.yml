@@ -114,6 +114,15 @@ jobs:
           name: windows-payload-validation-log
           path: release/validate.log
           if-no-files-found: warn
+      - name: Smoke test Windows renderer payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GEO_RENDER_SMOKE_ROOT = Join-Path $env:GITHUB_WORKSPACE 'release\payload\apps\web\dist'
+          $electron = Join-Path $env:GITHUB_WORKSPACE 'node_modules\electron\dist\electron.exe'
+          if (-not (Test-Path $electron)) { throw 'Electron executable was not found for renderer smoke test.' }
+          & $electron ./desktop/renderer-smoke.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows renderer smoke test failed.' }
       - name: Install Windows packager
         shell: pwsh
         run: |

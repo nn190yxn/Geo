@@ -451,7 +451,7 @@ Prisma 仓储实现同一组聚合端口。品牌资料库、内容资产页面�
 
 ## Windows 桌面运行时
 
-Windows 独立包由 `desktop/main.cjs` 创建 Electron 窗口，由 `desktop/runtime.cjs` 启动 PostgreSQL、API 和 Web 静态服务。运行时先写入 `services-ready`，主进程完成 `loadURL()` 后确认页面 `#root` 已产生 React 内容，再设置 `uiReady=true` 并写入 `running`；Windows Release E2E 同时检查 UI 就绪和 API readiness，避免后台服务已启动但桌面窗口仍为空白的情况。renderer 加载失败、进程退出和 console 错误会追加到用户数据目录下的 `logs/desktop.log`。
+Windows 独立包由 `desktop/main.cjs` 创建 Electron 窗口，由 `desktop/runtime.cjs` 启动 PostgreSQL、API 和 Web 静态服务。运行时先写入 `services-ready`，主进程完成 `loadURL()` 后确认页面 `#root` 已产生 React 内容，再设置 `uiReady=true` 并写入 `running`；Windows Release E2E 同时检查 UI 就绪和 API readiness，避免后台服务已启动但桌面窗口仍为空白的情况。renderer 加载失败、进程退出和 console 错误会追加到用户数据目录下的 `logs/desktop.log`，启动失败状态保留具体错误。生产构建将 Ant Design 及其 `rc-*` 依赖保留在同一 chunk，发布流程在制作安装包前使用 Windows Electron 直接加载最终 Web payload，校验页面挂载并拦截 renderer console error。
 
 ## 模块边界
 

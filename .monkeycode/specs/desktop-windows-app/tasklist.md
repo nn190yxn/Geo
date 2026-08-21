@@ -22,7 +22,7 @@
 
 - [x] 3.1 配置 Inno Setup 安装目录、开始菜单入口和桌面快捷方式。
 - [x] 3.2 保留 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data` 中的 PostgreSQL 数据和日志。
-- [ ] 3.3 验证覆盖安装、卸载和数据目录保留行为。
+- [x] 3.3 验证覆盖安装、卸载和数据目录保留行为。
 - [x] 3.4 配置 Windows Release workflow 构建和上传安装包。
 
 ## 4. 测试与验收
@@ -31,9 +31,10 @@
 - [ ] 4.2 增加数据库重复启动、迁移失败和子进程清理测试。
 - [x] 4.3 增加生产载荷依赖检查和缺失文件检查。
 - [x] 4.4 运行 `npm run verify`。
-- [ ] 4.5 在 Windows CI 中构建安装包并校验单个 EXE 输出。
-- [ ] 4.6 下载 Release 安装包并完成安装后启动验收。
+- [x] 4.5 在 Windows CI 中构建安装包并校验单个 EXE 输出。
+- [x] 4.6 下载 Release 安装包并完成安装后启动验收。
 - [x] 4.7 增加 Electron renderer UI 就绪校验，避免后台服务 readiness 误判为可用桌面窗口。
+- [x] 4.8 在安装包构建前使用 Windows Electron 对最终 Web payload 执行 renderer smoke test。
 
 ## 5. 审计修复
 
@@ -46,12 +47,12 @@
 
 ## 6. 发布
 
-- [ ] 6.1 提交代码和规格任务清单。
-- [ ] 6.2 创建新的版本标签并触发 Windows Release workflow。
-- [ ] 6.3 核对 Actions 日志、安装包大小、校验结果和 Release 附件。
+- [x] 6.1 提交代码和规格任务清单。
+- [x] 6.2 创建新的版本标签并触发 Windows Release workflow。
+- [x] 6.3 核对 Actions 日志、安装包大小、校验结果和 Release 附件。
 
 ## 当前验收状态
 
-- `npm run desktop:test` 通过，桌面运行时测试 4 项全部通过。
+- `npm run desktop:test` 通过，桌面运行时测试 5 项全部通过。
 - `npm run verify` 通过，包含完整依赖审计、Prisma schema 校验与 Client 生成、类型检查、API/Web 测试和构建。
-- PowerShell、Inno Setup、真实安装升级和卸载验收由 Windows Release workflow 或 Windows 真机完成。
+- Windows Release `v1.0.66` 已通过最终 Web payload 渲染、单一 EXE、真实安装、两次启动、覆盖升级、卸载和数据保留验收。

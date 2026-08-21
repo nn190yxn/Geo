@@ -96,7 +96,12 @@ async function createWindow() {
       mainWindow.on('closed', () => { mainWindow = undefined; });
       return;
     } catch (error) {
-      await stopServices(services);
+      const failedServices = services;
+      await stopServices(failedServices);
+      if (failedServices) {
+        logRendererEvent(`Desktop startup failed: ${error.message}`);
+        writeRuntimeState(failedServices, 'failed', error.message);
+      }
       services = undefined;
       if (!await showStartupFailure(error)) {
         app.quit();
