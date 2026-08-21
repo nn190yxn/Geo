@@ -95,6 +95,7 @@ async function main() {
   await prisma.brand.upsert({
     where: { id: demoBrandId },
     update: {
+      organizationId: demoOrganizationId,
       name: '追光小牛',
       status: 'active',
       industry: '儿童运动成长',
@@ -106,6 +107,7 @@ async function main() {
     },
     create: {
       id: demoBrandId,
+      organizationId: demoOrganizationId,
       name: '追光小牛',
       status: 'active',
       industry: '儿童运动成长',

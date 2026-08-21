@@ -20,6 +20,19 @@ test('resolves portable runtime paths under the app and user data roots', () => 
   );
 });
 
+test('keeps the desktop demo brand linked to its organization during seed', () => {
+  const seedPath = path.join(__dirname, '..', 'apps', 'api', 'prisma', 'seed.js');
+  const seedSource = fs.readFileSync(seedPath, 'utf8');
+  const brandSeed = seedSource.match(/await prisma\.brand\.upsert\(\{([\s\S]*?)await prisma\.userBrandPermission\.upsert/);
+
+  assert.ok(brandSeed, 'Expected the demo brand upsert in the packaged seed.');
+  assert.equal(
+    brandSeed[1].match(/organizationId: demoOrganizationId/g)?.length,
+    2,
+    'Both brand create and update must preserve the required organization relation.',
+  );
+});
+
 test('waits for an HTTP readiness endpoint to return success', async () => {
   const server = http.createServer((request, response) => {
     response.writeHead(request.url === '/ready' ? 200 : 503);
