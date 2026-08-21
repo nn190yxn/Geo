@@ -168,26 +168,37 @@ jobs:
           $sentinel = Join-Path $dataRoot 'release-e2e.txt'
           $installerLog = Join-Path $env:GITHUB_WORKSPACE 'release\installer.log'
           trap {
-            Write-Output "::error::Desktop E2E failure: $($_.Exception.Message)"
-            if (Test-Path $installerLog) {
-              Write-Output '::error::--- installer.log ---'
-              Get-Content $installerLog -Tail 60 | ForEach-Object { Write-Output "::error::$_" }
-            }
+            $diagnostics = @("Desktop E2E failure: $($_.Exception.Message)")
             if (Test-Path $stateFile) {
-              Write-Output '::error::--- runtime-state.json ---'
-              Get-Content $stateFile -Raw | ForEach-Object { Write-Output "::error::$_" }
+              $diagnostics += '--- runtime-state.json ---'
+              $diagnostics += (Get-Content $stateFile -Raw)
             }
             $desktopLog = Join-Path $dataRoot 'logs\desktop.log'
             if (Test-Path $desktopLog) {
-              Write-Output '::error::--- desktop.log ---'
-              Get-Content $desktopLog -Tail 60 | ForEach-Object { Write-Output "::error::$_" }
+              $diagnostics += '--- desktop.log (tail 40) ---'
+              $diagnostics += ((Get-Content $desktopLog -Tail 40) | ForEach-Object { if ($_.Length -gt 600) { $_.Substring(0, 600) } else { $_ } })
             }
+            if (Test-Path $installerLog) {
+              $diagnostics += '--- installer.log (tail 10) ---'
+              $diagnostics += (Get-Content $installerLog -Tail 10)
+            }
+            Write-Output ('::error::' + (($diagnostics -join "`n") -replace "`n", '%0A'))
             exit 1
           }
 
           function Wait-ForReady {
             $deadline = (Get-Date).AddMinutes(2)
+            $iteration = 0
             while ((Get-Date) -lt $deadline) {
+              $iteration++
+              if ($iteration % 20 -eq 0) {
+                $summary = 'no state file yet'
+                if (Test-Path $stateFile) {
+                  $s = Get-Content $stateFile -Raw | ConvertFrom-Json
+                  $summary = "status=$($s.status) apiProcessId=$($s.apiProcessId) apiPort=$($s.apiPort) error=$($s.error)"
+                }
+                Write-Output "::warning::Wait-ForReady $($iteration)s: $summary"
+              }
               if (Test-Path $stateFile) {
                 $state = Get-Content $stateFile -Raw | ConvertFrom-Json
                 if ($state.status -eq 'failed') {
