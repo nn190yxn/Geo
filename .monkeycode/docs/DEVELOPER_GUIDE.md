@@ -61,7 +61,7 @@ npm run db:prepare
 
 对外产品名为“AI品牌曝光助手”。推送 `v<major>.<minor>.<patch>` 标签时，GitHub Actions 使用 Windows Runner 生成包含 API、Web、Electron 和 PostgreSQL runtime 的 EXE 安装包及 GitHub Release。Windows 安装包独立运行，运行数据保留在 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data`，升级安装包后继续复用数据库和日志。
 
-发布配置位于 `当前工作区/.github/workflows/windows-release.yml`，安装程序与控制脚本位于 `当前工作区/deploy/windows/`。
+发布配置位于 `当前工作区/.github/workflows/windows-release.yml`，安装程序与控制脚本位于 `当前工作区/deploy/windows/`。桌面启动状态先经过 `services-ready`，Electron 确认 Web 页面 `#root` 已渲染后才写入 `running`，Windows E2E 会同时验证 `uiReady` 和 API readiness。renderer 的加载失败、崩溃及 console 输出位于 `%LOCALAPPDATA%\AI-Brand-Visibility-Assistant\data\logs\desktop.log`。
 
 ## Repository 切换
 

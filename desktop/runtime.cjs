@@ -145,7 +145,9 @@ function writeRuntimeState(state, status, error) {
     processId: process.pid,
     apiProcessId: state.api?.pid || null,
     apiPort: state.apiPort || null,
+    webPort: state.webPort || null,
     databasePort: state.databasePort || null,
+    uiReady: state.uiReady === true,
     updatedAt: new Date().toISOString()
   }, null, 2)}\n`);
 }
@@ -303,7 +305,7 @@ async function startServices(appRoot, dataRoot) {
     const web = require('./web-server.cjs').start(paths.webRoot, webPort, apiPort, logFile);
     state.web = web;
     await waitForPort(webPort);
-    writeRuntimeState(state, 'running');
+    writeRuntimeState(state, 'services-ready');
     return state;
   } catch (error) {
     await stopServices(state);

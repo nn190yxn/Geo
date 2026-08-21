@@ -2,8 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
-const { getRuntimePaths, waitForCommandExit, waitForHttpReady } = require('./runtime.cjs');
+const { getRuntimePaths, waitForCommandExit, waitForHttpReady, writeRuntimeState } = require('./runtime.cjs');
 
 test('resolves portable runtime paths under the app and user data roots', () => {
   const paths = getRuntimePaths('C:\\App', 'C:\\Users\\Test\\Data');
@@ -51,4 +53,28 @@ test('rejects and terminates a command that does not exit by its deadline', asyn
 
   await assert.rejects(waitForCommandExit(child, 20, 'Database initialization failed.'));
   assert.equal(child.killedWith, 'SIGKILL');
+});
+
+test('persists UI readiness separately from service readiness', () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'geo-desktop-state-'));
+  const state = {
+    paths: { dataRoot },
+    api: { pid: 1234 },
+    apiPort: 4100,
+    webPort: 4173,
+    databasePort: 5432,
+    uiReady: false,
+  };
+
+  writeRuntimeState(state, 'services-ready');
+  let persisted = JSON.parse(fs.readFileSync(path.join(dataRoot, 'runtime-state.json'), 'utf8'));
+  assert.equal(persisted.status, 'services-ready');
+  assert.equal(persisted.webPort, 4173);
+  assert.equal(persisted.uiReady, false);
+
+  state.uiReady = true;
+  writeRuntimeState(state, 'running');
+  persisted = JSON.parse(fs.readFileSync(path.join(dataRoot, 'runtime-state.json'), 'utf8'));
+  assert.equal(persisted.status, 'running');
+  assert.equal(persisted.uiReady, true);
 });

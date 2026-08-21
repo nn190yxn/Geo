@@ -211,7 +211,7 @@ jobs:
                 if ($state.status -eq 'failed') {
                   throw "Desktop application startup failed: $($state.error)"
                 }
-                if ($state.status -eq 'running' -and $state.apiProcessId -and $state.databasePort) {
+                if ($state.status -eq 'running' -and $state.uiReady -eq $true -and $state.apiProcessId -and $state.databasePort) {
                   try {
                     $response = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$($state.apiPort)/api/v1/health/ready" -TimeoutSec 5
                     if ($response.StatusCode -eq 200) { return }
@@ -222,7 +222,7 @@ jobs:
               }
               Start-Sleep -Seconds 1
             }
-            throw 'Desktop application did not reach the readiness endpoint within two minutes.'
+            throw 'Desktop application did not render its UI and reach the readiness endpoint within two minutes.'
           }
 
           $installerArguments = @(

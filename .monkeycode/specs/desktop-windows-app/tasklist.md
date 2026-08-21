@@ -33,6 +33,7 @@
 - [x] 4.4 运行 `npm run verify`。
 - [ ] 4.5 在 Windows CI 中构建安装包并校验单个 EXE 输出。
 - [ ] 4.6 下载 Release 安装包并完成安装后启动验收。
+- [x] 4.7 增加 Electron renderer UI 就绪校验，避免后台服务 readiness 误判为可用桌面窗口。
 
 ## 5. 审计修复
 

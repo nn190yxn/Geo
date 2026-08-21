@@ -1,6 +1,6 @@
 const { app, BrowserWindow, dialog } = require('electron');
 const path = require('node:path');
-const { startServices, stopServices } = require('./runtime.cjs');
+const { startServices, stopServices, writeRuntimeState } = require('./runtime.cjs');
 
 let mainWindow;
 let services;
@@ -17,6 +17,24 @@ function focusMainWindow() {
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
+}
+
+function logRendererEvent(message) {
+  const logFile = getLogFile();
+  require('node:fs').appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`);
+}
+
+async function waitForRendererReady(window) {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const ready = await window.webContents.executeJavaScript(
+      "document.readyState === 'complete' && Boolean(document.querySelector('#root > *'))",
+      true,
+    );
+    if (ready) return;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error('The desktop page loaded without rendering the application UI.');
 }
 
 async function showStartupFailure(error) {
@@ -58,8 +76,23 @@ async function createWindow() {
           sandbox: true
         }
       });
+      mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+        logRendererEvent(`Renderer failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+      });
+      mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        logRendererEvent(`Renderer process exited: ${details.reason || 'unknown'}${details.exitCode === undefined ? '' : ` (exit code ${details.exitCode})`}`);
+      });
+      mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        logRendererEvent(`Renderer console [${level}] ${sourceId}:${line} ${message}`);
+      });
+      mainWindow.once('ready-to-show', () => {
+        logRendererEvent('Renderer emitted ready-to-show.');
+      });
       await mainWindow.loadURL(`http://127.0.0.1:${services.webPort}`);
-      mainWindow.once('ready-to-show', () => mainWindow.show());
+      await waitForRendererReady(mainWindow);
+      services.uiReady = true;
+      writeRuntimeState(services, 'running');
+      mainWindow.show();
       mainWindow.on('closed', () => { mainWindow = undefined; });
       return;
     } catch (error) {
