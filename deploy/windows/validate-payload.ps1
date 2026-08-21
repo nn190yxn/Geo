@@ -64,17 +64,25 @@ $prismaSchema = Join-Path $PayloadRoot 'app\apps\api\prisma\schema.prisma'
 
 # electron.exe is a GUI subsystem binary. Calling it with the call operator does
 # not block and does not update $LASTEXITCODE, so Start-Process -Wait is required.
+# Start-Process re-joins ArgumentList into a single command line, so arguments
+# containing spaces or quotes are wrapped manually to survive that re-joining.
 function Invoke-ElectronNode {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
   $stdoutFile = Join-Path $env:TEMP ('electron-node-out-' + [guid]::NewGuid().ToString('N') + '.log')
   $stderrFile = Join-Path $env:TEMP ('electron-node-err-' + [guid]::NewGuid().ToString('N') + '.log')
-  $process = Start-Process -FilePath $electron -ArgumentList $Arguments -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+  $quotedArguments = $Arguments | ForEach-Object {
+    if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+  }
+  $process = Start-Process -FilePath $electron -ArgumentList $quotedArguments -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
   $stdout = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw } else { '' }
   $stderr = if (Test-Path $stderrFile) { Get-Content $stderrFile -Raw } else { '' }
   [pscustomobject]@{ ExitCode = $process.ExitCode; Output = ($stdout + $stderr) }
 }
 
-$probe = Invoke-ElectronNode @('-e', 'console.log("ELECTRON_NODE_OK")')
+# Use a probe script file instead of -e so embedded quotes are not re-parsed.
+$probeFile = Join-Path $env:TEMP ('electron-probe-' + [guid]::NewGuid().ToString('N') + '.js')
+Set-Content -Path $probeFile -Value "console.log('ELECTRON_NODE_OK')" -Encoding ascii
+$probe = Invoke-ElectronNode @($probeFile)
 if ($probe.ExitCode -ne 0 -or $probe.Output -notmatch 'ELECTRON_NODE_OK') {
   throw "Electron runtime did not start in Node mode (exit $($probe.ExitCode)): $($probe.Output)"
 }
