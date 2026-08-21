@@ -168,20 +168,19 @@ jobs:
           $sentinel = Join-Path $dataRoot 'release-e2e.txt'
           $installerLog = Join-Path $env:GITHUB_WORKSPACE 'release\installer.log'
           trap {
-            Write-Output "Desktop E2E failure: $($_.Exception.Message)"
+            Write-Output "::error::Desktop E2E failure: $($_.Exception.Message)"
             if (Test-Path $installerLog) {
-              Write-Output "--- $installerLog ---"
-              Get-Content $installerLog -Raw
+              Write-Output '::error::--- installer.log ---'
+              Get-Content $installerLog -Tail 60 | ForEach-Object { Write-Output "::error::$_" }
             }
-            if (Test-Path $installRoot) {
-              Write-Output "--- installed files ---"
-              Get-ChildItem $installRoot -Recurse | Select-Object FullName, Length, LastWriteTime | Format-Table -AutoSize | Out-String | Write-Output
+            if (Test-Path $stateFile) {
+              Write-Output '::error::--- runtime-state.json ---'
+              Get-Content $stateFile -Raw | ForEach-Object { Write-Output "::error::$_" }
             }
-            foreach ($diagnosticFile in @($stateFile, (Join-Path $dataRoot 'logs\desktop.log'))) {
-              if (Test-Path $diagnosticFile) {
-                Write-Output "--- $diagnosticFile ---"
-                Get-Content $diagnosticFile -Raw
-              }
+            $desktopLog = Join-Path $dataRoot 'logs\desktop.log'
+            if (Test-Path $desktopLog) {
+              Write-Output '::error::--- desktop.log ---'
+              Get-Content $desktopLog -Tail 60 | ForEach-Object { Write-Output "::error::$_" }
             }
             exit 1
           }
