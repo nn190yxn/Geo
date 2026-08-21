@@ -233,7 +233,21 @@ async function prepareDatabase(paths, logFile) {
   try {
     await waitForPort(databasePort, 60000);
     const psql = path.join(paths.postgresBin, process.platform === 'win32' ? 'psql.exe' : 'psql');
-    const existing = await runCommandOutput(psql, ['-h', '127.0.0.1', '-p', String(databasePort), '-U', 'geo', '-d', 'postgres', '-t', '-A', '-c', "SELECT 1 FROM pg_database WHERE datname='geo_platform'"], { cwd: paths.appRoot }, logFile, 'Local database inspection failed.');
+    const psqlArgs = ['-h', '127.0.0.1', '-p', String(databasePort), '-U', 'geo', '-d', 'postgres', '-t', '-A', '-c', "SELECT 1 FROM pg_database WHERE datname='geo_platform'"];
+    let existing = '';
+    let inspectionError = null;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      try {
+        existing = await runCommandOutput(psql, psqlArgs, { cwd: paths.appRoot }, logFile, 'Local database inspection failed.');
+        inspectionError = null;
+        break;
+      } catch (error) {
+        inspectionError = error;
+        appendLog(logFile, `Database inspection attempt ${attempt + 1} failed, retrying: ${error.message}`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    if (inspectionError) throw inspectionError;
     if (!existing.includes('1')) {
       const createdb = path.join(paths.postgresBin, process.platform === 'win32' ? 'createdb.exe' : 'createdb');
       await runCommand(createdb, ['-h', '127.0.0.1', '-p', String(databasePort), '-U', 'geo', 'geo_platform'], { cwd: paths.appRoot }, logFile, 'Local database creation failed.');
