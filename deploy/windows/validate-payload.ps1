@@ -62,20 +62,32 @@ $electron = Join-Path $PayloadRoot 'runtime\electron\electron.exe'
 $prismaCli = Join-Path $PayloadRoot 'app\apps\api\node_modules\prisma\build\index.js'
 $prismaSchema = Join-Path $PayloadRoot 'app\apps\api\prisma\schema.prisma'
 
-$electronProbe = & $electron -e "console.log('ELECTRON_NODE_OK')" 2>&1
-if ($LASTEXITCODE -ne 0 -or (($electronProbe -join ' ') -notmatch 'ELECTRON_NODE_OK')) {
-  throw "Electron runtime did not start in Node mode (exit $LASTEXITCODE): $($electronProbe -join ' | ')"
+# electron.exe is a GUI subsystem binary. Calling it with the call operator does
+# not block and does not update $LASTEXITCODE, so Start-Process -Wait is required.
+function Invoke-ElectronNode {
+  param([Parameter(Mandatory = $true)][string[]]$Arguments)
+  $stdoutFile = Join-Path $env:TEMP ('electron-node-out-' + [guid]::NewGuid().ToString('N') + '.log')
+  $stderrFile = Join-Path $env:TEMP ('electron-node-err-' + [guid]::NewGuid().ToString('N') + '.log')
+  $process = Start-Process -FilePath $electron -ArgumentList $Arguments -Wait -PassThru -NoNewWindow -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
+  $stdout = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw } else { '' }
+  $stderr = if (Test-Path $stderrFile) { Get-Content $stderrFile -Raw } else { '' }
+  [pscustomobject]@{ ExitCode = $process.ExitCode; Output = ($stdout + $stderr) }
 }
 
-$validateOutput = & $electron $prismaCli 'validate' '--schema' $prismaSchema 2>&1
-if ($LASTEXITCODE -ne 0) {
-  throw "Bundled Prisma CLI failed to validate the schema from the final payload (exit $LASTEXITCODE): $($validateOutput -join ' | ')"
+$probe = Invoke-ElectronNode @('-e', 'console.log("ELECTRON_NODE_OK")')
+if ($probe.ExitCode -ne 0 -or $probe.Output -notmatch 'ELECTRON_NODE_OK') {
+  throw "Electron runtime did not start in Node mode (exit $($probe.ExitCode)): $($probe.Output)"
 }
 
-$versionOutput = & $electron $prismaCli '--version' 2>&1
-if ($LASTEXITCODE -ne 0) {
-  throw "Bundled Prisma CLI failed to load from the final payload (exit $LASTEXITCODE): $($versionOutput -join ' | ')"
+$validateResult = Invoke-ElectronNode @($prismaCli, 'validate', '--schema', $prismaSchema)
+if ($validateResult.ExitCode -ne 0) {
+  throw "Bundled Prisma CLI failed to validate the schema from the final payload (exit $($validateResult.ExitCode)): $($validateResult.Output)"
 }
-Write-Output "Bundled Prisma CLI reported: $($versionOutput -join ' ')"
+
+$versionResult = Invoke-ElectronNode @($prismaCli, '--version')
+if ($versionResult.ExitCode -ne 0) {
+  throw "Bundled Prisma CLI failed to load from the final payload (exit $($versionResult.ExitCode)): $($versionResult.Output)"
+}
+Write-Output "Bundled Prisma CLI reported: $($versionResult.Output.Trim())"
 
 Write-Output "Validated Windows payload at $PayloadRoot"
