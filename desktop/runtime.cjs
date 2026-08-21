@@ -231,8 +231,7 @@ async function prepareDatabase(paths, logFile) {
   const database = spawnLogged(pgCtl, ['-D', paths.databaseRoot, '-w', '-o', `-p ${databasePort}`, 'start'], { cwd: paths.appRoot }, logFile);
   const databaseState = { database, pgCtl, databaseRoot: paths.databaseRoot, logFile };
   try {
-    await new Promise((resolve, reject) => database.once('close', code => code === 0 ? resolve() : reject(new Error('Local database startup failed.'))));
-    await waitForPort(databasePort);
+    await waitForPort(databasePort, 60000);
     const psql = path.join(paths.postgresBin, process.platform === 'win32' ? 'psql.exe' : 'psql');
     const existing = await runCommandOutput(psql, ['-h', '127.0.0.1', '-p', String(databasePort), '-U', 'geo', '-d', 'postgres', '-t', '-A', '-c', "SELECT 1 FROM pg_database WHERE datname='geo_platform'"], { cwd: paths.appRoot }, logFile, 'Local database inspection failed.');
     if (!existing.includes('1')) {
@@ -257,14 +256,15 @@ async function startServices(appRoot, dataRoot) {
     const databaseState = await prepareDatabase(paths, logFile);
     state = { paths, database: databaseState.database, databasePort: databaseState.databasePort, pgCtl: databaseState.pgCtl, databaseRoot: paths.databaseRoot, logFile };
     if (!fs.existsSync(paths.prismaCli)) throw new Error('The bundled Prisma CLI is missing from the production payload.');
-    await runCommand(process.execPath, [paths.prismaCli, 'migrate', 'deploy', '--schema', paths.prismaSchema], {
+    const migration = spawnLogged(process.execPath, [paths.prismaCli, 'migrate', 'deploy', '--schema', paths.prismaSchema], {
       cwd: paths.appRoot,
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
         DATABASE_URL: `postgresql://geo@127.0.0.1:${databaseState.databasePort}/geo_platform?schema=public`
       }
-    }, logFile, 'Local database migration failed.');
+    }, logFile);
+    await waitForCommandExit(migration, 120000, 'Local database migration failed.');
     const apiPort = await findFreePort();
     const webPort = await findFreePort();
     const node = process.execPath;
