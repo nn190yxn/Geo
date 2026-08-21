@@ -121,8 +121,23 @@ jobs:
           $env:GEO_RENDER_SMOKE_ROOT = Join-Path $env:GITHUB_WORKSPACE 'release\payload\apps\web\dist'
           $electron = Join-Path $env:GITHUB_WORKSPACE 'node_modules\electron\dist\electron.exe'
           if (-not (Test-Path $electron)) { throw 'Electron executable was not found for renderer smoke test.' }
-          & $electron ./desktop/renderer-smoke.cjs
-          if ($LASTEXITCODE -ne 0) { throw 'Windows renderer smoke test failed.' }
+          $smokeLog = Join-Path $env:GITHUB_WORKSPACE 'release\renderer-smoke.log'
+          $output = & $electron ./desktop/renderer-smoke.cjs 2>&1
+          $smokeExitCode = $LASTEXITCODE
+          $lines = @($output | ForEach-Object { "$_" })
+          $lines | Tee-Object -FilePath $smokeLog
+          if ($smokeExitCode -ne 0) {
+            $details = (($lines | Select-Object -Last 30) -join ' | ').Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows renderer smoke test failed::$details"
+            exit $smokeExitCode
+          }
+      - name: Upload renderer smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-renderer-smoke-log
+          path: release/renderer-smoke.log
+          if-no-files-found: warn
       - name: Install Windows packager
         shell: pwsh
         run: |
