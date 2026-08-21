@@ -52,7 +52,10 @@ async function close() {
   for (const server of [webServer, apiServer]) {
     if (!server) continue;
     server.closeAllConnections?.();
-    await new Promise(resolve => server.close(resolve));
+    await Promise.race([
+      new Promise(resolve => server.close(resolve)),
+      new Promise(resolve => setTimeout(resolve, 2000)),
+    ]);
   }
   app.exit(process.exitCode || 0);
 }
