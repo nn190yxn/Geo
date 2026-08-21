@@ -162,7 +162,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $installer = (Get-ChildItem release/output/*.exe).FullName
-          $installRoot = Join-Path $env:ProgramFiles 'AI品牌曝光助手'
+          $installRoot = Join-Path $env:ProgramFiles 'AI-Brand-Visibility-Assistant'
           $dataRoot = Join-Path $env:LOCALAPPDATA 'AI-Brand-Visibility-Assistant\data'
           $stateFile = Join-Path $dataRoot 'runtime-state.json'
           $sentinel = Join-Path $dataRoot 'release-e2e.txt'
@@ -258,7 +258,7 @@ jobs:
           if (Test-Path $installerLog) {
             Copy-Item $installerLog (Join-Path $destination 'installer.log') -Force
           }
-          $installRoot = Join-Path $env:ProgramFiles 'AI品牌曝光助手'
+          $installRoot = Join-Path $env:ProgramFiles 'AI-Brand-Visibility-Assistant'
           if (Test-Path $installRoot) {
             Get-ChildItem $installRoot -Recurse | Select-Object FullName, Length, LastWriteTime |
               ConvertTo-Json -Depth 2 |

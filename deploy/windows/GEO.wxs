@@ -6,7 +6,7 @@
     <MediaTemplate EmbedCab="yes" />
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLFOLDER" Name="AI品牌曝光助手">
+        <Directory Id="INSTALLFOLDER" Name="AI-Brand-Visibility-Assistant">
           <Directory Id="RELEASEDIR" Name="release" />
           <Directory Id="WINDOWSDIR" Name="windows" />
         </Directory>
