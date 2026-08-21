@@ -245,8 +245,13 @@ jobs:
           Wait-ForReady
           & (Join-Path $installRoot 'windows\Stop-GEO.ps1')
 
-          & (Join-Path $installRoot 'unins000.exe') /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Uninstaller failed with exit code $LASTEXITCODE" }
+          $uninstaller = Join-Path $installRoot 'unins000.exe'
+          $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($uninstallProcess.ExitCode -ne 0) { throw "Uninstaller failed with exit code $($uninstallProcess.ExitCode)" }
+          $uninstallDeadline = (Get-Date).AddMinutes(2)
+          while ((Get-Date) -lt $uninstallDeadline -and (Test-Path $installRoot)) {
+            Start-Sleep -Seconds 1
+          }
           if (-not (Test-Path $sentinel)) { throw 'Uninstall removed persisted user data.' }
           if (Test-Path $installRoot) { throw 'Uninstall left the application installation directory behind.' }
       - name: Collect Windows E2E diagnostics

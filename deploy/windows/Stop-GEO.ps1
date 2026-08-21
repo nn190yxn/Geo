@@ -18,6 +18,10 @@ if (Test-Path $pgCtl) {
   if ($LASTEXITCODE -ne 0) {
     & $pgCtl -D $databaseRoot -m immediate -w stop
   }
+  $pgDeadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $pgDeadline -and (Get-Process -Name 'postgres' -ErrorAction SilentlyContinue)) {
+    Start-Sleep -Milliseconds 500
+  }
 }
 
 foreach ($processId in @($state.apiProcessId, $state.processId)) {
