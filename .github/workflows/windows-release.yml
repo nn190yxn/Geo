@@ -175,8 +175,12 @@ jobs:
             }
             $desktopLog = Join-Path $dataRoot 'logs\desktop.log'
             if (Test-Path $desktopLog) {
-              $diagnostics += '--- desktop.log (tail 40) ---'
-              $diagnostics += ((Get-Content $desktopLog -Tail 40) | ForEach-Object { if ($_.Length -gt 600) { $_.Substring(0, 600) } else { $_ } })
+              $desktopLines = Get-Content $desktopLog
+              $truncated = $desktopLines | ForEach-Object { if ($_.Length -gt 500) { $_.Substring(0, 500) } else { $_ } }
+              $diagnostics += '--- desktop.log (head 50) ---'
+              $diagnostics += ($truncated | Select-Object -First 50)
+              $diagnostics += '--- desktop.log (tail 50) ---'
+              $diagnostics += ($truncated | Select-Object -Last 50)
             }
             if (Test-Path $installerLog) {
               $diagnostics += '--- installer.log (tail 10) ---'
