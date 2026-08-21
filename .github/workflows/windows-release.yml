@@ -285,6 +285,16 @@ jobs:
           if ($installProcess.ExitCode -ne 0) { throw "Initial installer failed with exit code $($installProcess.ExitCode)" }
           & (Join-Path $installRoot 'windows\Start-GEO.ps1')
           Wait-ForReady
+          $state = Get-Content $stateFile -Raw | ConvertFrom-Json
+          $apiHeaders = @{ 'x-user-id' = 'user_demo'; 'x-brand-id' = 'brand_demo' }
+          $brandsResponse = Invoke-RestMethod -UseBasicParsing "http://127.0.0.1:$($state.apiPort)/api/v1/brands" -Headers $apiHeaders -TimeoutSec 10
+          if (-not $brandsResponse.success -or -not ($brandsResponse.data | Where-Object { $_.brandId -eq 'brand_demo' })) {
+            throw 'Seeded demo brand is unavailable after desktop startup.'
+          }
+          $dashboardResponse = Invoke-RestMethod -UseBasicParsing "http://127.0.0.1:$($state.apiPort)/api/v1/brands/brand_demo/dashboards/beginner-home" -Headers $apiHeaders -TimeoutSec 10
+          if (-not $dashboardResponse.success) {
+            throw 'Seeded demo dashboard request failed after desktop startup.'
+          }
           New-Item -ItemType File -Path $sentinel -Force | Out-Null
           & (Join-Path $installRoot 'windows\Stop-GEO.ps1')
 

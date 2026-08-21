@@ -18,6 +18,7 @@ $requiredFiles = @(
   'app\desktop\runtime.cjs',
   'app\apps\api\dist\apps\api\src\main.js',
   'app\apps\api\prisma\schema.prisma',
+  'app\apps\api\prisma\seed.js',
   'app\apps\api\prisma\migrations',
   'app\apps\web\dist\index.html',
   'app\apps\api\node_modules\prisma\build\index.js',

@@ -16,6 +16,7 @@ function getRuntimePaths(appRoot, dataRoot) {
     postgresBin: path.join(postgresRoot, 'bin'),
     apiEntry: path.join(appRoot, 'apps', 'api', 'dist', 'apps', 'api', 'src', 'main.js'),
     prismaSchema: path.join(appRoot, 'apps', 'api', 'prisma', 'schema.prisma'),
+    prismaSeed: path.join(appRoot, 'apps', 'api', 'prisma', 'seed.js'),
     webRoot: path.join(appRoot, 'apps', 'web', 'dist'),
     prismaCli: path.join(appRoot, 'apps', 'api', 'node_modules', 'prisma', 'build', 'index.js')
   };
@@ -281,6 +282,15 @@ async function startServices(appRoot, dataRoot) {
       }
     }, logFile);
     await waitForCommandExit(migration, 120000, 'Local database migration failed.');
+    const seed = spawnLogged(process.execPath, [paths.prismaSeed], {
+      cwd: paths.appRoot,
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        DATABASE_URL: `postgresql://geo@127.0.0.1:${databaseState.databasePort}/geo_platform?schema=public`
+      }
+    }, logFile);
+    await waitForCommandExit(seed, 120000, 'Local database seed failed.');
     const apiPort = await findFreePort();
     const webPort = await findFreePort();
     const node = process.execPath;
