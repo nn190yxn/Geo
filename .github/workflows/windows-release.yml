@@ -118,18 +118,39 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $installerUrl = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
-          $expectedHash = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
-          $installer = Join-Path $env:TEMP 'innosetup-7.1.0-x64.exe'
-          Invoke-WebRequest -UseBasicParsing $installerUrl -OutFile $installer
-          $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualHash -ne $expectedHash) { throw "Inno Setup installer SHA256 mismatch: $actualHash" }
           $installLog = Join-Path $env:GITHUB_WORKSPACE 'release\inno-install.log'
-          $installProcess = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',"/LOG=$installLog" -Wait -PassThru
-          if ($installProcess.ExitCode -ne 0) {
-            if (Test-Path $installLog) { Get-Content $installLog -Tail 30 }
-            throw "Inno Setup installation failed with exit code $($installProcess.ExitCode)"
+          $existingIscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if (-not $existingIscc) {
+            $knownPaths = @(
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
+              (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+              (Join-Path ${env:ProgramFiles} 'Inno Setup 7\ISCC.exe'),
+              (Join-Path ${env:ProgramFiles} 'Inno Setup 6\ISCC.exe')
+            )
+            $existingIscc = $knownPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
           }
+          if ($existingIscc) {
+            Write-Output "Using preinstalled Inno Setup compiler: $($existingIscc.Source ?? $existingIscc)"
+          } else {
+            $installerUrl = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe'
+            $expectedHash = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
+            $installer = Join-Path $env:TEMP 'innosetup-7.1.0-x64.exe'
+            Invoke-WebRequest -UseBasicParsing $installerUrl -OutFile $installer
+            $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) { throw "Inno Setup installer SHA256 mismatch: $actualHash" }
+            $installProcess = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',"/LOG=$installLog" -Wait -PassThru
+            if ($installProcess.ExitCode -ne 0) {
+              if (Test-Path $installLog) { Get-Content $installLog -Tail 50 }
+              throw "Inno Setup installation failed with exit code $($installProcess.ExitCode)"
+            }
+          }
+      - name: Upload Inno Setup installation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-inno-install-log
+          path: release/inno-install.log
+          if-no-files-found: warn
       - name: Build EXE
         shell: pwsh
         env:
