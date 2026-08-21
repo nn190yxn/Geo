@@ -177,10 +177,12 @@ jobs:
             if (Test-Path $desktopLog) {
               $desktopLines = Get-Content $desktopLog
               $truncated = $desktopLines | ForEach-Object { if ($_.Length -gt 500) { $_.Substring(0, 500) } else { $_ } }
-              $diagnostics += '--- desktop.log (head 50) ---'
-              $diagnostics += ($truncated | Select-Object -First 50)
-              $diagnostics += '--- desktop.log (tail 50) ---'
-              $diagnostics += ($truncated | Select-Object -Last 50)
+              $diagnostics += '--- desktop.log (head 30) ---'
+              $diagnostics += ($truncated | Select-Object -First 30)
+              $diagnostics += '--- desktop.log (key lines) ---'
+              $diagnostics += ($truncated | Where-Object { $_ -match 'Starting local services|Stopping local services|Local services failed|psql|inspection|createdb|Prisma|migration|Migration|Nest|FATAL|ERROR|error|Error|failed|Failed|shutdown|connection|refused|EADDR|ECONN|listening|ready|exit|WARNING|warning' } | Select-Object -First 200)
+              $diagnostics += '--- desktop.log (tail 30) ---'
+              $diagnostics += ($truncated | Select-Object -Last 30)
             }
             if (Test-Path $installerLog) {
               $diagnostics += '--- installer.log (tail 10) ---'
@@ -193,18 +195,15 @@ jobs:
           function Wait-ForReady {
             $deadline = (Get-Date).AddMinutes(2)
             $iteration = 0
+            $lastStatus = $null
             while ((Get-Date) -lt $deadline) {
               $iteration++
-              if ($iteration % 20 -eq 0) {
-                $summary = 'no state file yet'
-                if (Test-Path $stateFile) {
-                  $s = Get-Content $stateFile -Raw | ConvertFrom-Json
-                  $summary = "status=$($s.status) apiProcessId=$($s.apiProcessId) apiPort=$($s.apiPort) error=$($s.error)"
-                }
-                Write-Output "::warning::Wait-ForReady $($iteration)s: $summary"
-              }
               if (Test-Path $stateFile) {
                 $state = Get-Content $stateFile -Raw | ConvertFrom-Json
+                if ($state.status -ne $lastStatus) {
+                  Write-Output "::warning::Wait-ForReady status=$($state.status) apiProcessId=$($state.apiProcessId) apiPort=$($state.apiPort) error=$($state.error)"
+                  $lastStatus = $state.status
+                }
                 if ($state.status -eq 'failed') {
                   throw "Desktop application startup failed: $($state.error)"
                 }
@@ -214,6 +213,8 @@ jobs:
                     if ($response.StatusCode -eq 200) { return }
                   } catch {}
                 }
+              } elseif ($iteration % 20 -eq 0) {
+                Write-Output "::warning::Wait-ForReady $($iteration)s: no state file yet"
               }
               Start-Sleep -Seconds 1
             }
