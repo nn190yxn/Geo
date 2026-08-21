@@ -121,6 +121,10 @@ function appendLog(logFile, message) {
   fs.appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`);
 }
 
+function getElectronNodeArgs() {
+  return process.versions.electron ? ['--run-as-node'] : [];
+}
+
 function waitForCommandExit(child, timeoutMs, errorMessage) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -134,8 +138,8 @@ function waitForCommandExit(child, timeoutMs, errorMessage) {
       child.kill('SIGKILL');
       finish(new Error(`${errorMessage} timed out.`));
     }, timeoutMs);
-    child.once('error', () => finish(new Error(errorMessage)));
-    child.once('close', code => finish(code === 0 ? undefined : new Error(errorMessage)));
+      child.once('error', () => finish(new Error(errorMessage)));
+    child.once('close', code => finish(code === 0 ? undefined : new Error(`${errorMessage} (exit code ${code}).`)));
   });
 }
 
@@ -273,7 +277,7 @@ async function startServices(appRoot, dataRoot) {
     const databaseState = await prepareDatabase(paths, logFile);
     state = { paths, database: databaseState.database, databasePort: databaseState.databasePort, pgCtl: databaseState.pgCtl, databaseRoot: paths.databaseRoot, logFile };
     if (!fs.existsSync(paths.prismaCli)) throw new Error('The bundled Prisma CLI is missing from the production payload.');
-    const migration = spawnLogged(process.execPath, [paths.prismaCli, 'migrate', 'deploy', '--schema', paths.prismaSchema], {
+    const migration = spawnLogged(process.execPath, [...getElectronNodeArgs(), paths.prismaCli, 'migrate', 'deploy', '--schema', paths.prismaSchema], {
       cwd: paths.appRoot,
       env: {
         ...process.env,
@@ -282,7 +286,7 @@ async function startServices(appRoot, dataRoot) {
       }
     }, logFile);
     await waitForCommandExit(migration, 120000, 'Local database migration failed.');
-    const seed = spawnLogged(process.execPath, [paths.prismaSeed], {
+    const seed = spawnLogged(process.execPath, [...getElectronNodeArgs(), paths.prismaSeed], {
       cwd: paths.appRoot,
       env: {
         ...process.env,
