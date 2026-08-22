@@ -1441,6 +1441,20 @@ describe('PrismaPermissionsRepository', () => {
     await expect(repository.getBrandProfileLibrary('user_demo', 'other_brand')).resolves.toBeNull();
   });
 
+  it('loads the geo canvas workspace through the Prisma repository', async () => {
+    const prisma = createPrismaMock();
+    const repository = new PrismaPermissionsRepository(prisma as never);
+
+    await expect(repository.getGeoCanvasWorkspace('user_demo', 'brand_prisma')).resolves.toMatchObject({
+      brandId: 'brand_prisma',
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ id: 'unit:unit_prisma', type: 'optimization_unit' }),
+        expect.objectContaining({ id: 'metric:unit_prisma', type: 'metric' })
+      ]),
+      metrics: expect.objectContaining({ brandId: 'brand_prisma' })
+    });
+  });
+
   it('persists platform rules and analysis findings with JSON mapping and relation checks', async () => {
     const prisma = createPrismaMock();
     const repository = new PrismaPermissionsRepository(prisma as never);

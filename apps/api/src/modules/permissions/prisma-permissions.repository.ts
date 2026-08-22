@@ -97,6 +97,7 @@ import type {
   GrowthOptimizationPlanInput,
   GrowthOptimizationReason,
   GrowthOptimizationWorkspace,
+  GeoCanvasWorkspace,
   InnerTestFeedback,
   InnerTestFeedbackDashboard,
   InnerTestFeedbackInput,
@@ -3314,6 +3315,96 @@ export class PrismaPermissionsRepository {
       relatedTasks: tasks.map(toOptimizationTask),
       relatedPublishingRecords: publishingRecords.map(toPublishingRecord)
     };
+  }
+
+  async getGeoCanvasWorkspace(userId: string, brandId: BrandId): Promise<GeoCanvasWorkspace | null> {
+    if (!(await this.findAccessibleBrandDetail(userId, brandId))) {
+      return null;
+    }
+
+    const [unitRows, intentRows, strategyRows, taskRows, metrics] = await Promise.all([
+      this.prisma.optimizationUnit.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.userIntent.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.contentStrategy.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.optimizationTask.findMany({ where: { brandId }, orderBy: { createdAt: 'desc' } }),
+      this.getBrandMetricDashboard(userId, brandId)
+    ]);
+    if (!metrics) {
+      return null;
+    }
+
+    const units = await Promise.all(unitRows.map((unit) => this.toOptimizationUnitWithCounts(unit)));
+    const intents = intentRows.map(toUserIntent);
+    const strategies = strategyRows.map(toContentStrategy);
+    const tasks = taskRows.map(toOptimizationTask);
+    const nodes = [
+      ...units.map((unit, index) => ({
+        id: `unit:${unit.id}`,
+        type: 'optimization_unit' as const,
+        sourceId: unit.id,
+        title: unit.name,
+        subtitle: `${unit.type} · ${unit.targetKeywords.join('、') || '未配置关键词'}`,
+        status: unit.enabled ? unit.priority : 'disabled',
+        position: { x: 0, y: index * 190 }
+      })),
+      ...intents.map((intent, index) => ({
+        id: `intent:${intent.id}`,
+        type: 'user_intent' as const,
+        sourceId: intent.id,
+        title: intent.text,
+        subtitle: `${intent.category} · ${intent.monitoringFrequency}`,
+        status: intent.enabled ? 'enabled' : 'disabled',
+        position: { x: 330, y: index * 150 }
+      })),
+      ...units.map((unit, index) => {
+        const metric = metrics.breakdown.optimizationUnit.find((snapshot) => snapshot.optimizationUnitId === unit.id) ?? metrics.current;
+        return {
+          id: `metric:${unit.id}`,
+          type: 'metric' as const,
+          sourceId: unit.id,
+          title: `${unit.name} 数据表现`,
+          subtitle: `GEO ${metric.totalScore} / 样本 ${metric.sampleCount}`,
+          status: metric.insufficientSample ? 'insufficient_sample' : 'ready',
+          metric: {
+            totalScore: metric.totalScore,
+            sampleCount: metric.sampleCount,
+            insufficientSample: metric.insufficientSample
+          },
+          position: { x: 660, y: index * 190 }
+        };
+      }),
+      ...strategies.map((strategy, index) => ({
+        id: `strategy:${strategy.id}`,
+        type: 'content_strategy' as const,
+        sourceId: strategy.id,
+        title: strategy.suggestedTitle,
+        subtitle: `${strategy.type} · ${strategy.targetPlatform}`,
+        status: strategy.status,
+        position: { x: 990, y: index * 150 }
+      }))
+    ];
+    const edges = [
+      ...intents.map((intent) => ({
+        id: `unit:${intent.optimizationUnitId}->intent:${intent.id}`,
+        source: `unit:${intent.optimizationUnitId}`,
+        target: `intent:${intent.id}`,
+        label: '承载意图'
+      })),
+      ...units.map((unit) => ({
+        id: `unit:${unit.id}->metric:${unit.id}`,
+        source: `unit:${unit.id}`,
+        target: `metric:${unit.id}`,
+        label: '数据表现'
+      })),
+      ...strategies.map((strategy) => ({
+        id: `intent:${strategy.intentId}->strategy:${strategy.id}`,
+        source: `intent:${strategy.intentId}`,
+        target: `strategy:${strategy.id}`,
+        label: '内容策略'
+      }))
+    ];
+
+    return { brandId, nodes, edges, optimizationUnits: units, userIntents: intents, contentStrategies: strategies, tasks, metrics };
   }
 
   async generateGrowthOptimizationPlan(userId: string, brandId: BrandId, sourceTestPlanId?: string): Promise<GrowthOptimizationPlan | null> {

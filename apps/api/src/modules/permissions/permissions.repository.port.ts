@@ -307,7 +307,7 @@ export interface PermissionsRepositoryPort {
   getEvaluationDashboard(userId: string, brandId: BrandId): EvaluationDashboard | null;
   createEvaluationCorrectionStrategy(userId: string, brandId: BrandId, issueId: string): ContentStrategy | null;
   updateBrandKnowledgeFromEvaluationIssue(userId: string, brandId: BrandId, issueId: string): BrandProfile | null;
-  getGeoCanvasWorkspace(userId: string, brandId: BrandId): GeoCanvasWorkspace | null;
+  getGeoCanvasWorkspace(userId: string, brandId: BrandId): MaybePromise<GeoCanvasWorkspace | null>;
   createContentStrategy(userId: string, brandId: BrandId, input: ContentStrategyInput): ContentStrategy | null;
   getContentCenterDashboard(userId: string, brandId: BrandId): ContentCenterDashboard | null;
   listContentAssets(userId: string, brandId: BrandId, filter?: ContentAssetFilter): ContentAsset[] | null;

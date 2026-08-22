@@ -659,7 +659,7 @@ export class PermissionsService {
     return this.permissionsRepository.updateBrandKnowledgeFromEvaluationIssue(userId, brandId, issueId);
   }
 
-  getGeoCanvasWorkspace(userId: string, brandId: BrandId): GeoCanvasWorkspace | null {
+  async getGeoCanvasWorkspace(userId: string, brandId: BrandId): Promise<GeoCanvasWorkspace | null> {
     return this.permissionsRepository.getGeoCanvasWorkspace(userId, brandId);
   }
 
