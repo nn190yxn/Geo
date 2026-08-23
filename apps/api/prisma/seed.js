@@ -27,6 +27,7 @@ const demoPublishingAccountId = 'publishing_account_demo_website';
 const demoPublishingRecordId = 'publishing_record_demo_guide';
 const demoReportId = 'report_demo_customer_delivery';
 const demoGrowthPlanId = 'growth_plan_demo_supercalf';
+const demoSprintId = 'sprint_demo_first_round';
 
 async function main() {
   await prisma.user.upsert({
@@ -127,6 +128,45 @@ async function main() {
       userId: demoUserId,
       brandId: demoBrandId,
       role: 'owner'
+    }
+  });
+
+  await prisma.visibilitySprint.upsert({
+    where: { id: demoSprintId },
+    update: {
+      brandId: demoBrandId,
+      title: '追光小牛首轮 GEO 优化 Sprint',
+      goal: '完成首轮问题发现、AI 回复监测、内容优化和复测闭环',
+      status: 'running',
+      currentStep: 'question_radar',
+      steps: [],
+      metricSummary: {},
+      relatedQuestionIds: [],
+      relatedTestPlanIds: [demoTestPlanId],
+      relatedMonitoringRunIds: [demoRunId],
+      relatedStandardAnswerIds: [],
+      relatedContentTaskIds: [demoGenerationTaskId],
+      relatedPublishingRecordIds: [demoPublishingRecordId],
+      relatedRetestTaskIds: [],
+      createdBy: demoUserId
+    },
+    create: {
+      id: demoSprintId,
+      brandId: demoBrandId,
+      title: '追光小牛首轮 GEO 优化 Sprint',
+      goal: '完成首轮问题发现、AI 回复监测、内容优化和复测闭环',
+      status: 'running',
+      currentStep: 'question_radar',
+      steps: [],
+      metricSummary: {},
+      relatedQuestionIds: [],
+      relatedTestPlanIds: [demoTestPlanId],
+      relatedMonitoringRunIds: [demoRunId],
+      relatedStandardAnswerIds: [],
+      relatedContentTaskIds: [demoGenerationTaskId],
+      relatedPublishingRecordIds: [demoPublishingRecordId],
+      relatedRetestTaskIds: [],
+      createdBy: demoUserId
     }
   });
 
